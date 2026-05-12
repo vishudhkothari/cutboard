@@ -15,14 +15,20 @@ const daysBetween = (a, b) => Math.max(0, Math.floor((new Date(b) - new Date(a))
 const DAY_NAMES   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
 const ACTIVITY = [
-  { id: 'sed',    label: 'Sedentary — desk job, no exercise',      mult: 1.2   },
-  { id: 'light',  label: 'Light — 1–3x/week training',            mult: 1.375 },
-  { id: 'mod',    label: 'Moderate — 3–5x/week training',         mult: 1.55  },
-  { id: 'active', label: 'Very Active — 6–7x/week hard training', mult: 1.725 },
-  { id: 'extra',  label: 'Athlete — 2x/day or physical job',      mult: 1.9   },
+  { id: 'sed',    label: 'Sedentary — desk job, no exercise',      mult: 1.15  },
+  { id: 'light',  label: 'Light — 1–3x/week training',            mult: 1.30  },
+  { id: 'mod',    label: 'Moderate — 3–5x/week training',         mult: 1.45  },
+  { id: 'active', label: 'Very Active — 6–7x/week hard training', mult: 1.60  },
+  { id: 'extra',  label: 'Athlete — 2x/day or physical job',      mult: 1.75  },
 ]
 
-function calcBMR(w, h, age, sex = 'male') {
+// Katch-McArdle (uses lean mass — more accurate when BF% is known)
+// Falls back to Mifflin-St Jeor if BF% not available
+function calcBMR(w, h, age, sex = 'male', bfPct = null) {
+  if (bfPct != null && bfPct > 0) {
+    const lbm = w * (1 - bfPct / 100)
+    return 370 + 21.6 * lbm   // Katch-McArdle
+  }
   return sex === 'male' ? 10*w + 6.25*h - 5*age + 5 : 10*w + 6.25*h - 5*age - 161
 }
 
@@ -37,7 +43,9 @@ function getAdaptiveTDEE(setup, logs) {
   const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
   const curW  = wLogs.at(-1)?.weight ?? setup.startWeight
   const mult  = ACTIVITY.find(a => a.id === setup.activity)?.mult ?? 1.55
-  const formulaTDEE = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex) * mult)
+  // Use latest InBody BF% if available for Katch-McArdle accuracy
+  const latestBF   = setup.startBF || null
+  const formulaTDEE = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex, latestBF) * mult)
 
   let base = formulaTDEE
   let isDataDriven = false
