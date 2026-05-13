@@ -396,10 +396,11 @@ function TabBar({ tab, setTab }) {
 /* ═══════════════════════════════════════════════════════════════
    TODAY TAB
 ═══════════════════════════════════════════════════════════════ */
-function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs }) {
+function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory }) {
   const [local,   setLocal]   = useState(log)
   const [addOpen, setAddOpen] = useState(false)
-  const [mf,      setMf]      = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
+  const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
+  const [historySearch,setHistorySearch] = useState('')
   useEffect(() => setLocal(log), [log])
 
   const dayType  = getDayType(setup, todayStr())
@@ -420,8 +421,17 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs }) {
 
   const addMeal = () => {
     if (!mf.name || !mf.cals) return
-    const next = { ...local, meals: [...local.meals, { name: mf.name, cals: +mf.cals, protein: +mf.protein||0, carbs: +mf.carbs||0, fat: +mf.fat||0 }] }
-    setLocal(next); onSave(next); setMf({ name:'', cals:'', protein:'', carbs:'', fat:'' }); setAddOpen(false)
+    const meal = { name: mf.name, cals: +mf.cals, protein: +mf.protein||0, carbs: +mf.carbs||0, fat: +mf.fat||0 }
+    const next = { ...local, meals: [...local.meals, meal] }
+    setLocal(next); onSave(next)
+    onSaveMealHistory?.(meal)
+    setMf({ name:'', cals:'', protein:'', carbs:'', fat:'' }); setHistorySearch(''); setAddOpen(false)
+  }
+  const quickAdd = (meal) => {
+    const m = { name: meal.name, cals: +meal.cals, protein: +meal.protein||0, carbs: +meal.carbs||0, fat: +meal.fat||0 }
+    const next = { ...local, meals: [...local.meals, m] }
+    setLocal(next); onSave(next)
+    onSaveMealHistory?.(m)
   }
   const removeMeal = idx => { const next = { ...local, meals: local.meals.filter((_,i) => i!==idx) }; setLocal(next); onSave(next) }
   const toggleFasting = () => {
@@ -557,12 +567,54 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs }) {
 
         {addOpen && (
           <div style={{...card({background:'#0c0e16',marginBottom:16})}}>
+
+            {/* ── Meal History ── */}
+            {mealHistory.length > 0 && (
+              <div style={{marginBottom:16}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase'}}>Quick Add</div>
+                  <input
+                    style={inp({flex:1,padding:'6px 12px',fontSize:12})}
+                    placeholder="Search previous meals…"
+                    value={historySearch}
+                    onChange={e=>setHistorySearch(e.target.value)}
+                  />
+                </div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:8,maxHeight:140,overflowY:'auto'}}>
+                  {mealHistory
+                    .filter(m => !historySearch || m.name.toLowerCase().includes(historySearch.toLowerCase()))
+                    .slice(0, historySearch ? 20 : 8)
+                    .map((m, i) => (
+                      <button key={i}
+                        onClick={() => quickAdd(m)}
+                        style={{display:'flex',alignItems:'center',gap:8,background:'#13151e',border:`1px solid ${C.border}`,borderRadius:8,padding:'7px 12px',cursor:'pointer',fontFamily:F.body,transition:'all 0.15s',textAlign:'left'}}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.background='#0e1a0a'}}
+                        onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background='#13151e'}}
+                      >
+                        <div>
+                          <div style={{fontSize:13,color:C.text,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</div>
+                          <div style={{fontSize:11,color:C.textSub,marginTop:2}}>
+                            <span style={{color:C.accent}}>{m.cals} kcal</span>
+                            <span style={{margin:'0 4px',color:C.border}}>·</span>
+                            <span style={{color:C.orange}}>{m.protein}g P</span>
+                            {m.count > 1 && <span style={{marginLeft:6,color:C.purple,fontSize:10}}>×{m.count}</span>}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  }
+                </div>
+                <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,fontSize:11,color:C.textSub}}>Or enter manually:</div>
+              </div>
+            )}
+
+            {/* ── Manual Entry ── */}
             <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr',gap:10,marginBottom:12}}>
               {[{k:'name',label:'Food / Meal',ph:'Chicken breast 200g',type:'text'},{k:'cals',label:'Calories',ph:'330',type:'number'},{k:'protein',label:'Protein (g)',ph:'62',type:'number'},{k:'carbs',label:'Carbs (g)',ph:'0',type:'number'},{k:'fat',label:'Fat (g)',ph:'7',type:'number'}].map(({k,label,ph,type}) => (
                 <div key={k}><label style={LBL}>{label}</label><input style={inp()} type={type} value={mf[k]} placeholder={ph} onChange={e=>setMf(p=>({...p,[k]:e.target.value}))} /></div>
               ))}
             </div>
-            <div style={{display:'flex',gap:10}}><button style={btn(true,true)} onClick={addMeal}>Add</button><button style={btn(false,true)} onClick={()=>setAddOpen(false)}>Cancel</button></div>
+            <div style={{display:'flex',gap:10}}><button style={btn(true,true)} onClick={addMeal}>Add</button><button style={btn(false,true)} onClick={()=>{setAddOpen(false);setHistorySearch('')}}>Cancel</button></div>
           </div>
         )}
 
@@ -888,6 +940,7 @@ export default function App() {
   const [todayLog,    setTodayLog]    = useState(null)
   const [allLogs,     setAllLogs]     = useState([])
   const [inBodyScans, setInBodyScans] = useState([])
+  const [mealHistory, setMealHistory] = useState([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
@@ -906,6 +959,7 @@ export default function App() {
       const logs = (await Promise.all(keys.map(k => store.get(k)))).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date))
       setAllLogs(logs)
       const scans = await store.get('inbody') || []; setInBodyScans(scans)
+      const mh = await store.get('meal_history') || []; setMealHistory(mh)
     }
     setDataReady(true)
   }, [])
@@ -923,6 +977,25 @@ export default function App() {
   const saveInBody = async scan => {
     const updated = [...inBodyScans, scan].sort((a,b)=>a.date.localeCompare(b.date))
     await store.set('inbody', updated); setInBodyScans(updated)
+  }
+
+  const saveMealToHistory = async (meal) => {
+    const key = meal.name.trim().toLowerCase()
+    const existing = mealHistory.find(m => m.name.trim().toLowerCase() === key)
+    let updated
+    if (existing) {
+      updated = mealHistory.map(m =>
+        m.name.trim().toLowerCase() === key
+          ? { ...meal, count: (m.count || 1) + 1, lastUsed: todayStr() }
+          : m
+      )
+    } else {
+      updated = [...mealHistory, { ...meal, count: 1, lastUsed: todayStr() }]
+    }
+    // Sort by frequency, keep top 100
+    updated = updated.sort((a, b) => (b.count||1) - (a.count||1)).slice(0, 100)
+    await store.set('meal_history', updated)
+    setMealHistory(updated)
   }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
@@ -945,7 +1018,7 @@ export default function App() {
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()} />
       <TabBar tab={tab} setTab={setTab}/>
-      {tab==='today'     && <TodayTab     log={todayLog} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs}/>}
+      {tab==='today'     && <TodayTab     log={todayLog} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory}/>}
       {tab==='nutrition' && <NutritionTab log={todayLog} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
