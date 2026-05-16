@@ -70,6 +70,49 @@ function getAdaptiveTDEE(setup, logs) {
   return { target: Math.round(base - 600), base, adj: 0, curW, deficit: 600, isDataDriven }
 }
 
+/* ─── ZIGZAG CALORIE CYCLING ───────────────────────────────────
+   Two schedules, three intensities. Ratios derived from the
+   standard zigzag tables, applied to the user's actual TDEE.
+
+   Schedule 1: Binary — high on weekends, low on weekdays
+   Schedule 2: Wave   — peaks Wednesday, troughs Sunday
+
+   Weekly averages (vs maintenance):
+     Mild:    ~250 kcal/day deficit
+     Weight:  ~500 kcal/day deficit
+     Extreme: ~1000 kcal/day deficit
+────────────────────────────────────────────────────────────── */
+const ZIGZAG_RATIOS = {
+  1: {
+    mild:    [1.0,   0.862, 0.862, 0.862, 0.862, 0.862, 1.0  ],
+    weight:  [1.0,   0.724, 0.724, 0.724, 0.724, 0.724, 1.0  ],
+    extreme: [0.648, 0.590, 0.590, 0.590, 0.590, 0.590, 0.648],
+  },
+  2: {
+    mild:    [0.803, 0.869, 0.934, 1.0,   0.967, 0.901, 0.836],
+    weight:  [0.607, 0.738, 0.869, 1.0,   0.934, 0.803, 0.672],
+    extreme: [0.590, 0.601, 0.612, 0.623, 0.617, 0.607, 0.596],
+  },
+}
+
+const ZIGZAG_LABELS = { mild: 'Mild (-250/day avg)', weight: 'Weight (-500/day avg)', extreme: 'Extreme (-1000/day avg)' }
+
+function getZigzagTarget(tdeeBase, schedule, intensity) {
+  const dow    = new Date().getDay()
+  const ratios = ZIGZAG_RATIOS[schedule]?.[intensity]
+  if (!ratios) return null
+  return Math.round(tdeeBase * ratios[dow])
+}
+
+function getZigzagWeek(tdeeBase, schedule, intensity) {
+  const ratios = ZIGZAG_RATIOS[schedule]?.[intensity] || []
+  return DAY_NAMES.map((name, i) => ({
+    name,
+    cals: Math.round(tdeeBase * ratios[i]),
+    isToday: new Date().getDay() === i,
+  }))
+}
+
 /* ─── CARB CYCLING ───────────────────────────────────────────────
    High  (training day):   TDEE−400,  carbs 60%, fat 40%
    Mod   (day after):      TDEE−600,  carbs 40%, fat 60%
@@ -400,7 +443,11 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
   const [local,   setLocal]   = useState(log)
   const [addOpen, setAddOpen] = useState(false)
   const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
-  const [historySearch,setHistorySearch] = useState('')
+  const [historySearch, setHistorySearch] = useState('')
+  const [zigzagOpen,   setZigzagOpen]   = useState(false)
+  const [zigzagSched,  setZigzagSched]  = useState(1)
+  const [zigzagMode,   setZigzagMode]   = useState('weight')
+  const [zigzagOn,     setZigzagOn]     = useState(false)
   useEffect(() => setLocal(log), [log])
 
   const dayType  = getDayType(setup, todayStr())
@@ -415,7 +462,8 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
   const totalProtein = local.meals.reduce((s, m) => s + (+m.protein || 0), 0)
   const totalCarbs   = local.meals.reduce((s, m) => s + (+m.carbs || 0), 0)
   const totalFat     = local.meals.reduce((s, m) => s + (+m.fat || 0), 0)
-  const calTarget    = macros.calTarget
+  const zigzagTarget = zigzagOn ? getZigzagTarget(adaptiveTDEE.base, zigzagSched, zigzagMode) : null
+  const calTarget    = zigzagTarget ?? macros.calTarget
   const remaining    = calTarget - totalCals
   const pct          = Math.min((totalCals / calTarget) * 100, 100)
 
@@ -550,6 +598,61 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
           &nbsp;&nbsp;|&nbsp;&nbsp;
           {adaptiveTDEE.isDataDriven ? '📊 Calculated from your actual data' : '⏳ Switches to data-driven after 7 days'}
         </div>
+
+        {/* Zigzag toggle */}
+        <button
+          style={{...btn(zigzagOn, true), width:'100%', marginTop:10, justifyContent:'center', display:'flex', alignItems:'center', gap:8}}
+          onClick={() => { setZigzagOn(o=>!o); setZigzagOpen(o=>!o) }}
+        >
+          〰 {zigzagOn ? `Zigzag ON — ${zigzagTarget} kcal today` : 'Zigzag Diet'}
+        </button>
+
+        {(zigzagOpen || zigzagOn) && (
+          <div style={{marginTop:10, background:'#0c0e16', borderRadius:10, padding:'14px', border:`1px solid ${C.border}`}}>
+            {/* Schedule picker */}
+            <div style={{marginBottom:12}}>
+              <div style={{...LBL, marginBottom:8}}>Schedule</div>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
+                {[{id:1,label:'Schedule 1',desc:'High weekends, low weekdays'},{id:2,label:'Schedule 2',desc:'Wave — peaks mid-week'}].map(s => (
+                  <button key={s.id} style={{...btn(zigzagSched===s.id, true), textAlign:'left', padding:'10px 12px', display:'block', height:'auto'}} onClick={()=>setZigzagSched(s.id)}>
+                    <div style={{fontWeight:600}}>{s.label}</div>
+                    <div style={{fontSize:11, color:zigzagSched===s.id?'#000':C.textSub, marginTop:2}}>{s.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Intensity picker */}
+            <div style={{marginBottom:14}}>
+              <div style={{...LBL, marginBottom:8}}>Intensity</div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8}}>
+                {Object.entries(ZIGZAG_LABELS).map(([key, label]) => (
+                  <button key={key} style={{...btn(zigzagMode===key, true), textAlign:'center', padding:'8px 6px', fontSize:12}} onClick={()=>setZigzagMode(key)}>
+                    <div style={{fontWeight:600, textTransform:'capitalize'}}>{key}</div>
+                    <div style={{fontSize:10, color:zigzagMode===key?'#000':C.textSub, marginTop:2}}>{label.split('(')[1]?.replace(')','')}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 7-day preview */}
+            <div style={{...LBL, marginBottom:8}}>This Week</div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:6}}>
+              {getZigzagWeek(adaptiveTDEE.base, zigzagSched, zigzagMode).map((d,i) => (
+                <div key={i} style={{textAlign:'center', background: d.isToday ? '#0a1209' : '#0d0f18', border:`1px solid ${d.isToday ? C.accent : C.border}`, borderRadius:7, padding:'8px 4px'}}>
+                  <div style={{fontSize:10, color: d.isToday ? C.accent : C.textSub, fontWeight: d.isToday ? 700 : 400, marginBottom:4}}>{d.name}</div>
+                  <div style={{fontFamily:F.mono, fontSize:12, color: d.isToday ? C.accent : C.text}}>{d.cals}</div>
+                  <div style={{fontSize:9, color:C.textSub, marginTop:2}}>kcal</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{marginTop:10, fontSize:11, color:C.textSub}}>
+              Weekly avg deficit: <strong style={{color:C.text}}>~{Math.round(adaptiveTDEE.base - getZigzagWeek(adaptiveTDEE.base, zigzagSched, zigzagMode).reduce((s,d)=>s+d.cals,0)/7)} kcal/day</strong>
+              &nbsp;·&nbsp; Zigzag helps avoid metabolic adaptation on extended cuts.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Meals */}
