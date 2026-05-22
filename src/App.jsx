@@ -67,13 +67,14 @@ const S2_EXT_FLAT   = [1042, 1014, 986, 958, 972, 1000, 1028]  // Extreme wave (
 const MIN_CALS      = 1200
 
 function getZigzagWeek(tdeeBase, schedule, intensity) {
-  const avgDef = AVG_DEFICIT[intensity] || 500
+  const avgDef  = AVG_DEFICIT[intensity] || 500
+  const todayDow = new Date().getDay()
   return DAY_NAMES.map((name, dow) => {
     let cals
     if (schedule === 1) {
       const isHigh = dow === 0 || dow === 6
       if (intensity === 'extreme') {
-        const lowCals   = Math.max(MIN_CALS, tdeeBase - 1042)
+        const lowCals     = Math.max(MIN_CALS, tdeeBase - 1042)
         const highDeficit = (7000 - 5 * (tdeeBase - lowCals)) / 2
         cals = isHigh ? Math.max(MIN_CALS, Math.round(tdeeBase - highDeficit)) : lowCals
       } else {
@@ -84,7 +85,7 @@ function getZigzagWeek(tdeeBase, schedule, intensity) {
         ? Math.max(MIN_CALS, Math.round(tdeeBase - S2_EXT_FLAT[dow]))
         : Math.max(MIN_CALS, Math.round(tdeeBase - avgDef * S2_MULT[dow]))
     }
-    return { name, cals, isToday: new Date().getDay() === dow }
+    return { name, cals, isToday: todayDow === dow }
   })
 }
 function getZigzagTarget(tdeeBase, schedule, intensity) {
@@ -135,7 +136,7 @@ function getCarbCycleMacros(dayType, tdeeData) {
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
 function getDynamicStepGoal(setup, logs, tdeeData) {
   const base      = setup?.stepGoal || 10000
-  const yesterday = [...logs].sort((a, b) => a.date.localeCompare(b.date)).filter(l => l.date < todayStr()).at(-1)
+  const yesterday = logs.filter(l => l.date < todayStr()).at(-1)
   if (!yesterday) return { goal: base, extra: 0, reason: null }
   const yCals   = yesterday.meals?.reduce((s, m) => s + (+m.cals || 0), 0) || 0
   const surplus = yCals - tdeeData.target
@@ -206,8 +207,16 @@ function AuthScreen() {
   const [loading, setLoading] = useState(false)
   const submit = async () => {
     setError(''); setLoading(true)
-    const { error: e } = await (mode === 'login' ? supabase.auth.signInWithPassword({ email, password: pass }) : supabase.auth.signUp({ email, password: pass }))
-    if (e) setError(e.message); setLoading(false)
+    try {
+      const { error: e } = await (mode === 'login'
+        ? supabase.auth.signInWithPassword({ email, password: pass })
+        : supabase.auth.signUp({ email, password: pass }))
+      if (e) setError(e.message)
+    } catch (err) {
+      setError('Network error — check your connection.')
+    } finally {
+      setLoading(false)
+    }
   }
   return (
     <div style={{ background: C.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F.body, color: C.text }}>
@@ -294,7 +303,13 @@ function Onboarding({ userEmail, onSave, existing, onCancel }) {
           </div>
           <div style={{ maxWidth: 200 }}><label style={LBL}>Cut Start Date</label><input style={inp()} type="date" value={f.startDate} onChange={e => set('startDate', e.target.value)} /></div>
           <div style={{ display: 'flex', gap: 12 }}>
-            <button style={{ ...btn(true), flex: 1, fontSize: 15, padding: '13px 0' }} onClick={() => onSave(f)}>{existing ? '✓ Save Changes' : '🔥 Start My Cut'}</button>
+            <button style={{ ...btn(true), flex: 1, fontSize: 15, padding: '13px 0' }} onClick={() => {
+              if (!f.age || !f.height || !f.startWeight || !f.startBF) {
+                alert('Please fill in Age, Height, Starting Weight, and Starting Body Fat % before continuing.')
+                return
+              }
+              onSave(f)
+            }}>{existing ? '✓ Save Changes' : '🔥 Start My Cut'}</button>
             {existing && <button style={btn()} onClick={onCancel}>Cancel</button>}
           </div>
         </div>
@@ -334,7 +349,7 @@ function TabBar({ tab, setTab }) {
 /* ═══════════════════════════════════════════════════════════════
    TODAY TAB
 ═══════════════════════════════════════════════════════════════ */
-function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings }) {
+function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings, onSaveZigzag }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
@@ -342,23 +357,10 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
   const [editIdx,      setEditIdx]      = useState(null)
   const [editForm,     setEditForm]     = useState({})
   const [zigzagOpen,   setZigzagOpen]   = useState(false)
-  const [zigzagSched,  setZigzagSched]  = useState(1)
-  const [zigzagMode,   setZigzagMode]   = useState('weight')
-  const [zigzagOn,     setZigzagOn]     = useState(false)
-  const zigzagInitRef  = useRef(false)
-
-  // Load persisted zigzag settings once
-  useEffect(() => {
-    if (zigzagInitRef.current) return
-    zigzagInitRef.current = true
-    store.get('zigzag_settings').then(s => {
-      if (s) { setZigzagOn(s.on||false); setZigzagSched(s.schedule||1); setZigzagMode(s.mode||'weight') }
-    })
-  }, [])
-
-  const saveZigzag = (on, sched, mode) => {
-    store.set('zigzag_settings', { on, schedule: sched, mode })
-  }
+  const [zigzagSched,  setZigzagSched]  = useState(zigzagSettings?.schedule || 1)
+  const [zigzagMode,   setZigzagMode]   = useState(zigzagSettings?.mode || 'weight')
+  const [zigzagOn,     setZigzagOn]     = useState(zigzagSettings?.on || false)
+  // zigzag settings loaded from props (see App loadData)
 
   useEffect(() => setLocal(log), [log])
 
@@ -369,19 +371,19 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
   const isPlannedFast  = planSettings?.fastingDays?.includes(todayDow) && !local.fastingOverridden
   const isFasting      = local.fasting || isPlannedFast
 
-  const dayType   = getDayType(setup, todayStr())
-  const macros    = getCarbCycleMacros(dayType, adaptiveTDEE)
-  const stepData  = getDynamicStepGoal(setup, allLogs, adaptiveTDEE)
+  const dayType   = useMemo(() => getDayType(setup, todayStr()), [setup])
+  const macros    = useMemo(() => getCarbCycleMacros(dayType, adaptiveTDEE), [dayType, adaptiveTDEE])
+  const stepData  = useMemo(() => getDynamicStepGoal(setup, allLogs, adaptiveTDEE), [setup, allLogs, adaptiveTDEE])
 
-  const zigzagTarget   = zigzagOn ? getZigzagTarget(adaptiveTDEE.base, zigzagSched, zigzagMode) : null
-  const effectiveMacros = zigzagOn && zigzagTarget ? getZigzagMacros(zigzagTarget) : macros
-  // Fasting compensation: 25% of normal target on planned fast days
-  const fastCompTarget = isPlannedFast && planSettings?.fastCompensation ? Math.round(effectiveMacros.calTarget * 0.25) : 0
+  const zigzagTarget    = useMemo(() => zigzagOn ? getZigzagTarget(adaptiveTDEE.base, zigzagSched, zigzagMode) : null, [zigzagOn, adaptiveTDEE.base, zigzagSched, zigzagMode])
+  const effectiveMacros = useMemo(() => zigzagOn && zigzagTarget ? getZigzagMacros(zigzagTarget) : macros, [zigzagOn, zigzagTarget, macros])
+  const fastCompTarget  = isPlannedFast && planSettings?.fastCompensation ? Math.round(effectiveMacros.calTarget * 0.25) : 0
   const calTarget = isFasting
     ? (planSettings?.fastCompensation && fastCompTarget ? fastCompTarget : 0)
-    : (zigzagTarget ?? effectiveMacros.calTarget)
+    : (effectiveMacros.calTarget || adaptiveTDEE.target || 1800)
 
-  const insights  = getCoachInsights(setup, allLogs, local, adaptiveTDEE, dayType, macros, stepData)
+  const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, dayType, macros, stepData),
+    [setup, allLogs, local, adaptiveTDEE, dayType, macros, stepData])
 
   const totalCals    = local.meals.reduce((s, m) => s + (+m.cals || 0), 0)
   const totalProtein = local.meals.reduce((s, m) => s + (+m.protein || 0), 0)
@@ -409,12 +411,15 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
     const next = { ...local, meals: updated }; setLocal(next); onSave(next); setEditIdx(null)
   }
   const toggleFasting = () => {
-    if (isPlannedFast && !local.fasting) {
-      // Override the plan
-      upd('fastingOverridden', true)
+    const isPlannedDay = planSettings?.fastingDays?.includes(todayDow)
+    if (isFasting) {
+      // Turn off fasting — keep override flag if this is a planned day to prevent re-activation
+      const next = { ...local, fasting: false, fastingOverridden: isPlannedDay, meals: local.meals }
+      setLocal(next); onSave(next)
     } else {
-      const next = { ...local, fasting: !local.fasting, fastingOverridden: false, meals: !local.fasting ? [] : local.meals }
-      setLocal(next); onSave(next); if (!local.fasting) setAddOpen(false)
+      // Turn on manual fast
+      const next = { ...local, fasting: true, fastingOverridden: false, meals: [] }
+      setLocal(next); onSave(next); setAddOpen(false)
     }
   }
 
@@ -521,7 +526,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
         </div>
         {setup?.carbCycling && (
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:18}}>
-            {[{label:'Protein',val:macros.proteinG,unit:'g',color:C.orange},{label:'Carbs',val:macros.carbG,unit:'g',color:C.blue},{label:'Fat',val:macros.fatG,unit:'g',color:C.purple}].map(({label,val,unit,color}) => (
+            {[{label:'Protein',val:effectiveMacros.proteinG,unit:'g',color:C.orange},{label:'Carbs',val:effectiveMacros.carbG,unit:'g',color:C.blue},{label:'Fat',val:effectiveMacros.fatG,unit:'g',color:C.purple}].map(({label,val,unit,color}) => (
               <div key={label} style={{textAlign:'center',background:'#0c0e16',borderRadius:8,padding:'12px 8px'}}>
                 <div style={{fontFamily:F.mono,fontSize:22,fontWeight:700,color}}>{val}<span style={{fontSize:12}}>{unit}</span></div>
                 <div style={{fontSize:11,color:C.textSub,marginTop:4}}>{label}</div>
@@ -535,7 +540,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
           </div>
         ))}
         <div style={{display:'flex',justifyContent:'space-between',padding:'13px 0',fontSize:15,fontWeight:600}}>
-          <span>Today's Target</span><span style={{fontFamily:F.mono,color:C.accent,fontSize:22}}>{calTarget > 0 ? calTarget : (zigzagTarget ?? effectiveMacros.calTarget)} kcal</span>
+          <span>Today's Target</span><span style={{fontFamily:F.mono,color:C.accent,fontSize:22}}>{calTarget} kcal</span>
         </div>
         <div style={{background:'#0a1209',border:'1px solid #1a2f12',borderRadius:8,padding:'10px 14px',fontSize:12,color:C.textSub}}>
           💪 Protein: <strong style={{color:C.orange}}>130g/day</strong>&nbsp;&nbsp;|&nbsp;&nbsp;
@@ -543,7 +548,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
         </div>
 
         {/* Zigzag toggle */}
-        <button style={{...btn(zigzagOn,true),width:'100%',marginTop:10,justifyContent:'center',display:'flex',alignItems:'center',gap:8}} onClick={() => { const next=!zigzagOn; setZigzagOn(next); setZigzagOpen(o=>!o); saveZigzag(next,zigzagSched,zigzagMode) }}>
+        <button style={{...btn(zigzagOn,true),width:'100%',marginTop:10,justifyContent:'center',display:'flex',alignItems:'center',gap:8}} onClick={() => { const next=!zigzagOn; setZigzagOn(next); setZigzagOpen(o=>!o); onSaveZigzag?.({on:next,schedule:zigzagSched,mode:zigzagMode}) }}>
           〰 {zigzagOn ? `Zigzag ON — ${zigzagTarget} kcal today` : 'Zigzag Diet'}
         </button>
         {(zigzagOpen||zigzagOn) && (
@@ -552,7 +557,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
               <div style={{...LBL,marginBottom:8}}>Schedule</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                 {[{id:1,label:'Schedule 1',desc:'High weekends, low weekdays'},{id:2,label:'Schedule 2',desc:'Wave — peaks mid-week'}].map(s => (
-                  <button key={s.id} style={{...btn(zigzagSched===s.id,true),textAlign:'left',padding:'10px 12px',display:'block'}} onClick={()=>{setZigzagSched(s.id);saveZigzag(zigzagOn,s.id,zigzagMode)}}>
+                  <button key={s.id} style={{...btn(zigzagSched===s.id,true),textAlign:'left',padding:'10px 12px',display:'block'}} onClick={()=>{setZigzagSched(s.id);onSaveZigzag?.({on:zigzagOn,schedule:s.id,mode:zigzagMode})}}>
                     <div style={{fontWeight:600}}>{s.label}</div>
                     <div style={{fontSize:11,color:zigzagSched===s.id?'#000':C.textSub,marginTop:2}}>{s.desc}</div>
                   </button>
@@ -563,7 +568,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
               <div style={{...LBL,marginBottom:8}}>Intensity</div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
                 {Object.entries(ZIGZAG_LABELS).map(([key,label]) => (
-                  <button key={key} style={{...btn(zigzagMode===key,true),textAlign:'center',padding:'8px 6px',fontSize:12}} onClick={()=>{setZigzagMode(key);saveZigzag(zigzagOn,zigzagSched,key)}}>
+                  <button key={key} style={{...btn(zigzagMode===key,true),textAlign:'center',padding:'8px 6px',fontSize:12}} onClick={()=>{setZigzagMode(key);onSaveZigzag?.({on:zigzagOn,schedule:zigzagSched,mode:key})}}>
                     <div style={{fontWeight:600,textTransform:'capitalize'}}>{key}</div>
                     <div style={{fontSize:10,color:zigzagMode===key?'#000':C.textSub,marginTop:2}}>{label.split('(')[1]?.replace(')','')}</div>
                   </button>
@@ -581,7 +586,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
               ))}
             </div>
             <div style={{marginTop:10,fontSize:11,color:C.textSub}}>
-              Avg deficit: <strong style={{color:C.text}}>~{Math.round(adaptiveTDEE.base - getZigzagWeek(adaptiveTDEE.base,zigzagSched,zigzagMode).reduce((s,d)=>s+d.cals,0)/7)} kcal/day</strong> · Helps avoid metabolic adaptation.
+              Avg deficit: <strong style={{color:C.text}}>~{adaptiveTDEE.base - Math.round(zigzagTarget ?? adaptiveTDEE.target)} kcal today</strong> · Weekly avg ~{AVG_DEFICIT[zigzagMode]} kcal/day deficit.
             </div>
           </div>
         )}
@@ -705,7 +710,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
    NUTRITION TAB
 ═══════════════════════════════════════════════════════════════ */
 function NutritionTab({ log, adaptiveTDEE, allLogs, setup }) {
-  const sum = fn => log.meals.reduce((s,m)=>s+(fn(m)||0),0)
+  const sum = fn => (log.meals||[]).reduce((s,m)=>s+(fn(m)||0),0)
   const todayCals=sum(m=>+m.cals),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat)
   const dayType=getDayType(setup,todayStr()),macros=getCarbCycleMacros(dayType,adaptiveTDEE)
   const r7=allLogs.slice(-7)
@@ -1030,6 +1035,12 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
 /* ═══════════════════════════════════════════════════════════════
    ROOT APP
 ═══════════════════════════════════════════════════════════════ */
+const Spin = ({ msg }) => (
+  <div style={{background:C.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:C.accent,fontFamily:F.mono}}>
+    {msg}
+  </div>
+)
+
 export default function App() {
   const [session,      setSession]      = useState(undefined)
   const [tab,          setTab]          = useState('today')
@@ -1040,8 +1051,8 @@ export default function App() {
   const [allLogs,      setAllLogs]      = useState([])
   const [inBodyScans,  setInBodyScans]  = useState([])
   const [mealHistory,  setMealHistory]  = useState([])
-  const [planSettings, setPlanSettings] = useState({ fastingDays:[], fastCompensation:false })
-
+  const [planSettings,   setPlanSettings]   = useState({ fastingDays:[], fastCompensation:false })
+  const [zigzagSettings, setZigzagSettings] = useState({ on:false, schedule:1, mode:'weight' })
 
   useEffect(() => {
     supabase.auth.getSession().then(({data:{session}}) => setSession(session))
@@ -1062,6 +1073,8 @@ export default function App() {
       setInBodyScans(await store.get('inbody') || [])
       setMealHistory(await store.get('meal_history') || [])
       setPlanSettings(await store.get('plan_settings') || { fastingDays:[], fastCompensation:false })
+      setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
+      setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
     }
     setDataReady(true)
   }, [])
@@ -1077,7 +1090,16 @@ export default function App() {
 
   const saveSetup = async s => {
     await store.set('setup', s); setSetup(s); setOnboarding(false)
-    if (!todayLog) { setTodayLog(emptyLog()); setAllLogs([]); setInBodyScans([]) }
+    if (!todayLog) {
+      setTodayLog(emptyLog()); setAllLogs([]); setInBodyScans([])
+    }
+    // Re-run loadData so adaptive TDEE picks up any changed settings
+    // (e.g. activity level, startBF for Katch-McArdle)
+    else {
+      const keys = await store.list('log:')
+      const logs = (await Promise.all(keys.map(k=>store.get(k)))).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date))
+      setAllLogs(logs)
+    }
   }
   const saveTodayLog = async log => {
     await store.set(`log:${todayStr()}`, log); setTodayLog(log)
@@ -1099,15 +1121,20 @@ export default function App() {
   const savePlanSettings = async ps => {
     await store.set('plan_settings', ps); setPlanSettings(ps)
   }
+  const saveZigzagSettings = async zs => {
+    await store.set('zigzag_settings', zs); setZigzagSettings(zs)
+  }
+  const saveZigzagSettings = async zs => {
+    await store.set('zigzag_settings', zs); setZigzagSettings(zs)
+  }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
-  const Spin = s => <div style={{background:C.bg,minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:C.accent,fontFamily:F.mono}}>{s}</div>
 
-  if (session===undefined) return Spin('Loading…')
+  if (session===undefined) return <Spin msg='Loading…' />
   if (!session) return <AuthScreen/>
-  if (!dataReady) return Spin('Loading your data…')
+  if (!dataReady) return <Spin msg='Loading your data…' />
   if (!setup||onboarding) return <Onboarding userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={()=>setOnboarding(false)}/>
-  if (!todayLog) return Spin('Loading today…')
+  if (!todayLog) return <Spin msg='Loading today…' />
 
   const latestWeight = allLogs.filter(l=>l.weight!=null).at(-1)?.weight ?? setup.startWeight
   const lbm          = setup.startWeight * (1 - setup.startBF / 100)
@@ -1120,7 +1147,7 @@ export default function App() {
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
-      {tab==='today'     && <TodayTab     log={todayLog} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings}/>}
+      {tab==='today'     && <TodayTab     log={todayLog} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
       {tab==='nutrition' && <NutritionTab log={todayLog} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
