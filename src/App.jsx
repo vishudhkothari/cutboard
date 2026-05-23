@@ -1,4 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768)
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < 768)
+    window.addEventListener('resize', fn)
+    return () => window.removeEventListener('resize', fn)
+  }, [])
+  return mobile
+}
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine
@@ -266,19 +276,19 @@ function Onboarding({ userEmail, onSave, existing, onCancel }) {
         <div style={{ color: C.textSub, fontSize: 14, marginBottom: 36 }}>These numbers power your adaptive TDEE, carb cycling, and coaching.</div>
         <div style={{ display: 'grid', gap: 24 }}>
           <div><label style={LBL}>Your Name</label><input style={inp({ maxWidth: 260 })} value={f.name} placeholder="Vishudh" onChange={e => set('name', e.target.value)} /></div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(100px,1fr))', gap: 14 }}>
             <div><label style={LBL}>Age</label><input style={inp()} type="number" value={f.age} placeholder="22" onChange={e => set('age', +e.target.value)} /></div>
             <div><label style={LBL}>Height (cm)</label><input style={inp()} type="number" value={f.height} placeholder="175" onChange={e => set('height', +e.target.value)} /></div>
             <div><label style={LBL}>Sex</label><select style={inp()} value={f.sex} onChange={e => set('sex', e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></div>
           </div>
           <div><label style={LBL}>Activity Level</label><div style={{ display: 'grid', gap: 8 }}>{ACTIVITY.map(a => <button key={a.id} style={{ ...btn(f.activity === a.id), textAlign: 'left', width: '100%', padding: '11px 16px' }} onClick={() => set('activity', a.id)}>{a.label}</button>)}</div></div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(100px,1fr))', gap: 14 }}>
             <div><label style={LBL}>Start Weight (kg)</label><input style={inp()} type="number" step="0.1" value={f.startWeight} placeholder="74.0" onChange={e => set('startWeight', +e.target.value)} /></div>
             <div><label style={LBL}>Start Body Fat %</label><input style={inp()} type="number" step="0.1" value={f.startBF} placeholder="20" onChange={e => set('startBF', +e.target.value)} /></div>
             <div><label style={LBL}>Goal Body Fat %</label><input style={inp()} type="number" step="0.1" value={f.goalBF} placeholder="12" onChange={e => set('goalBF', +e.target.value)} /></div>
           </div>
           {goalW && (
-            <div style={card({ background: '#0a1209', borderColor: '#1a2f12', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', textAlign: 'center', gap: 12 })}>
+            <div style={card({ background: '#0a1209', borderColor: '#1a2f12', display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', textAlign: 'center', gap: 12 })}>
               {[{val:goalW,unit:'kg',label:'Goal Weight',color:C.accent},{val:fatLose,unit:'kg',label:'Fat to Lose',color:C.orange},{val:lbm?.toFixed(1),unit:'kg',label:'Lean Mass',color:C.blue},{val:wkRate,unit:'kg/wk',label:'Target Rate',color:C.purple}].map(({val,unit,label,color}) => (
                 <div key={label}><div style={{fontFamily:F.mono,fontSize:22,fontWeight:700,color,lineHeight:1}}>{val}</div><div style={{fontSize:10,color:C.textSub,marginTop:3,textTransform:'uppercase',letterSpacing:'0.08em'}}>{unit}</div><div style={{fontSize:11,color:C.textSub,marginTop:5}}>{label}</div></div>
               ))}
@@ -322,18 +332,43 @@ function Onboarding({ userEmail, onSave, existing, onCancel }) {
    HEADER
 ═══════════════════════════════════════════════════════════════ */
 function Header({ dayCount, daysLeft, latestWeight, goalWeight, onSettings, onLogout }) {
-  const pct = Math.min((dayCount / 60) * 100, 100)
+  const mobile = useIsMobile()
+  const pct    = Math.min((dayCount / 60) * 100, 100)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 20px', borderBottom: `1px solid ${C.border}`, background: C.bg, flexWrap: 'wrap' }}>
-      <div style={{ fontFamily: F.head, fontWeight: 800, fontSize: 20, color: C.accent, letterSpacing: '-0.02em', flexShrink: 0 }}>CUTBOARD</div>
-      <div style={{ flex: 1, minWidth: 200, maxWidth: 280 }}>
-        <div style={{ height: 3, background: C.border, borderRadius: 2, overflow: 'hidden' }}><div style={{ height: '100%', width: `${pct}%`, background: C.accent, borderRadius: 2 }} /></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, fontSize: 11, color: C.textSub, fontFamily: F.mono }}><span>Day {dayCount} / 60</span><span>{daysLeft}d remaining</span></div>
+    <div style={{ borderBottom: `1px solid ${C.border}`, background: C.bg }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 10 : 16, padding: mobile ? '10px 14px' : '10px 20px' }}>
+        <div style={{ fontFamily: F.head, fontWeight: 800, fontSize: mobile ? 18 : 20, color: C.accent, letterSpacing: '-0.02em', flexShrink: 0 }}>CUTBOARD</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 3, background: C.border, borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: C.accent, borderRadius: 2 }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: C.textSub, fontFamily: F.mono }}>
+            <span>Day {dayCount} / 60</span>
+            <span>{daysLeft}d left</span>
+          </div>
+        </div>
+        {!mobile && latestWeight && (
+          <div style={{ fontFamily: F.mono, fontSize: 12, color: C.textSub, flexShrink: 0 }}>
+            <span style={{ color: C.text }}>{latestWeight}kg</span>
+            <span style={{ margin: '0 8px', color: C.border }}>→</span>
+            <span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span>
+          </div>
+        )}
+        <button style={{ ...btn(false, true), padding: mobile ? '6px 10px' : '6px 14px', fontSize: 13 }} onClick={onSettings}>
+          {mobile ? '⚙' : '⚙ Settings'}
+        </button>
+        <button style={{ ...btn(false, true), padding: mobile ? '6px 10px' : '6px 14px', fontSize: 13, color: C.textSub }} onClick={onLogout}>
+          {mobile ? '↪' : 'Sign Out'}
+        </button>
       </div>
-      <div style={{ flex: 1 }} />
-      {latestWeight && <div style={{ fontFamily: F.mono, fontSize: 12, color: C.textSub, flexShrink: 0 }}><span style={{ color: C.text }}>{latestWeight}kg</span><span style={{ margin: '0 8px', color: C.border }}>→</span><span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span></div>}
-      <button style={btn(false, true)} onClick={onSettings}>⚙ Settings</button>
-      <button style={{ ...btn(false, true), color: C.textSub }} onClick={onLogout}>Sign Out</button>
+      {mobile && latestWeight && (
+        <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 8, fontFamily: F.mono, fontSize: 12, color: C.textSub }}>
+          <span style={{ color: C.text }}>{latestWeight}kg</span>
+          <span style={{ margin: '0 6px' }}>→</span>
+          <span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span>
+          <span style={{ marginLeft: 8, color: C.textSub }}>goal</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -341,9 +376,25 @@ function Header({ dayCount, daysLeft, latestWeight, goalWeight, onSettings, onLo
 /* ═══════════════════════════════════════════════════════════════
    TAB BAR
 ═══════════════════════════════════════════════════════════════ */
-const TABS = [{id:'today',label:'📋 Today'},{id:'nutrition',label:'🥗 Nutrition'},{id:'progress',label:'📈 Progress'},{id:'inbody',label:'🔬 InBody'},{id:'plan',label:'📅 Plan'}]
+const TABS = [
+  {id:'today',     label:'📋 Today',     short:'📋'},
+  {id:'nutrition', label:'🥗 Nutrition', short:'🥗'},
+  {id:'progress',  label:'📈 Progress',  short:'📈'},
+  {id:'inbody',    label:'🔬 InBody',    short:'🔬'},
+  {id:'plan',      label:'📅 Plan',      short:'📅'},
+]
 function TabBar({ tab, setTab }) {
-  return <div style={{ display: 'flex', gap: 4, padding: '10px 20px', borderBottom: `1px solid ${C.border}` }}>{TABS.map(t => <button key={t.id} style={{ ...btn(tab === t.id, true), borderRadius: 7 }} onClick={() => setTab(t.id)}>{t.label}</button>)}</div>
+  const mobile = useIsMobile()
+  return (
+    <div style={{ display: 'flex', gap: mobile ? 2 : 4, padding: mobile ? '8px 10px' : '10px 20px', borderBottom: `1px solid ${C.border}`, overflowX: 'auto' }}>
+      {TABS.map(t => (
+        <button key={t.id} style={{ ...btn(tab === t.id, true), borderRadius: 7, flexShrink: 0, padding: mobile ? '7px 12px' : '6px 14px', fontSize: mobile ? 14 : 13 }}
+          onClick={() => setTab(t.id)}>
+          {mobile ? (tab === t.id ? `${t.short} ${t.label.split(' ')[1] || t.label.split(' ')[0]}` : t.short) : t.label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -423,8 +474,9 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
     }
   }
 
+  const mobile = useIsMobile()
   return (
-    <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 980, margin: '0 auto' }}>
+    <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
 
       {/* Coach Panel */}
       <div style={{ ...card({ background: '#0a0c12' }), gridColumn: '1/-1' }}>
@@ -445,7 +497,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
 
       {/* Calorie Bar */}
       <div style={{ ...card(), gridColumn: '1/-1' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 20, marginBottom: 18, textAlign: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: mobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: mobile ? 12 : 20, marginBottom: 18, textAlign: 'center' }}>
           {isFasting ? (
             <div style={{ gridColumn:'1/-1', display:'flex', alignItems:'center', justifyContent:'center', gap:16, padding:'10px 0' }}>
               <div style={{ fontSize: 36 }}>🚫</div>
@@ -490,7 +542,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
             <div key={key} style={{display:'flex',alignItems:'center',gap:10}}>
               <span style={{fontSize:18,width:26}}>{icon}</span>
               <span style={{color:C.textSub,fontSize:13,flex:1}}>{label}</span>
-              <input type="number" step={step} value={local[key]??''} placeholder={ph} onChange={e=>upd(key,e.target.value?+e.target.value:null)} style={inp({width:100,textAlign:'right',fontFamily:F.mono,fontSize:15,padding:'8px 12px'})} />
+              <input type="number" step={step} value={local[key]??''} placeholder={ph} onChange={e=>upd(key,e.target.value?+e.target.value:null)} style={inp({width:mobile?90:100,textAlign:'right',fontFamily:F.mono,fontSize:15,padding:'8px 12px'})} />
               {unit && <span style={{fontSize:12,color:C.textSub,width:28}}>{unit}</span>}
             </div>
           ))}
@@ -555,7 +607,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
           <div style={{marginTop:10,background:'#0c0e16',borderRadius:10,padding:'14px',border:`1px solid ${C.border}`}}>
             <div style={{marginBottom:12}}>
               <div style={{...LBL,marginBottom:8}}>Schedule</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:8}}>
                 {[{id:1,label:'Schedule 1',desc:'High weekends, low weekdays'},{id:2,label:'Schedule 2',desc:'Wave — peaks mid-week'}].map(s => (
                   <button key={s.id} style={{...btn(zigzagSched===s.id,true),textAlign:'left',padding:'10px 12px',display:'block'}} onClick={()=>{setZigzagSched(s.id);onSaveZigzag?.({on:zigzagOn,schedule:s.id,mode:zigzagMode})}}>
                     <div style={{fontWeight:600}}>{s.label}</div>
@@ -576,9 +628,9 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
               </div>
             </div>
             <div style={{...LBL,marginBottom:8}}>This Week</div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:mobile?3:6}}>
               {getZigzagWeek(adaptiveTDEE.base,zigzagSched,zigzagMode).map((d,i) => (
-                <div key={i} style={{textAlign:'center',background:d.isToday?'#0a1209':'#0d0f18',border:`1px solid ${d.isToday?C.accent:C.border}`,borderRadius:7,padding:'8px 4px'}}>
+                <div key={i} style={{textAlign:'center',background:d.isToday?'#0a1209':'#0d0f18',border:`1px solid ${d.isToday?C.accent:C.border}`,borderRadius:7,padding:mobile?'6px 2px':'8px 4px'}}>
                   <div style={{fontSize:10,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:4}}>{d.name}</div>
                   <div style={{fontFamily:F.mono,fontSize:12,color:d.isToday?C.accent:C.text}}>{d.cals}</div>
                   <div style={{fontSize:9,color:C.textSub,marginTop:2}}>kcal</div>
@@ -648,8 +700,8 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
         {local.meals.length === 0 ? (
           <div style={{textAlign:'center',padding:'40px 0',color:C.textSub,fontSize:14}}>{isFasting?'Fasting — no meals today.':'No meals logged yet — add your first!'}</div>
         ) : (<>
-          <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'4px 10px',fontSize:11,color:C.textSub,textTransform:'uppercase',letterSpacing:'0.07em'}}>
-            {['Food','Calories','Protein','Carbs','Fat',''].map(h=><span key={h}>{h}</span>)}
+          <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr 1fr 32px':'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'4px 10px',fontSize:11,color:C.textSub,textTransform:'uppercase',letterSpacing:'0.07em'}}>
+            {(mobile?['Food','Cals','Protein','']:['Food','Calories','Protein','Carbs','Fat','']).map(h=><span key={h}>{h}</span>)}
           </div>
           {local.meals.map((m,i) => editIdx === i ? (
             // Inline edit row
@@ -710,6 +762,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
    NUTRITION TAB
 ═══════════════════════════════════════════════════════════════ */
 function NutritionTab({ log, adaptiveTDEE, allLogs, setup }) {
+  const mobile = useIsMobile()
   const sum = fn => (log.meals||[]).reduce((s,m)=>s+(fn(m)||0),0)
   const todayCals=sum(m=>+m.cals),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat)
   const dayType=getDayType(setup,todayStr()),macros=getCarbCycleMacros(dayType,adaptiveTDEE)
@@ -719,13 +772,13 @@ function NutritionTab({ log, adaptiveTDEE, allLogs, setup }) {
   const avgProt=avg7(l=>l.meals.reduce((s,m)=>s+(+m.protein||0),0))
   const calHistory=allLogs.slice(-14).map(l=>({date:fmtDate(l.date),cals:l.meals.reduce((s,m)=>s+(+m.cals||0),0)}))
   return (
-    <div style={{padding:20,maxWidth:980,margin:'0 auto',display:'grid',gap:16}}>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+    <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
+      <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
         {[{label:"Today's Calories",val:todayCals,unit:'kcal',color:C.accent},{label:'Target',val:macros.calTarget,unit:'kcal',color:C.text},{label:'7-Day Avg Cals',val:avgCals,unit:'kcal',color:C.blue},{label:'7-Day Avg Protein',val:avgProt,unit:'g',color:C.orange}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
         ))}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:16}}>
+      <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 2fr',gap:16}}>
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:18}}>Today's Macros</div>
           {[{name:'Protein',g:todayP,cals:todayP*4,target:macros.proteinG,color:C.orange},{name:'Carbs',g:todayC,cals:todayC*4,target:macros.carbG,color:C.blue},{name:'Fat',g:todayF,cals:todayF*9,target:macros.fatG,color:C.purple}].map(m=>(
@@ -776,6 +829,7 @@ function NutritionTab({ log, adaptiveTDEE, allLogs, setup }) {
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
 function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
+  const mobile = useIsMobile()
   const latestWeight=logs.filter(l=>l.weight!=null).at(-1)?.weight??setup.startWeight
   const latestBF=inBodyScans.at(-1)?.bf??setup.startBF
   const weightLost=setup.startWeight-latestWeight
@@ -789,8 +843,8 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
   const stepsData=logs.filter(l=>l.steps!=null).map(l=>({date:fmtDate(l.date),steps:l.steps}))
   const dwData=logs.filter(l=>l.deepWork!=null).map(l=>({date:fmtDate(l.date),hours:l.deepWork}))
   return (
-    <div style={{padding:20,maxWidth:980,margin:'0 auto',display:'grid',gap:16}}>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+    <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
+      <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
         {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:`${latestBF}`,unit:'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
         ))}
@@ -811,7 +865,7 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
           </ResponsiveContainer>
         ):<div style={{padding:'70px 0',textAlign:'center',color:C.textSub}}>Log your weight each day in the Today tab</div>}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+      <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:16}}>
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>Sleep (hrs)</div>
           {sleepData.length>1?(
@@ -858,7 +912,7 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
       )}
       <div style={card()}>
         <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>7-Day Averages</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,textAlign:'center'}}>
+        <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'repeat(3,1fr)',gap:16,textAlign:'center'}}>
           {[{val:avgSleep,target:7,unit:'hrs',label:'Avg Sleep',color:C.blue},{val:avgSteps?Math.round(avgSteps/1000*10)/10:null,target:(setup.stepGoal||10000)/1000,unit:'k steps',label:'Avg Steps',color:C.purple},{val:avgDW,target:4,unit:'hrs',label:'Avg Deep Work',color:C.orange}].map(({val,target,unit,label,color})=>(
             <div key={label}>
               <div style={{fontFamily:F.mono,fontSize:26,color}}>{val??'—'}{val!=null?` ${unit}`:''}</div>
@@ -876,6 +930,7 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
    INBODY TAB
 ═══════════════════════════════════════════════════════════════ */
 function InBodyTab({ scans, onAdd, setup }) {
+  const mobile = useIsMobile()
   const [showAdd,setShowAdd]=useState(false)
   const [f,setF]=useState({weight:'',bf:'',muscleMass:'',bmr:'',visceralFat:'',bmi:''})
   const sf=(k,v)=>setF(p=>({...p,[k]:v}))
@@ -886,7 +941,7 @@ function InBodyTab({ scans, onAdd, setup }) {
   }
   const bfData=scans.map(s=>({date:fmtDate(s.date),bf:s.bf,muscle:s.muscleMass}))
   return (
-    <div style={{padding:20,maxWidth:980,margin:'0 auto',display:'grid',gap:16}}>
+    <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{fontFamily:F.head,fontWeight:800,fontSize:20}}>InBody Scans</div>
         <button style={btn(true,true)} onClick={()=>setShowAdd(o=>!o)}>+ Log Scan</button>
@@ -894,7 +949,7 @@ function InBodyTab({ scans, onAdd, setup }) {
       {showAdd&&(
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>New Scan Entry</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginBottom:16}}>
+          <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(3,1fr)',gap:14,marginBottom:16}}>
             {[{k:'weight',label:'Body Weight (kg)',ph:'74.0'},{k:'bf',label:'Body Fat %',ph:'20.0'},{k:'muscleMass',label:'Skeletal Muscle (kg)',ph:'32.0'},{k:'bmr',label:'BMR (kcal)',ph:'1800'},{k:'visceralFat',label:'Visceral Fat Level',ph:'5'},{k:'bmi',label:'BMI',ph:'24.5'}].map(({k,label,ph})=>(
               <div key={k}><label style={LBL}>{label}</label><input style={inp()} type="number" step="0.1" value={f[k]} placeholder={ph} onChange={e=>sf(k,e.target.value)}/></div>
             ))}
@@ -943,6 +998,7 @@ function InBodyTab({ scans, onAdd, setup }) {
    PLAN TAB — Fasting day manager
 ═══════════════════════════════════════════════════════════════ */
 function PlanTab({ planSettings, onSavePlanSettings }) {
+  const mobile = useIsMobile()
   const today = todayStr()
 
   // Current week Mon→Sun
@@ -961,7 +1017,7 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
   }
 
   return (
-    <div style={{padding:20,maxWidth:980,margin:'0 auto',display:'grid',gap:16}}>
+    <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
 
       {/* Week strip — fasting day visualizer */}
       <div style={card()}>
@@ -1005,7 +1061,7 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
 
         <div>
           <label style={LBL}>On fasting days, calorie target</label>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:12}}>
             <button style={{...btn(!planSettings.fastCompensation),textAlign:'left',padding:'16px 18px',display:'block',height:'auto'}} onClick={()=>onSavePlanSettings({...planSettings,fastCompensation:false})}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>🚫 Full Fast</div>
               <div style={{fontSize:12,color:!planSettings.fastCompensation?'#000':C.textSub}}>0 kcal — maximum deficit. Autophagy benefits after ~16h.</div>
@@ -1143,7 +1199,7 @@ export default function App() {
   const daysLeft     = Math.max(0, 60 - dayCount + 1)
 
   return (
-    <div style={{background:C.bg,minHeight:'100vh',fontFamily:F.body,color:C.text}}>
+    <div style={{background:C.bg,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
