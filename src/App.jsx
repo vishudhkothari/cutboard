@@ -400,6 +400,245 @@ function TabBar({ tab, setTab }) {
 /* ═══════════════════════════════════════════════════════════════
    TODAY TAB
 ═══════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   TASK PLANNER
+═══════════════════════════════════════════════════════════════ */
+const PRIORITY_META = {
+  high:   { color: '#ff4d6a', label: 'High',   dot: '🔴' },
+  medium: { color: '#ff8533', label: 'Medium',  dot: '🟡' },
+  low:    { color: '#4da8f7', label: 'Low',     dot: '🔵' },
+}
+
+function TaskPlanner({ tasks = [], onUpdate }) {
+  const mobile = useIsMobile()
+  const [addOpen,        setAddOpen]        = useState(false)
+  const [newTask,        setNewTask]        = useState({ text:'', target:'', unit:'', priority:'medium' })
+  const [editingProgress,setEditingProgress]= useState(null)
+  const [progressInput,  setProgressInput]  = useState('')
+  const [editingTask,    setEditingTask]    = useState(null)
+  const [editForm,       setEditForm]       = useState({})
+
+  const done  = tasks.filter(t => t.done).length
+  const total = tasks.length
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0
+
+  const genId = () => `t_${Date.now()}_${Math.random().toString(36).slice(2,6)}`
+
+  const addTask = () => {
+    if (!newTask.text.trim()) return
+    onUpdate([...tasks, {
+      id:       genId(),
+      text:     newTask.text.trim(),
+      done:     false,
+      target:   newTask.target ? +newTask.target : null,
+      current:  0,
+      unit:     newTask.unit.trim() || null,
+      priority: newTask.priority,
+    }])
+    setNewTask({ text:'', target:'', unit:'', priority:'medium' })
+    setAddOpen(false)
+  }
+
+  const toggleDone = id => {
+    onUpdate(tasks.map(t => t.id === id ? { ...t, done: !t.done, current: !t.done && t.target ? t.target : t.current } : t))
+  }
+
+  const updateProgress = (id, raw) => {
+    const val  = +raw
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+    onUpdate(tasks.map(t => t.id === id
+      ? { ...t, current: val, done: t.target ? val >= t.target : t.done }
+      : t
+    ))
+    setEditingProgress(null)
+  }
+
+  const saveEdit = () => {
+    onUpdate(tasks.map(t => t.id === editingTask
+      ? { ...t, ...editForm, target: editForm.target ? +editForm.target : null }
+      : t
+    ))
+    setEditingTask(null)
+  }
+
+  const remove    = id => onUpdate(tasks.filter(t => t.id !== id))
+  const moveUp    = i  => { if (i===0) return; const a=[...tasks]; [a[i-1],a[i]]=[a[i],a[i-1]]; onUpdate(a) }
+  const moveDown  = i  => { if (i===tasks.length-1) return; const a=[...tasks]; [a[i],a[i+1]]=[a[i+1],a[i]]; onUpdate(a) }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>Today's Plan</div>
+          {total > 0 && <span style={{ fontFamily:F.mono, fontSize:12, color:C.textSub }}>{done}/{total}</span>}
+        </div>
+        <button style={btn(true,true)} onClick={() => setAddOpen(o=>!o)}>+ Task</button>
+      </div>
+
+      {/* Overall progress */}
+      {total > 0 && (
+        <div style={{ marginBottom:16 }}>
+          <div style={{ height:5, background:C.border, borderRadius:3, overflow:'hidden' }}>
+            <div style={{ height:'100%', width:`${pct}%`, background: pct===100 ? C.accent : C.purple, borderRadius:3, transition:'width 0.5s ease' }} />
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between', marginTop:5, fontSize:11 }}>
+            <span style={{ color:C.textSub }}>{done} of {total} complete</span>
+            <span style={{ color: pct===100 ? C.accent : C.textSub, fontWeight: pct===100 ? 700 : 400 }}>
+              {pct===100 ? '✓ All done!' : `${pct}%`}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Add task form */}
+      {addOpen && (
+        <div style={{ background:'#0c0e16', borderRadius:10, padding:14, marginBottom:14, border:`1px solid ${C.border}` }}>
+          <input
+            style={inp({ marginBottom:10, fontSize:14 })}
+            value={newTask.text}
+            placeholder="e.g. Walk 3k steps, Study for 2 hours, Read 30 pages..."
+            onChange={e => setNewTask(p=>({...p,text:e.target.value}))}
+            onKeyDown={e => e.key==='Enter' && addTask()}
+            autoFocus
+          />
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+            <div>
+              <label style={LBL}>Target (optional)</label>
+              <input style={inp({fontSize:13})} type="number" value={newTask.target} placeholder="e.g. 3000" onChange={e=>setNewTask(p=>({...p,target:e.target.value}))} />
+            </div>
+            <div>
+              <label style={LBL}>Unit</label>
+              <input style={inp({fontSize:13})} value={newTask.unit} placeholder="steps, pages, min..." onChange={e=>setNewTask(p=>({...p,unit:e.target.value}))} />
+            </div>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={LBL}>Priority</label>
+            <div style={{ display:'flex', gap:8 }}>
+              {Object.entries(PRIORITY_META).map(([key,{color,label}]) => (
+                <button key={key} style={{ flex:1, padding:'7px 0', borderRadius:8, border:`1px solid ${newTask.priority===key?color:C.border}`, background:newTask.priority===key?color+'18':'transparent', color:newTask.priority===key?color:C.textSub, cursor:'pointer', fontFamily:F.body, fontSize:12, fontWeight:newTask.priority===key?600:400, transition:'all 0.15s' }}
+                  onClick={()=>setNewTask(p=>({...p,priority:key}))}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button style={btn(true,true)} onClick={addTask}>Add Task</button>
+            <button style={btn(false,true)} onClick={()=>setAddOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Task list */}
+      {tasks.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'28px 0', color:C.textSub, fontSize:13 }}>
+          No tasks yet — hit "+ Task" to plan your day
+        </div>
+      ) : (
+        <div style={{ display:'grid', gap:8 }}>
+          {tasks.map((task, i) => {
+            const pmeta   = PRIORITY_META[task.priority] || PRIORITY_META.medium
+            const taskPct = task.target && task.current ? Math.min(Math.round((task.current/task.target)*100),100) : 0
+            const isEditP = editingProgress === task.id
+            const isEditT = editingTask === task.id
+
+            if (isEditT) return (
+              <div key={task.id} style={{ background:'#0c0e16', borderRadius:10, padding:14, border:`1px solid ${C.accent}33` }}>
+                <input style={inp({marginBottom:8,fontSize:14})} value={editForm.text||''} onChange={e=>setEditForm(p=>({...p,text:e.target.value}))} />
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+                  <input style={inp({fontSize:13})} type="number" value={editForm.target||''} placeholder="Target" onChange={e=>setEditForm(p=>({...p,target:e.target.value}))} />
+                  <input style={inp({fontSize:13})} value={editForm.unit||''} placeholder="Unit" onChange={e=>setEditForm(p=>({...p,unit:e.target.value}))} />
+                </div>
+                <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                  {Object.entries(PRIORITY_META).map(([key,{color,label}]) => (
+                    <button key={key} style={{ flex:1, padding:'6px 0', borderRadius:8, border:`1px solid ${editForm.priority===key?color:C.border}`, background:editForm.priority===key?color+'18':'transparent', color:editForm.priority===key?color:C.textSub, cursor:'pointer', fontFamily:F.body, fontSize:12 }}
+                      onClick={()=>setEditForm(p=>({...p,priority:key}))}>{label}</button>
+                  ))}
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button style={btn(true,true)} onClick={saveEdit}>Save</button>
+                  <button style={btn(false,true)} onClick={()=>setEditingTask(null)}>Cancel</button>
+                </div>
+              </div>
+            )
+
+            return (
+              <div key={task.id} style={{ background:task.done?'#0a0d0a':'#0c0e16', borderRadius:10, padding:'12px 14px', border:`1px solid ${task.done?'#1a2f12':C.border}`, transition:'all 0.2s' }}>
+                <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+
+                  {/* Checkbox */}
+                  <button onClick={()=>toggleDone(task.id)} style={{ flexShrink:0, width:22, height:22, borderRadius:'50%', border:`2px solid ${task.done?C.accent:pmeta.color}`, background:task.done?C.accent:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', marginTop:2, padding:0, transition:'all 0.2s' }}>
+                    {task.done && <span style={{ color:'#000', fontSize:11, fontWeight:800, lineHeight:1 }}>✓</span>}
+                  </button>
+
+                  {/* Text + progress */}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:14, color:task.done?C.textSub:C.text, textDecoration:task.done?'line-through':'none', lineHeight:1.45, wordBreak:'break-word' }}>
+                      {task.text}
+                    </div>
+
+                    {/* Progress bar for tasks with targets */}
+                    {task.target && (
+                      <div style={{ marginTop:9 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:4 }}>
+                          <span style={{ fontFamily:F.mono, color:pmeta.color }}>
+                            {(task.current||0).toLocaleString()} / {task.target.toLocaleString()} {task.unit||''}
+                          </span>
+                          <span style={{ color: taskPct>=100?C.accent:C.textSub }}>{taskPct}%</span>
+                        </div>
+                        <div style={{ height:5, background:C.border, borderRadius:3, overflow:'hidden' }}>
+                          <div style={{ height:'100%', width:`${taskPct}%`, background:taskPct>=100?C.accent:pmeta.color, borderRadius:3, transition:'width 0.4s ease' }} />
+                        </div>
+                        {isEditP ? (
+                          <div style={{ display:'flex', gap:6, marginTop:7, alignItems:'center' }}>
+                            <input style={inp({padding:'5px 10px',fontSize:13,width:120})} type="number" value={progressInput} placeholder="Current value" autoFocus
+                              onChange={e=>setProgressInput(e.target.value)}
+                              onKeyDown={e=>{ if(e.key==='Enter') updateProgress(task.id, progressInput); if(e.key==='Escape') setEditingProgress(null) }} />
+                            <button style={btn(true,true)} onClick={()=>updateProgress(task.id,progressInput)}>✓</button>
+                            <button style={btn(false,true)} onClick={()=>setEditingProgress(null)}>✕</button>
+                          </div>
+                        ) : (
+                          <button style={{ marginTop:5, fontSize:11, color:C.textSub, background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:F.body }}
+                            onMouseEnter={e=>e.currentTarget.style.color=C.accent}
+                            onMouseLeave={e=>e.currentTarget.style.color=C.textSub}
+                            onClick={()=>{ setEditingProgress(task.id); setProgressInput(String(task.current||0)) }}>
+                            ↑ Update progress
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Priority dot + actions */}
+                  <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                    <div style={{ width:7, height:7, borderRadius:'50%', background:pmeta.color, opacity:task.done?0.3:1, flexShrink:0 }} title={pmeta.label} />
+                    {!mobile && (
+                      <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
+                        <button onClick={()=>moveUp(i)} style={{ background:'none', border:'none', color:i===0?C.border:C.textSub, cursor:i===0?'default':'pointer', fontSize:10, padding:'1px 3px', lineHeight:1 }}>▲</button>
+                        <button onClick={()=>moveDown(i)} style={{ background:'none', border:'none', color:i===tasks.length-1?C.border:C.textSub, cursor:i===tasks.length-1?'default':'pointer', fontSize:10, padding:'1px 3px', lineHeight:1 }}>▼</button>
+                      </div>
+                    )}
+                    <button onClick={()=>{ setEditingTask(task.id); setEditForm({text:task.text,target:task.target||'',unit:task.unit||'',priority:task.priority}) }}
+                      style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:14, padding:'2px 4px', lineHeight:1 }}
+                      onMouseEnter={e=>e.currentTarget.style.color=C.accent}
+                      onMouseLeave={e=>e.currentTarget.style.color=C.textSub}>✎</button>
+                    <button onClick={()=>remove(task.id)}
+                      style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:18, padding:'2px 4px', lineHeight:1 }}
+                      onMouseEnter={e=>e.currentTarget.style.color=C.red}
+                      onMouseLeave={e=>e.currentTarget.style.color=C.textSub}>×</button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings, onSaveZigzag }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
@@ -749,10 +988,12 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
         </>)}
       </div>
 
-      {/* Notes */}
+      {/* Daily Planner */}
       <div style={{...card(),gridColumn:'1/-1'}}>
-        <label style={LBL}>Daily Notes</label>
-        <textarea style={{...inp({minHeight:80,resize:'vertical'})}} value={local.notes||''} placeholder="Energy levels? Training session? Hunger? Mood?" onChange={e=>upd('notes',e.target.value)} />
+        <TaskPlanner
+          tasks={local.tasks || []}
+          onUpdate={tasks => upd('tasks', tasks)}
+        />
       </div>
     </div>
   )
