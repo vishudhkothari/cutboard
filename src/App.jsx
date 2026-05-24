@@ -1180,9 +1180,6 @@ export default function App() {
   const saveZigzagSettings = async zs => {
     await store.set('zigzag_settings', zs); setZigzagSettings(zs)
   }
-  const saveZigzagSettings = async zs => {
-    await store.set('zigzag_settings', zs); setZigzagSettings(zs)
-  }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
 
