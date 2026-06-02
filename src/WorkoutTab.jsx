@@ -6,69 +6,174 @@ import { store } from './lib/store'
    EXERCISE DATABASE
 ═══════════════════════════════════════════════════════════════ */
 export const EXERCISE_DB = [
-  // Chest
-  { id:'bench_press',      name:'Bench Press',           cat:'Chest',     eq:'Barbell'    },
-  { id:'incline_bench',    name:'Incline Bench Press',   cat:'Chest',     eq:'Barbell'    },
-  { id:'decline_bench',    name:'Decline Bench Press',   cat:'Chest',     eq:'Barbell'    },
-  { id:'db_bench',         name:'DB Bench Press',        cat:'Chest',     eq:'Dumbbell'   },
-  { id:'db_fly',           name:'Dumbbell Fly',          cat:'Chest',     eq:'Dumbbell'   },
-  { id:'cable_fly',        name:'Cable Crossover',       cat:'Chest',     eq:'Cable'      },
-  { id:'push_up',          name:'Push Up',               cat:'Chest',     eq:'Bodyweight' },
-  { id:'chest_dip',        name:'Chest Dip',             cat:'Chest',     eq:'Bodyweight' },
-  // Back
-  { id:'deadlift',         name:'Deadlift',              cat:'Back',      eq:'Barbell'    },
-  { id:'barbell_row',      name:'Barbell Row',           cat:'Back',      eq:'Barbell'    },
-  { id:'pull_up',          name:'Pull Up',               cat:'Back',      eq:'Bodyweight' },
-  { id:'chin_up',          name:'Chin Up',               cat:'Back',      eq:'Bodyweight' },
-  { id:'lat_pulldown',     name:'Lat Pulldown',          cat:'Back',      eq:'Cable'      },
-  { id:'cable_row',        name:'Seated Cable Row',      cat:'Back',      eq:'Cable'      },
-  { id:'db_row',           name:'Dumbbell Row',          cat:'Back',      eq:'Dumbbell'   },
-  { id:'tbar_row',         name:'T-Bar Row',             cat:'Back',      eq:'Barbell'    },
-  // Shoulders
-  { id:'ohp',              name:'Overhead Press',        cat:'Shoulders', eq:'Barbell'    },
-  { id:'db_ohp',           name:'DB Shoulder Press',     cat:'Shoulders', eq:'Dumbbell'   },
-  { id:'lateral_raise',    name:'Lateral Raise',         cat:'Shoulders', eq:'Dumbbell'   },
-  { id:'front_raise',      name:'Front Raise',           cat:'Shoulders', eq:'Dumbbell'   },
-  { id:'face_pull',        name:'Face Pull',             cat:'Shoulders', eq:'Cable'      },
-  { id:'rear_delt_fly',    name:'Rear Delt Fly',         cat:'Shoulders', eq:'Dumbbell'   },
-  { id:'arnold_press',     name:'Arnold Press',          cat:'Shoulders', eq:'Dumbbell'   },
-  // Biceps
-  { id:'barbell_curl',     name:'Barbell Curl',          cat:'Biceps',    eq:'Barbell'    },
-  { id:'db_curl',          name:'Dumbbell Curl',         cat:'Biceps',    eq:'Dumbbell'   },
-  { id:'hammer_curl',      name:'Hammer Curl',           cat:'Biceps',    eq:'Dumbbell'   },
-  { id:'preacher_curl',    name:'Preacher Curl',         cat:'Biceps',    eq:'Barbell'    },
-  { id:'cable_curl',       name:'Cable Curl',            cat:'Biceps',    eq:'Cable'      },
-  { id:'incline_db_curl',  name:'Incline DB Curl',       cat:'Biceps',    eq:'Dumbbell'   },
-  // Triceps
-  { id:'tricep_pushdown',  name:'Tricep Pushdown',       cat:'Triceps',   eq:'Cable'      },
-  { id:'skull_crusher',    name:'Skull Crusher',         cat:'Triceps',   eq:'Barbell'    },
-  { id:'overhead_ext',     name:'Overhead Tricep Ext',   cat:'Triceps',   eq:'Dumbbell'   },
-  { id:'close_grip_bench', name:'Close Grip Bench',      cat:'Triceps',   eq:'Barbell'    },
-  { id:'tricep_dip',       name:'Tricep Dip',            cat:'Triceps',   eq:'Bodyweight' },
-  { id:'kickback',         name:'Tricep Kickback',       cat:'Triceps',   eq:'Dumbbell'   },
-  // Legs
-  { id:'squat',            name:'Back Squat',            cat:'Legs',      eq:'Barbell'    },
-  { id:'front_squat',      name:'Front Squat',           cat:'Legs',      eq:'Barbell'    },
-  { id:'rdl',              name:'Romanian Deadlift',     cat:'Legs',      eq:'Barbell'    },
-  { id:'leg_press',        name:'Leg Press',             cat:'Legs',      eq:'Machine'    },
-  { id:'leg_curl',         name:'Leg Curl',              cat:'Legs',      eq:'Machine'    },
-  { id:'leg_extension',    name:'Leg Extension',         cat:'Legs',      eq:'Machine'    },
-  { id:'hack_squat',       name:'Hack Squat',            cat:'Legs',      eq:'Machine'    },
-  { id:'calf_raise',       name:'Calf Raise',            cat:'Legs',      eq:'Machine'    },
-  { id:'lunges',           name:'Lunges',                cat:'Legs',      eq:'Bodyweight' },
-  { id:'goblet_squat',     name:'Goblet Squat',          cat:'Legs',      eq:'Dumbbell'   },
-  { id:'hip_thrust',       name:'Hip Thrust',            cat:'Legs',      eq:'Barbell'    },
-  // Core
-  { id:'plank',            name:'Plank',                 cat:'Core',      eq:'Bodyweight' },
-  { id:'crunches',         name:'Crunches',              cat:'Core',      eq:'Bodyweight' },
-  { id:'leg_raise',        name:'Hanging Leg Raise',     cat:'Core',      eq:'Bodyweight' },
-  { id:'ab_wheel',         name:'Ab Wheel',              cat:'Core',      eq:'Other'      },
-  { id:'cable_crunch',     name:'Cable Crunch',          cat:'Core',      eq:'Cable'      },
+  // ── Chest ─────────────────────────────────────────────────────
+  { id:'bench_press',       name:'Bench Press',                cat:'Chest',     eq:'Barbell'    },
+  { id:'incline_bench',     name:'Incline Bench Press',        cat:'Chest',     eq:'Barbell'    },
+  { id:'decline_bench',     name:'Decline Bench Press',        cat:'Chest',     eq:'Barbell'    },
+  { id:'smith_bench',       name:'Smith Machine Bench',        cat:'Chest',     eq:'Machine'    },
+  { id:'db_bench',          name:'DB Bench Press',             cat:'Chest',     eq:'Dumbbell'   },
+  { id:'incline_db_bench',  name:'Incline DB Bench Press',     cat:'Chest',     eq:'Dumbbell'   },
+  { id:'db_fly',            name:'Dumbbell Fly',               cat:'Chest',     eq:'Dumbbell'   },
+  { id:'incline_db_fly',    name:'Incline Dumbbell Fly',       cat:'Chest',     eq:'Dumbbell'   },
+  { id:'cable_fly',         name:'Cable Crossover',            cat:'Chest',     eq:'Cable'      },
+  { id:'low_cable_fly',     name:'Low Cable Fly',              cat:'Chest',     eq:'Cable'      },
+  { id:'pec_deck',          name:'Pec Deck',                   cat:'Chest',     eq:'Machine'    },
+  { id:'chest_press_mach',  name:'Chest Press Machine',        cat:'Chest',     eq:'Machine'    },
+  { id:'push_up',           name:'Push Up',                    cat:'Chest',     eq:'Bodyweight' },
+  { id:'incline_push_up',   name:'Incline Push Up',            cat:'Chest',     eq:'Bodyweight' },
+  { id:'diamond_push_up',   name:'Diamond Push Up',            cat:'Chest',     eq:'Bodyweight' },
+  { id:'chest_dip',         name:'Chest Dip',                  cat:'Chest',     eq:'Bodyweight' },
+  { id:'landmine_press',    name:'Landmine Press',             cat:'Chest',     eq:'Barbell'    },
+  { id:'svend_press',       name:'Svend Press',                cat:'Chest',     eq:'Other'      },
+  // ── Back ──────────────────────────────────────────────────────
+  { id:'deadlift',          name:'Deadlift',                   cat:'Back',      eq:'Barbell'    },
+  { id:'sumo_deadlift',     name:'Sumo Deadlift',              cat:'Back',      eq:'Barbell'    },
+  { id:'rack_pull',         name:'Rack Pull',                  cat:'Back',      eq:'Barbell'    },
+  { id:'barbell_row',       name:'Barbell Row',                cat:'Back',      eq:'Barbell'    },
+  { id:'pendlay_row',       name:'Pendlay Row',                cat:'Back',      eq:'Barbell'    },
+  { id:'meadows_row',       name:'Meadows Row',                cat:'Back',      eq:'Barbell'    },
+  { id:'tbar_row',          name:'T-Bar Row',                  cat:'Back',      eq:'Barbell'    },
+  { id:'pull_up',           name:'Pull Up',                    cat:'Back',      eq:'Bodyweight' },
+  { id:'chin_up',           name:'Chin Up',                    cat:'Back',      eq:'Bodyweight' },
+  { id:'neutral_pull_up',   name:'Neutral Grip Pull Up',       cat:'Back',      eq:'Bodyweight' },
+  { id:'lat_pulldown',      name:'Lat Pulldown',               cat:'Back',      eq:'Cable'      },
+  { id:'close_lat_pull',    name:'Close Grip Lat Pulldown',    cat:'Back',      eq:'Cable'      },
+  { id:'cable_row',         name:'Seated Cable Row',           cat:'Back',      eq:'Cable'      },
+  { id:'single_cable_row',  name:'Single Arm Cable Row',       cat:'Back',      eq:'Cable'      },
+  { id:'straight_pulldown', name:'Straight Arm Pulldown',      cat:'Back',      eq:'Cable'      },
+  { id:'db_row',            name:'Dumbbell Row',               cat:'Back',      eq:'Dumbbell'   },
+  { id:'chest_sup_row',     name:'Chest Supported Row',        cat:'Back',      eq:'Dumbbell'   },
+  { id:'machine_row',       name:'Machine Row',                cat:'Back',      eq:'Machine'    },
+  { id:'back_extension',    name:'Back Extension',             cat:'Back',      eq:'Bodyweight' },
+  { id:'good_morning',      name:'Good Morning',               cat:'Back',      eq:'Barbell'    },
+  { id:'barbell_shrug',     name:'Barbell Shrug',              cat:'Back',      eq:'Barbell'    },
+  { id:'db_shrug',          name:'Dumbbell Shrug',             cat:'Back',      eq:'Dumbbell'   },
+  // ── Shoulders ─────────────────────────────────────────────────
+  { id:'ohp',               name:'Overhead Press',             cat:'Shoulders', eq:'Barbell'    },
+  { id:'push_press',        name:'Push Press',                 cat:'Shoulders', eq:'Barbell'    },
+  { id:'db_ohp',            name:'DB Shoulder Press',          cat:'Shoulders', eq:'Dumbbell'   },
+  { id:'arnold_press',      name:'Arnold Press',               cat:'Shoulders', eq:'Dumbbell'   },
+  { id:'machine_ohp',       name:'Machine Shoulder Press',     cat:'Shoulders', eq:'Machine'    },
+  { id:'smith_ohp',         name:'Smith Machine OHP',          cat:'Shoulders', eq:'Machine'    },
+  { id:'lateral_raise',     name:'Lateral Raise',              cat:'Shoulders', eq:'Dumbbell'   },
+  { id:'cable_lateral',     name:'Cable Lateral Raise',        cat:'Shoulders', eq:'Cable'      },
+  { id:'machine_lateral',   name:'Machine Lateral Raise',      cat:'Shoulders', eq:'Machine'    },
+  { id:'front_raise',       name:'Front Raise',                cat:'Shoulders', eq:'Dumbbell'   },
+  { id:'plate_front_raise', name:'Plate Front Raise',          cat:'Shoulders', eq:'Other'      },
+  { id:'face_pull',         name:'Face Pull',                  cat:'Shoulders', eq:'Cable'      },
+  { id:'rear_delt_fly',     name:'Rear Delt Fly',              cat:'Shoulders', eq:'Dumbbell'   },
+  { id:'reverse_pec_deck',  name:'Reverse Pec Deck',           cat:'Shoulders', eq:'Machine'    },
+  { id:'upright_row',       name:'Upright Row',                cat:'Shoulders', eq:'Barbell'    },
+  { id:'lu_raise',          name:'Lu Raise',                   cat:'Shoulders', eq:'Dumbbell'   },
+  // ── Biceps ────────────────────────────────────────────────────
+  { id:'barbell_curl',      name:'Barbell Curl',               cat:'Biceps',    eq:'Barbell'    },
+  { id:'ez_bar_curl',       name:'EZ Bar Curl',                cat:'Biceps',    eq:'Barbell'    },
+  { id:'db_curl',           name:'Dumbbell Curl',              cat:'Biceps',    eq:'Dumbbell'   },
+  { id:'hammer_curl',       name:'Hammer Curl',                cat:'Biceps',    eq:'Dumbbell'   },
+  { id:'incline_db_curl',   name:'Incline DB Curl',            cat:'Biceps',    eq:'Dumbbell'   },
+  { id:'concentration_curl',name:'Concentration Curl',         cat:'Biceps',    eq:'Dumbbell'   },
+  { id:'spider_curl',       name:'Spider Curl',                cat:'Biceps',    eq:'Dumbbell'   },
+  { id:'cross_body_curl',   name:'Cross Body Curl',            cat:'Biceps',    eq:'Dumbbell'   },
+  { id:'preacher_curl',     name:'Preacher Curl',              cat:'Biceps',    eq:'Barbell'    },
+  { id:'machine_curl',      name:'Machine Curl',               cat:'Biceps',    eq:'Machine'    },
+  { id:'cable_curl',        name:'Cable Curl',                 cat:'Biceps',    eq:'Cable'      },
+  { id:'cable_hammer_curl', name:'Cable Hammer Curl',          cat:'Biceps',    eq:'Cable'      },
+  { id:'reverse_curl',      name:'Reverse Curl',               cat:'Biceps',    eq:'Barbell'    },
+  // ── Triceps ───────────────────────────────────────────────────
+  { id:'tricep_pushdown',   name:'Tricep Pushdown',            cat:'Triceps',   eq:'Cable'      },
+  { id:'rope_pushdown',     name:'Rope Pushdown',              cat:'Triceps',   eq:'Cable'      },
+  { id:'single_pushdown',   name:'Single Arm Pushdown',        cat:'Triceps',   eq:'Cable'      },
+  { id:'skull_crusher',     name:'Skull Crusher',              cat:'Triceps',   eq:'Barbell'    },
+  { id:'ez_skull_crusher',  name:'EZ Bar Skull Crusher',       cat:'Triceps',   eq:'Barbell'    },
+  { id:'overhead_ext',      name:'Overhead Tricep Ext',        cat:'Triceps',   eq:'Dumbbell'   },
+  { id:'cable_overhead_ext',name:'Cable Overhead Extension',   cat:'Triceps',   eq:'Cable'      },
+  { id:'close_grip_bench',  name:'Close Grip Bench',           cat:'Triceps',   eq:'Barbell'    },
+  { id:'jm_press',          name:'JM Press',                   cat:'Triceps',   eq:'Barbell'    },
+  { id:'tricep_dip',        name:'Tricep Dip',                 cat:'Triceps',   eq:'Bodyweight' },
+  { id:'diamond_push_up_t', name:'Diamond Push Up',            cat:'Triceps',   eq:'Bodyweight' },
+  { id:'kickback',          name:'Tricep Kickback',            cat:'Triceps',   eq:'Dumbbell'   },
+  // ── Legs ──────────────────────────────────────────────────────
+  { id:'squat',             name:'Back Squat',                 cat:'Legs',      eq:'Barbell'    },
+  { id:'front_squat',       name:'Front Squat',                cat:'Legs',      eq:'Barbell'    },
+  { id:'low_bar_squat',     name:'Low Bar Squat',              cat:'Legs',      eq:'Barbell'    },
+  { id:'smith_squat',       name:'Smith Machine Squat',        cat:'Legs',      eq:'Machine'    },
+  { id:'hack_squat',        name:'Hack Squat',                 cat:'Legs',      eq:'Machine'    },
+  { id:'leg_press',         name:'Leg Press',                  cat:'Legs',      eq:'Machine'    },
+  { id:'rdl',               name:'Romanian Deadlift',          cat:'Legs',      eq:'Barbell'    },
+  { id:'db_rdl',            name:'DB Romanian Deadlift',       cat:'Legs',      eq:'Dumbbell'   },
+  { id:'stiff_leg_dl',      name:'Stiff Leg Deadlift',         cat:'Legs',      eq:'Barbell'    },
+  { id:'leg_curl',          name:'Lying Leg Curl',             cat:'Legs',      eq:'Machine'    },
+  { id:'seated_leg_curl',   name:'Seated Leg Curl',            cat:'Legs',      eq:'Machine'    },
+  { id:'nordic_curl',       name:'Nordic Hamstring Curl',      cat:'Legs',      eq:'Bodyweight' },
+  { id:'leg_extension',     name:'Leg Extension',              cat:'Legs',      eq:'Machine'    },
+  { id:'hip_thrust',        name:'Hip Thrust',                 cat:'Legs',      eq:'Barbell'    },
+  { id:'db_hip_thrust',     name:'DB Hip Thrust',              cat:'Legs',      eq:'Dumbbell'   },
+  { id:'glute_bridge',      name:'Glute Bridge',               cat:'Legs',      eq:'Bodyweight' },
+  { id:'cable_kickback',    name:'Cable Glute Kickback',       cat:'Legs',      eq:'Cable'      },
+  { id:'lunges',            name:'Lunges',                     cat:'Legs',      eq:'Bodyweight' },
+  { id:'db_lunges',         name:'DB Lunges',                  cat:'Legs',      eq:'Dumbbell'   },
+  { id:'reverse_lunge',     name:'Reverse Lunge',              cat:'Legs',      eq:'Bodyweight' },
+  { id:'bulgarian_ss',      name:'Bulgarian Split Squat',      cat:'Legs',      eq:'Dumbbell'   },
+  { id:'step_up',           name:'Step Up',                    cat:'Legs',      eq:'Dumbbell'   },
+  { id:'goblet_squat',      name:'Goblet Squat',               cat:'Legs',      eq:'Dumbbell'   },
+  { id:'sissy_squat',       name:'Sissy Squat',                cat:'Legs',      eq:'Bodyweight' },
+  { id:'wall_sit',          name:'Wall Sit',                   cat:'Legs',      eq:'Bodyweight' },
+  { id:'calf_raise',        name:'Standing Calf Raise',        cat:'Legs',      eq:'Machine'    },
+  { id:'seated_calf_raise', name:'Seated Calf Raise',          cat:'Legs',      eq:'Machine'    },
+  { id:'db_calf_raise',     name:'DB Single Leg Calf Raise',   cat:'Legs',      eq:'Dumbbell'   },
+  // ── Core ──────────────────────────────────────────────────────
+  { id:'plank',             name:'Plank',                      cat:'Core',      eq:'Bodyweight' },
+  { id:'side_plank',        name:'Side Plank',                 cat:'Core',      eq:'Bodyweight' },
+  { id:'crunches',          name:'Crunches',                   cat:'Core',      eq:'Bodyweight' },
+  { id:'decline_crunch',    name:'Decline Crunch',             cat:'Core',      eq:'Bodyweight' },
+  { id:'leg_raise',         name:'Hanging Leg Raise',          cat:'Core',      eq:'Bodyweight' },
+  { id:'knee_raise',        name:'Hanging Knee Raise',         cat:'Core',      eq:'Bodyweight' },
+  { id:'lying_leg_raise',   name:'Lying Leg Raise',            cat:'Core',      eq:'Bodyweight' },
+  { id:'ab_wheel',          name:'Ab Wheel',                   cat:'Core',      eq:'Other'      },
+  { id:'cable_crunch',      name:'Cable Crunch',               cat:'Core',      eq:'Cable'      },
+  { id:'russian_twist',     name:'Russian Twist',              cat:'Core',      eq:'Bodyweight' },
+  { id:'weighted_rus_twist',name:'Weighted Russian Twist',     cat:'Core',      eq:'Other'      },
+  { id:'dead_bug',          name:'Dead Bug',                   cat:'Core',      eq:'Bodyweight' },
+  { id:'bird_dog',          name:'Bird Dog',                   cat:'Core',      eq:'Bodyweight' },
+  { id:'hollow_hold',       name:'Hollow Body Hold',           cat:'Core',      eq:'Bodyweight' },
+  { id:'dragon_flag',       name:'Dragon Flag',                cat:'Core',      eq:'Bodyweight' },
+  { id:'pallof_press',      name:'Pallof Press',               cat:'Core',      eq:'Cable'      },
+  { id:'woodchop',          name:'Cable Woodchop',             cat:'Core',      eq:'Cable'      },
+  { id:'sit_up',            name:'Sit Up',                     cat:'Core',      eq:'Bodyweight' },
+  { id:'v_up',              name:'V-Up',                       cat:'Core',      eq:'Bodyweight' },
+  // ── Olympic / Power ───────────────────────────────────────────
+  { id:'power_clean',       name:'Power Clean',                cat:'Olympic',   eq:'Barbell'    },
+  { id:'hang_clean',        name:'Hang Clean',                 cat:'Olympic',   eq:'Barbell'    },
+  { id:'clean_and_jerk',    name:'Clean and Jerk',             cat:'Olympic',   eq:'Barbell'    },
+  { id:'snatch',            name:'Snatch',                     cat:'Olympic',   eq:'Barbell'    },
+  { id:'hang_snatch',       name:'Hang Snatch',                cat:'Olympic',   eq:'Barbell'    },
+  { id:'thruster',          name:'Thruster',                   cat:'Olympic',   eq:'Barbell'    },
+  { id:'db_thruster',       name:'DB Thruster',                cat:'Olympic',   eq:'Dumbbell'   },
+  { id:'kettlebell_swing',  name:'Kettlebell Swing',           cat:'Olympic',   eq:'Other'      },
+  { id:'clean_pull',        name:'Clean Pull',                 cat:'Olympic',   eq:'Barbell'    },
+  // ── Cardio ────────────────────────────────────────────────────
+  { id:'treadmill',         name:'Treadmill Run',              cat:'Cardio',    eq:'Machine'    },
+  { id:'rowing_machine',    name:'Rowing Machine',             cat:'Cardio',    eq:'Machine'    },
+  { id:'assault_bike',      name:'Assault Bike',               cat:'Cardio',    eq:'Machine'    },
+  { id:'stairmaster',       name:'Stairmaster',                cat:'Cardio',    eq:'Machine'    },
+  { id:'stationary_bike',   name:'Stationary Bike',            cat:'Cardio',    eq:'Machine'    },
+  { id:'jump_rope',         name:'Jump Rope',                  cat:'Cardio',    eq:'Other'      },
+  { id:'burpees',           name:'Burpees',                    cat:'Cardio',    eq:'Bodyweight' },
+  { id:'mountain_climber',  name:'Mountain Climbers',          cat:'Cardio',    eq:'Bodyweight' },
+  { id:'jump_squat',        name:'Jump Squat',                 cat:'Cardio',    eq:'Bodyweight' },
+  { id:'box_jump',          name:'Box Jump',                   cat:'Cardio',    eq:'Other'      },
+  // ── Forearms ──────────────────────────────────────────────────
+  { id:'wrist_curl',        name:'Wrist Curl',                 cat:'Forearms',  eq:'Barbell'    },
+  { id:'reverse_wrist_curl',name:'Reverse Wrist Curl',         cat:'Forearms',  eq:'Barbell'    },
+  { id:'farmers_walk',      name:'Farmers Walk',               cat:'Forearms',  eq:'Dumbbell'   },
+  { id:'dead_hang',         name:'Dead Hang',                  cat:'Forearms',  eq:'Bodyweight' },
+  { id:'plate_pinch',       name:'Plate Pinch',                cat:'Forearms',  eq:'Other'      },
 ]
 
 const CAT_COLORS = {
   Chest:'#ff4d6a', Back:'#4da8f7', Shoulders:'#a78bfa',
-  Biceps:'#ff8533', Triceps:'#ff8533', Legs:'#b4ff47', Core:'#5c6180'
+  Biceps:'#ff8533', Triceps:'#ff8533', Legs:'#b4ff47', Core:'#5c6180',
+  Olympic:'#fbbf24', Cardio:'#34d399', Forearms:'#94a3b8'
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -110,25 +215,27 @@ function calcVolume(exercises) {
    DESIGN TOKENS  (mirrors App.jsx)
 ═══════════════════════════════════════════════════════════════ */
 const C = {
-  bg:'#06070a', surface:'#0d0f14', border:'#1c1f2e',
-  accent:'#b4ff47', text:'#e4e7f2', textSub:'#5c6180',
-  red:'#ff4d6a', orange:'#ff8533', blue:'#4da8f7', purple:'#a78bfa', gold:'#fbbf24'
+  bg:'#070809', surface:'#101216', surfaceAlt:'#15181f', border:'#21242e', borderSoft:'#1a1d25',
+  accent:'#c2ff5b', accentDim:'#9fd647', text:'#eef0f5', textSub:'#7a8094', textFaint:'#4a4f5e',
+  red:'#ff5a78', orange:'#ff944d', blue:'#5cb4ff', purple:'#b794ff', gold:'#fbbf24', teal:'#34e0c4'
 }
 const F = { head:"'Syne',sans-serif", mono:"'Space Mono',monospace", body:"'DM Sans',sans-serif" }
+const SHADOW = '0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5)'
+const GLOW   = c => `0 0 0 1px ${c}33, 0 4px 20px -6px ${c}44`
 
-const card = (x={}) => ({ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:'16px 18px', ...x })
+const card = (x={}) => ({ background:`linear-gradient(160deg, ${C.surface} 0%, #0d0f13 100%)`, border:`1px solid ${C.border}`, borderRadius:16, padding:'16px 18px', boxShadow:SHADOW, ...x })
 const btn  = (active=false,sm=false) => ({
-  background:active?C.accent:'transparent', color:active?'#000':C.text,
-  border:`1px solid ${active?C.accent:C.border}`, borderRadius:8,
-  padding:sm?'6px 12px':'10px 20px', cursor:'pointer',
-  fontFamily:F.body, fontSize:sm?13:14, fontWeight:active?600:400, transition:'all 0.15s'
+  background:active?`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`:'rgba(255,255,255,0.02)', color:active?'#0a1400':C.text,
+  border:`1px solid ${active?'transparent':C.border}`, borderRadius:11,
+  padding:sm?'7px 14px':'11px 20px', cursor:'pointer',
+  fontFamily:F.body, fontSize:sm?13:14, fontWeight:active?700:500, transition:'all 0.18s cubic-bezier(.4,0,.2,1)', boxShadow:active?GLOW(C.accent):'none'
 })
 const inp = (x={}) => ({
-  background:'#0f1118', border:`1px solid ${C.border}`, borderRadius:8,
-  padding:'8px 12px', color:C.text, fontFamily:F.body, fontSize:14, outline:'none', ...x
+  background:'#0a0c10', border:`1px solid ${C.border}`, borderRadius:11,
+  padding:'9px 12px', color:C.text, fontFamily:F.body, fontSize:14, outline:'none', transition:'border-color 0.15s', ...x
 })
-const LBL = { fontSize:11, color:C.textSub, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5, display:'block' }
-const TT  = { contentStyle:{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, fontFamily:F.body, fontSize:12, color:C.text }, cursor:{stroke:C.border} }
+const LBL = { fontSize:10.5, color:C.textSub, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6, display:'block' }
+const TT  = { contentStyle:{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:11, fontFamily:F.body, fontSize:12, color:C.text, boxShadow:SHADOW }, cursor:{stroke:C.border} }
 
 function useIsMobile() {
   const [m,setM] = useState(()=>window.innerWidth<768)

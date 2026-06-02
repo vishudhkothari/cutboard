@@ -199,13 +199,35 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, dayType, macros, step
 /* ═══════════════════════════════════════════════════════════════
    DESIGN TOKENS
 ═══════════════════════════════════════════════════════════════ */
-const C = { bg:'#06070a', surface:'#0d0f14', border:'#1c1f2e', accent:'#b4ff47', text:'#e4e7f2', textSub:'#5c6180', red:'#ff4d6a', orange:'#ff8533', blue:'#4da8f7', purple:'#a78bfa' }
+const C = {
+  bg:'#070809', surface:'#101216', surfaceAlt:'#15181f', border:'#21242e', borderSoft:'#1a1d25',
+  accent:'#c2ff5b', accentDim:'#9fd647', text:'#eef0f5', textSub:'#7a8094', textFaint:'#4a4f5e',
+  red:'#ff5a78', orange:'#ff944d', blue:'#5cb4ff', purple:'#b794ff', gold:'#fbbf24', teal:'#34e0c4'
+}
 const F = { head:"'Syne', sans-serif", mono:"'Space Mono', monospace", body:"'DM Sans', sans-serif" }
-const card = (x = {}) => ({ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px', ...x })
-const btn  = (active = false, sm = false) => ({ background: active ? C.accent : 'transparent', color: active ? '#000' : C.text, border: `1px solid ${active ? C.accent : C.border}`, borderRadius: 8, padding: sm ? '6px 14px' : '10px 22px', cursor: 'pointer', fontFamily: F.body, fontSize: sm ? 13 : 14, fontWeight: active ? 600 : 400, transition: 'all 0.15s' })
-const inp  = (x = {}) => ({ background: '#0f1118', border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', color: C.text, fontFamily: F.body, fontSize: 14, width: '100%', boxSizing: 'border-box', outline: 'none', ...x })
-const LBL  = { fontSize: 11, color: C.textSub, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 5, display: 'block' }
-const TT   = { contentStyle: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: F.body, fontSize: 12, color: C.text }, cursor: { stroke: C.border } }
+const SHADOW = '0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5)'
+const GLOW   = c => `0 0 0 1px ${c}33, 0 4px 20px -6px ${c}44`
+const card = (x = {}) => ({
+  background: `linear-gradient(160deg, ${C.surface} 0%, #0d0f13 100%)`,
+  border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 20px',
+  boxShadow: SHADOW, ...x
+})
+const btn = (active = false, sm = false) => ({
+  background: active ? `linear-gradient(135deg, ${C.accent}, ${C.accentDim})` : 'rgba(255,255,255,0.02)',
+  color: active ? '#0a1400' : C.text,
+  border: `1px solid ${active ? 'transparent' : C.border}`, borderRadius: 11,
+  padding: sm ? '7px 15px' : '11px 22px', cursor: 'pointer',
+  fontFamily: F.body, fontSize: sm ? 13 : 14, fontWeight: active ? 700 : 500,
+  transition: 'all 0.18s cubic-bezier(.4,0,.2,1)',
+  boxShadow: active ? GLOW(C.accent) : 'none'
+})
+const inp = (x = {}) => ({
+  background: '#0a0c10', border: `1px solid ${C.border}`, borderRadius: 11,
+  padding: '11px 14px', color: C.text, fontFamily: F.body, fontSize: 14,
+  width: '100%', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s', ...x
+})
+const LBL  = { fontSize: 10.5, color: C.textSub, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6, display: 'block' }
+const TT   = { contentStyle: { background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 11, fontFamily: F.body, fontSize: 12, color: C.text, boxShadow: SHADOW }, cursor: { stroke: C.border } }
 
 /* ═══════════════════════════════════════════════════════════════
    AUTH SCREEN
@@ -230,21 +252,24 @@ function AuthScreen() {
     }
   }
   return (
-    <div style={{ background: C.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F.body, color: C.text }}>
-      <div style={{ width: '100%', maxWidth: 400, padding: 24 }}>
-        <div style={{ textAlign: 'center', marginBottom: 48 }}>
-          <div style={{ fontFamily: F.head, fontSize: 42, fontWeight: 800, color: C.accent, letterSpacing: '-0.03em', marginBottom: 6 }}>CUTBOARD</div>
-          <div style={{ color: C.textSub, fontSize: 14 }}>60-day transformation tracker</div>
+    <div style={{ background: `radial-gradient(ellipse 100% 70% at 50% 0%, #0f1610 0%, ${C.bg} 60%)`, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F.body, color: C.text }}>
+      <div style={{ width: '100%', maxWidth: 410, padding: 24 }}>
+        <div style={{ textAlign: 'center', marginBottom: 44 }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:11, marginBottom: 14 }}>
+            <div style={{ width: 14, height: 14, borderRadius: '50%', background: C.accent, boxShadow: `0 0 18px ${C.accent}` }} />
+            <div style={{ fontFamily: F.head, fontSize: 40, fontWeight: 800, color: C.text, letterSpacing: '-0.03em' }}>CUTBOARD</div>
+          </div>
+          <div style={{ color: C.textSub, fontSize: 14 }}>Your 60-day transformation, tracked.</div>
         </div>
-        <div style={card()}>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: '#0a0c10', borderRadius: 8, padding: 4 }}>
-            {['login','signup'].map(m => <button key={m} onClick={() => { setMode(m); setError('') }} style={{ flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: F.body, fontSize: 13, fontWeight: 500, transition: 'all 0.15s', background: mode === m ? C.surface : 'transparent', color: mode === m ? C.text : C.textSub }}>{m === 'login' ? 'Sign In' : 'Create Account'}</button>)}
+        <div style={card({ padding: '24px 24px 26px' })}>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 26, background: '#0a0c10', borderRadius: 12, padding: 4 }}>
+            {['login','signup'].map(m => <button key={m} onClick={() => { setMode(m); setError('') }} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontFamily: F.body, fontSize: 13, fontWeight: mode===m?700:500, transition: 'all 0.18s', background: mode === m ? `linear-gradient(135deg, ${C.accent}, ${C.accentDim})` : 'transparent', color: mode === m ? '#0a1400' : C.textSub }}>{m === 'login' ? 'Sign In' : 'Create Account'}</button>)}
           </div>
           <div style={{ display: 'grid', gap: 14 }}>
-            <div><label style={LBL}>Email</label><input style={inp()} type="email" value={email} placeholder="you@email.com" onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /></div>
-            <div><label style={LBL}>Password</label><input style={inp()} type="password" value={pass} placeholder="••••••••" onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /></div>
-            {error && <div style={{ background: '#1a0a0c', border: `1px solid ${C.red}33`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: C.red }}>{error}</div>}
-            <button style={{ ...btn(true), width: '100%', padding: '12px 0', fontSize: 15, marginTop: 4 }} onClick={submit} disabled={loading}>{loading ? 'Please wait…' : (mode === 'login' ? 'Sign In' : 'Create Account')}</button>
+            <div><label style={LBL}>Email</label><input style={inp()} type="email" value={email} placeholder="you@email.com" onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} /></div>
+            <div><label style={LBL}>Password</label><input style={inp()} type="password" value={pass} placeholder="••••••••" onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} /></div>
+            {error && <div style={{ background: '#1a0a0c', border: `1px solid ${C.red}33`, borderRadius: 11, padding: '11px 14px', fontSize: 13, color: C.red }}>{error}</div>}
+            <button style={{ ...btn(true), width: '100%', padding: '13px 0', fontSize: 15, marginTop: 4 }} onClick={submit} disabled={loading}>{loading ? 'Please wait…' : (mode === 'login' ? 'Sign In' : 'Create Account')}</button>
           </div>
         </div>
       </div>
@@ -336,38 +361,41 @@ function Header({ dayCount, daysLeft, latestWeight, goalWeight, onSettings, onLo
   const mobile = useIsMobile()
   const pct    = Math.min((dayCount / 60) * 100, 100)
   return (
-    <div style={{ borderBottom: `1px solid ${C.border}`, background: C.bg }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 10 : 16, padding: mobile ? '10px 14px' : '10px 20px' }}>
-        <div style={{ fontFamily: F.head, fontWeight: 800, fontSize: mobile ? 18 : 20, color: C.accent, letterSpacing: '-0.02em', flexShrink: 0 }}>CUTBOARD</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ height: 3, background: C.border, borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: C.accent, borderRadius: 2 }} />
+    <div style={{ borderBottom: `1px solid ${C.borderSoft}`, background: 'rgba(7,8,9,0.85)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 50 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 12 : 18, padding: mobile ? '12px 16px' : '13px 22px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ width: 9, height: 9, borderRadius: '50%', background: C.accent, boxShadow: `0 0 10px ${C.accent}` }} />
+          <div style={{ fontFamily: F.head, fontWeight: 800, fontSize: mobile ? 17 : 19, color: C.text, letterSpacing: '-0.02em' }}>CUTBOARD</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ height: 5, background: C.borderSoft, borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: `linear-gradient(90deg, ${C.accentDim}, ${C.accent})`, borderRadius: 3, boxShadow: `0 0 8px ${C.accent}66`, transition: 'width 0.6s' }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: C.textSub, fontFamily: F.mono }}>
-            <span>Day {dayCount} / 60</span>
-            <span>{daysLeft}d left</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, fontSize: 10, color: C.textSub, fontFamily: F.mono, letterSpacing: '0.02em' }}>
+            <span>DAY {dayCount} / 60</span>
+            <span>{daysLeft}D LEFT</span>
           </div>
         </div>
         {!mobile && latestWeight && (
-          <div style={{ fontFamily: F.mono, fontSize: 12, color: C.textSub, flexShrink: 0 }}>
+          <div style={{ fontFamily: F.mono, fontSize: 12, color: C.textSub, flexShrink: 0, background: 'rgba(255,255,255,0.03)', padding: '6px 12px', borderRadius: 10, border: `1px solid ${C.borderSoft}` }}>
             <span style={{ color: C.text }}>{latestWeight}kg</span>
-            <span style={{ margin: '0 8px', color: C.border }}>→</span>
+            <span style={{ margin: '0 8px', color: C.textFaint }}>→</span>
             <span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span>
           </div>
         )}
-        <button style={{ ...btn(false, true), padding: mobile ? '6px 10px' : '6px 14px', fontSize: 13 }} onClick={onSettings}>
+        <button style={{ ...btn(false, true), padding: mobile ? '7px 11px' : '7px 14px' }} onClick={onSettings}>
           {mobile ? '⚙' : '⚙ Settings'}
         </button>
-        <button style={{ ...btn(false, true), padding: mobile ? '6px 10px' : '6px 14px', fontSize: 13, color: C.textSub }} onClick={onLogout}>
+        <button style={{ ...btn(false, true), padding: mobile ? '7px 11px' : '7px 14px', color: C.textSub }} onClick={onLogout}>
           {mobile ? '↪' : 'Sign Out'}
         </button>
       </div>
       {mobile && latestWeight && (
-        <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 8, fontFamily: F.mono, fontSize: 12, color: C.textSub }}>
+        <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 10, fontFamily: F.mono, fontSize: 12, color: C.textSub }}>
           <span style={{ color: C.text }}>{latestWeight}kg</span>
-          <span style={{ margin: '0 6px' }}>→</span>
+          <span style={{ margin: '0 6px', color: C.textFaint }}>→</span>
           <span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span>
-          <span style={{ marginLeft: 8, color: C.textSub }}>goal</span>
+          <span style={{ marginLeft: 8, color: C.textFaint }}>goal</span>
         </div>
       )}
     </div>
@@ -388,29 +416,36 @@ const TABS = [
 function TabBar({ tab, setTab }) {
   const mobile = useIsMobile()
   if (mobile) {
-    // 2-row grid on mobile: 3 tabs per row
     const row1 = TABS.slice(0, 3)
     const row2 = TABS.slice(3)
     return (
-      <div style={{ borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ borderBottom: `1px solid ${C.borderSoft}`, background: 'rgba(7,8,9,0.6)' }}>
         {[row1, row2].map((row, ri) => (
-          <div key={ri} style={{ display: 'flex', gap: 2, padding: ri === 0 ? '8px 10px 2px' : '2px 10px 8px' }}>
-            {row.map(t => (
-              <button key={t.id} style={{ flex: 1, padding: '7px 4px', borderRadius: 7, border: `1px solid ${tab === t.id ? C.accent : C.border}`, background: tab === t.id ? C.accent : 'transparent', color: tab === t.id ? '#000' : C.textSub, cursor: 'pointer', fontFamily: F.body, fontSize: 12, fontWeight: tab === t.id ? 600 : 400, transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
-                onClick={() => setTab(t.id)}>
-                <span style={{ fontSize: 16 }}>{t.short}</span>
-                <span style={{ fontSize: 10, letterSpacing: '0.02em' }}>{t.label.split(' ').slice(1).join(' ')}</span>
-              </button>
-            ))}
+          <div key={ri} style={{ display: 'flex', gap: 6, padding: ri === 0 ? '10px 12px 3px' : '3px 12px 10px' }}>
+            {row.map(t => {
+              const active = tab === t.id
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  style={{ flex: 1, padding: '9px 4px', borderRadius: 13, border: `1px solid ${active ? 'transparent' : C.borderSoft}`,
+                    background: active ? `linear-gradient(135deg, ${C.accent}, ${C.accentDim})` : 'rgba(255,255,255,0.02)',
+                    color: active ? '#0a1400' : C.textSub, cursor: 'pointer', fontFamily: F.body,
+                    fontWeight: active ? 700 : 500, transition: 'all 0.18s cubic-bezier(.4,0,.2,1)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                    boxShadow: active ? GLOW(C.accent) : 'none' }}>
+                  <span style={{ fontSize: 17 }}>{t.short}</span>
+                  <span style={{ fontSize: 10, letterSpacing: '0.03em' }}>{t.label.split(' ').slice(1).join(' ')}</span>
+                </button>
+              )
+            })}
           </div>
         ))}
       </div>
     )
   }
   return (
-    <div style={{ display: 'flex', gap: 4, padding: '10px 20px', borderBottom: `1px solid ${C.border}` }}>
+    <div style={{ display: 'flex', gap: 6, padding: '12px 22px', borderBottom: `1px solid ${C.borderSoft}` }}>
       {TABS.map(t => (
-        <button key={t.id} style={{ ...btn(tab === t.id, true), borderRadius: 7 }} onClick={() => setTab(t.id)}>{t.label}</button>
+        <button key={t.id} style={{ ...btn(tab === t.id, true), borderRadius: 11 }} onClick={() => setTab(t.id)}>{t.label}</button>
       ))}
     </div>
   )
@@ -423,9 +458,37 @@ function TabBar({ tab, setTab }) {
    TASK PLANNER
 ═══════════════════════════════════════════════════════════════ */
 const PRIORITY_META = {
-  high:   { color: '#ff4d6a', label: 'High',   dot: '🔴' },
-  medium: { color: '#ff8533', label: 'Medium',  dot: '🟡' },
-  low:    { color: '#4da8f7', label: 'Low',     dot: '🔵' },
+  high:   { color: '#ff5a78', label: 'High',   dot: '🔴' },
+  medium: { color: '#ff944d', label: 'Medium',  dot: '🟡' },
+  low:    { color: '#5cb4ff', label: 'Low',     dot: '🔵' },
+}
+
+/* Premium circular calorie ring */
+function CalorieRing({ consumed, target, size = 168 }) {
+  const stroke = 13
+  const r      = (size - stroke) / 2
+  const circ   = 2 * Math.PI * r
+  const pct    = target > 0 ? Math.min(consumed / target, 1) : 0
+  const over   = consumed > target
+  const remaining = target - consumed
+  const ringColor = over ? C.red : pct >= 0.8 ? C.orange : C.accent
+  return (
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} style={{ transform:'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.borderSoft} strokeWidth={stroke} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={ringColor} strokeWidth={stroke}
+          strokelinecap="round" strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
+          style={{ transition:'stroke-dashoffset 0.6s cubic-bezier(.4,0,.2,1), stroke 0.3s', filter:`drop-shadow(0 0 6px ${ringColor}66)` }} />
+      </svg>
+      <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+        <div style={{ fontFamily:F.mono, fontSize:34, fontWeight:700, color:over?C.red:C.text, lineHeight:1 }}>{consumed}</div>
+        <div style={{ fontSize:10.5, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.1em', marginTop:4 }}>of {target} kcal</div>
+        <div style={{ fontSize:12, color:over?C.red:C.accent, marginTop:6, fontWeight:600 }}>
+          {over ? `+${Math.abs(remaining)} over` : `${remaining} left`}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function TaskPlanner({ tasks = [], onUpdate }) {
@@ -737,59 +800,67 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
     <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
 
       {/* Coach Panel */}
-      <div style={{ ...card({ background: '#0a0c12' }), gridColumn: '1/-1' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-          <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 14 }}>Coach</div>
-          {setup?.carbCycling && <span style={{ background: DAY_TYPE_META[dayType].bg, border: `1px solid ${DAY_TYPE_META[dayType].border}`, color: DAY_TYPE_META[dayType].color, fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, letterSpacing: '0.1em' }}>{DAY_TYPE_META[dayType].label}</span>}
-          {isPlannedFast && <span style={{ background: '#0e1e30', border: '1px solid #1a4a7a', color: C.blue, fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, letterSpacing: '0.1em' }}>PLANNED FAST</span>}
+      <div style={{ ...card(), gridColumn: '1/-1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 18 }}>🧠</span>
+          <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15 }}>Coach</div>
+          <div style={{ flex: 1 }} />
+          {setup?.carbCycling && <span style={{ background: DAY_TYPE_META[dayType].bg, border: `1px solid ${DAY_TYPE_META[dayType].border}`, color: DAY_TYPE_META[dayType].color, fontSize: 10, fontWeight: 700, padding: '4px 11px', borderRadius: 20, letterSpacing: '0.1em' }}>{DAY_TYPE_META[dayType].label}</span>}
+          {isPlannedFast && <span style={{ background: '#0e1e30', border: '1px solid #1a4a7a', color: C.blue, fontSize: 10, fontWeight: 700, padding: '4px 11px', borderRadius: 20, letterSpacing: '0.1em' }}>PLANNED FAST</span>}
         </div>
-        <div style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'grid', gap: 9 }}>
           {insights.map((ins, i) => (
-            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#0d0f16', borderRadius: 8, padding: '10px 12px', border: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 16, flexShrink: 0 }}>{ins.icon}</span>
-              <span style={{ fontSize: 12, color: C.textSub, lineHeight: 1.55 }}>{ins.msg}</span>
+            <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: '12px 14px', borderLeft: `3px solid ${ins.color}` }}>
+              <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{ins.icon}</span>
+              <span style={{ fontSize: 12.5, color: C.text, lineHeight: 1.55, opacity: 0.85 }}>{ins.msg}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Calorie Bar */}
-      <div style={{ ...card(), gridColumn: '1/-1' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: mobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: mobile ? 12 : 20, marginBottom: 18, textAlign: 'center' }}>
-          {isFasting ? (
-            <div style={{ gridColumn:'1/-1', display:'flex', alignItems:'center', justifyContent:'center', gap:16, padding:'10px 0' }}>
-              <div style={{ fontSize: 36 }}>🚫</div>
-              <div>
-                <div style={{ fontFamily:F.head, fontWeight:800, fontSize:22, color:C.blue }}>
-                  {isPlannedFast && !local.fasting ? 'Planned Fasting Day' : 'Fasting Day'}
-                </div>
-                <div style={{ fontSize:13, color:C.textSub, marginTop:2 }}>
-                  {planSettings?.fastCompensation && fastCompTarget > 0
-                    ? `25% compensation — ${fastCompTarget} kcal target`
-                    : '0 kcal — full deficit locked in'}
-                </div>
+      {/* Calorie Hero — ring + macro stats */}
+      <div style={{ ...card({ padding: mobile ? '20px 18px' : '22px 24px' }), gridColumn: '1/-1' }}>
+        {isFasting ? (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:18, padding:'14px 0', flexWrap:'wrap' }}>
+            <div style={{ fontSize: 44 }}>🚫</div>
+            <div>
+              <div style={{ fontFamily:F.head, fontWeight:800, fontSize:24, color:C.blue }}>
+                {isPlannedFast && !local.fasting ? 'Planned Fasting Day' : 'Fasting Day'}
               </div>
-              {(!planSettings?.fastCompensation || !fastCompTarget) && (
-                <div style={{ marginLeft:24, textAlign:'center' }}>
-                  <div style={{ fontFamily:F.mono, fontSize:28, fontWeight:700, color:C.accent }}>{adaptiveTDEE.target}</div>
-                  <div style={{ fontSize:11, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.08em', marginTop:4 }}>kcal deficit today</div>
-                </div>
-              )}
+              <div style={{ fontSize:13, color:C.textSub, marginTop:4 }}>
+                {planSettings?.fastCompensation && fastCompTarget > 0
+                  ? `25% compensation — ${fastCompTarget} kcal target`
+                  : '0 kcal — full deficit locked in'}
+              </div>
             </div>
-          ) : (
-            [{val:totalCals,label:'Calories In',color:totalCals>calTarget?C.red:C.accent},{val:effectiveMacros.calTarget,label:"Today's Target",color:C.text},{val:Math.abs(remaining),label:remaining>=0?'Remaining':'Over Target',color:remaining>=0?C.blue:C.red},{val:`${totalProtein}g`,label:'Protein',color:C.orange}].map(({val,label,color}) => (
-              <div key={label}><div style={{fontFamily:F.mono,fontSize:32,fontWeight:700,color,lineHeight:1}}>{val}</div><div style={{fontSize:11,color:C.textSub,textTransform:'uppercase',letterSpacing:'0.08em',marginTop:6}}>{label}</div></div>
-            ))
-          )}
-        </div>
-        {!isFasting && <>
-          <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ height:'100%', width:`${pct}%`, background: pct>=100?C.red:pct>=80?C.orange:C.accent, borderRadius:3, transition:'width 0.4s' }} />
+            {(!planSettings?.fastCompensation || !fastCompTarget) && (
+              <div style={{ marginLeft:12, textAlign:'center', paddingLeft:18, borderLeft:`1px solid ${C.border}` }}>
+                <div style={{ fontFamily:F.mono, fontSize:30, fontWeight:700, color:C.accent }}>{adaptiveTDEE.target}</div>
+                <div style={{ fontSize:10.5, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.1em', marginTop:4 }}>kcal deficit</div>
+              </div>
+            )}
           </div>
-          <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, fontSize:11, color:C.textSub }}>
-            <span>0</span><span style={{ color: pct>=100?C.red:pct>=80?C.orange:C.textSub }}>{Math.round(pct)}% of {calTarget} kcal</span>
+        ) : (
+          <div style={{ display:'flex', alignItems:'center', gap: mobile ? 16 : 28, flexDirection: mobile ? 'column' : 'row' }}>
+            <CalorieRing consumed={totalCals} target={calTarget} size={mobile ? 150 : 172} />
+            <div style={{ flex:1, width: mobile ? '100%' : 'auto', display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+              {[
+                { val:`${totalProtein}`, sub:`/ ${effectiveMacros.proteinG}g`, label:'Protein', color:C.orange, cur:totalProtein, tgt:effectiveMacros.proteinG },
+                { val:`${totalCarbs}`,   sub:`/ ${effectiveMacros.carbG}g`,   label:'Carbs',   color:C.blue,   cur:totalCarbs,   tgt:effectiveMacros.carbG },
+                { val:`${totalFat}`,     sub:`/ ${effectiveMacros.fatG}g`,    label:'Fat',     color:C.purple, cur:totalFat,     tgt:effectiveMacros.fatG },
+              ].map(({val,sub,label,color,cur,tgt}) => (
+                <div key={label} style={{ background:'rgba(255,255,255,0.02)', borderRadius:13, padding:'14px 10px', border:`1px solid ${C.borderSoft}`, textAlign:'center' }}>
+                  <div style={{ fontFamily:F.mono, fontSize:20, fontWeight:700, color, lineHeight:1 }}>{val}<span style={{ fontSize:11, color:C.textSub }}>g</span></div>
+                  <div style={{ fontSize:10, color:C.textFaint, marginTop:3 }}>{sub}</div>
+                  <div style={{ fontSize:10.5, color:C.textSub, marginTop:6, textTransform:'uppercase', letterSpacing:'0.07em' }}>{label}</div>
+                  <div style={{ height:3, background:C.borderSoft, borderRadius:2, marginTop:7, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${Math.min((cur/tgt)*100,100)}%`, background:color, borderRadius:2, transition:'width 0.4s' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </>}
+        )}
       </div>
 
       {/* Vitals */}
@@ -1390,7 +1461,6 @@ export default function App() {
       setMealHistory(await store.get('meal_history') || [])
       setPlanSettings(await store.get('plan_settings') || { fastingDays:[], fastCompensation:false })
       setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
-      setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
     }
     setDataReady(true)
   }, [])
@@ -1456,7 +1526,7 @@ export default function App() {
   const daysLeft     = Math.max(0, 60 - dayCount + 1)
 
   return (
-    <div style={{background:C.bg,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
+    <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #0e1410 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
