@@ -171,9 +171,9 @@ export const EXERCISE_DB = [
 ]
 
 const CAT_COLORS = {
-  Chest:'#ff4d6a', Back:'#4da8f7', Shoulders:'#a78bfa',
-  Biceps:'#ff8533', Triceps:'#ff8533', Legs:'#b4ff47', Core:'#5c6180',
-  Olympic:'#fbbf24', Cardio:'#34d399', Forearms:'#94a3b8'
+  Chest:'#f0566f', Back:'#6aa9f5', Shoulders:'#a78bfa',
+  Biceps:'#f0964d', Triceps:'#f0964d', Legs:'#4dd4c0', Core:'#85858f',
+  Olympic:'#e0b94d', Cardio:'#4dd4c0', Forearms:'#85858f'
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -215,23 +215,23 @@ function calcVolume(exercises) {
    DESIGN TOKENS  (mirrors App.jsx)
 ═══════════════════════════════════════════════════════════════ */
 const C = {
-  bg:'#070809', surface:'#101216', surfaceAlt:'#15181f', border:'#21242e', borderSoft:'#1a1d25',
-  accent:'#c2ff5b', accentDim:'#9fd647', text:'#eef0f5', textSub:'#7a8094', textFaint:'#4a4f5e',
-  red:'#ff5a78', orange:'#ff944d', blue:'#5cb4ff', purple:'#b794ff', gold:'#fbbf24', teal:'#34e0c4'
+  bg:'#0a0a0c', surface:'#141417', surfaceAlt:'#1b1b20', border:'#26262d', borderSoft:'#1e1e24',
+  accent:'#a78bfa', accentDim:'#8b6df0', accentGlow:'#7c5cf5', text:'#f4f4f6', textSub:'#85858f', textFaint:'#4d4d56',
+  red:'#f0566f', orange:'#f0964d', blue:'#6aa9f5', purple:'#a78bfa', gold:'#e0b94d', teal:'#4dd4c0'
 }
 const F = { head:"'Syne',sans-serif", mono:"'Space Mono',monospace", body:"'DM Sans',sans-serif" }
-const SHADOW = '0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5)'
-const GLOW   = c => `0 0 0 1px ${c}33, 0 4px 20px -6px ${c}44`
+const SHADOW = '0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -14px rgba(0,0,0,0.6)'
+const GLOW   = c => `0 0 0 1px ${c}30, 0 6px 24px -8px ${c}50`
 
-const card = (x={}) => ({ background:`linear-gradient(160deg, ${C.surface} 0%, #0d0f13 100%)`, border:`1px solid ${C.border}`, borderRadius:16, padding:'16px 18px', boxShadow:SHADOW, ...x })
+const card = (x={}) => ({ background:`linear-gradient(165deg, ${C.surface} 0%, #101013 100%)`, border:`1px solid ${C.border}`, borderRadius:18, padding:'16px 18px', boxShadow:SHADOW, ...x })
 const btn  = (active=false,sm=false) => ({
-  background:active?`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`:'rgba(255,255,255,0.02)', color:active?'#0a1400':C.text,
-  border:`1px solid ${active?'transparent':C.border}`, borderRadius:11,
+  background:active?`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`:'rgba(255,255,255,0.025)', color:active?'#0a0612':C.text,
+  border:`1px solid ${active?'transparent':C.border}`, borderRadius:12,
   padding:sm?'7px 14px':'11px 20px', cursor:'pointer',
   fontFamily:F.body, fontSize:sm?13:14, fontWeight:active?700:500, transition:'all 0.18s cubic-bezier(.4,0,.2,1)', boxShadow:active?GLOW(C.accent):'none'
 })
 const inp = (x={}) => ({
-  background:'#0a0c10', border:`1px solid ${C.border}`, borderRadius:11,
+  background:'#0c0c0f', border:`1px solid ${C.border}`, borderRadius:12,
   padding:'9px 12px', color:C.text, fontFamily:F.body, fontSize:14, outline:'none', transition:'border-color 0.15s', ...x
 })
 const LBL = { fontSize:10.5, color:C.textSub, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6, display:'block' }
@@ -514,15 +514,15 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
               {ex.sets.map((set,si)=>{
                 const ps = prev?.[si]
                 return (
-                  <div key={set.id} style={{ display:'grid', gridTemplateColumns:'28px 1fr 1fr 1fr 36px', gap:6, marginBottom:5, alignItems:'center', background:set.done?'#0a1209':'transparent', borderRadius:8, padding:'3px 2px', transition:'background 0.2s' }}>
+                  <div key={set.id} style={{ display:'grid', gridTemplateColumns:'28px 1fr 1fr 1fr 36px', gap:6, marginBottom:5, alignItems:'center', background:set.done?'rgba(167,139,250,0.1)':'transparent', borderRadius:8, padding:'3px 2px', transition:'background 0.2s' }}>
                     <div style={{ textAlign:'center', fontFamily:F.mono, fontSize:12, color:set.done?C.accent:C.textSub, fontWeight:set.done?700:400 }}>{set.setNum}</div>
                     <div style={{ textAlign:'center', fontSize:11, color:C.textSub, fontFamily:F.mono }}>
                       {ps?.weight&&ps?.reps ? `${ps.weight}×${ps.reps}` : '—'}
                     </div>
-                    <input style={{ ...inp({ textAlign:'center', padding:'7px 4px', fontSize:14, fontFamily:F.mono }), borderColor:set.done?'#1a2f12':C.border }}
+                    <input style={{ ...inp({ textAlign:'center', padding:'7px 4px', fontSize:14, fontFamily:F.mono }), borderColor:set.done?`${C.accent}55`:C.border }}
                       type="number" step="0.5" value={set.weight} placeholder="kg"
                       onChange={e=>updSet(ei,si,'weight',e.target.value)} />
-                    <input style={{ ...inp({ textAlign:'center', padding:'7px 4px', fontSize:14, fontFamily:F.mono }), borderColor:set.done?'#1a2f12':C.border }}
+                    <input style={{ ...inp({ textAlign:'center', padding:'7px 4px', fontSize:14, fontFamily:F.mono }), borderColor:set.done?`${C.accent}55`:C.border }}
                       type="number" value={set.reps} placeholder={String(ex.repsTarget||8)}
                       onChange={e=>updSet(ei,si,'reps',e.target.value)} />
                     <button onClick={()=>toggleDone(ei,si)} style={{ width:34, height:34, borderRadius:8, border:`2px solid ${set.done?C.accent:C.border}`, background:set.done?C.accent:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s', padding:0 }}>
@@ -606,7 +606,7 @@ function WorkoutDetail({ workout, onBack, onDelete }) {
             ))}
           </div>
           {(ex.sets||[]).map((s,si)=>(
-            <div key={si} style={{ display:'grid', gridTemplateColumns:'28px 1fr 1fr 1fr', gap:6, padding:'7px 4px', background:si%2===0?'#0c0e14':'transparent', borderRadius:6, alignItems:'center' }}>
+            <div key={si} style={{ display:'grid', gridTemplateColumns:'28px 1fr 1fr 1fr', gap:6, padding:'7px 4px', background:si%2===0?'rgba(255,255,255,0.02)':'transparent', borderRadius:6, alignItems:'center' }}>
               <div style={{ textAlign:'center', fontFamily:F.mono, fontSize:12, color:C.textSub }}>{si+1}</div>
               <div style={{ textAlign:'center', fontFamily:F.mono, fontSize:13 }}>{s.weight||'—'}</div>
               <div style={{ textAlign:'center', fontFamily:F.mono, fontSize:13 }}>{s.reps||'—'}</div>

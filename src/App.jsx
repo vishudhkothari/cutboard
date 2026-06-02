@@ -200,34 +200,34 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, dayType, macros, step
    DESIGN TOKENS
 ═══════════════════════════════════════════════════════════════ */
 const C = {
-  bg:'#070809', surface:'#101216', surfaceAlt:'#15181f', border:'#21242e', borderSoft:'#1a1d25',
-  accent:'#c2ff5b', accentDim:'#9fd647', text:'#eef0f5', textSub:'#7a8094', textFaint:'#4a4f5e',
-  red:'#ff5a78', orange:'#ff944d', blue:'#5cb4ff', purple:'#b794ff', gold:'#fbbf24', teal:'#34e0c4'
+  bg:'#0a0a0c', surface:'#141417', surfaceAlt:'#1b1b20', border:'#26262d', borderSoft:'#1e1e24',
+  accent:'#a78bfa', accentDim:'#8b6df0', accentGlow:'#7c5cf5', text:'#f4f4f6', textSub:'#85858f', textFaint:'#4d4d56',
+  red:'#f0566f', orange:'#f0964d', blue:'#6aa9f5', purple:'#a78bfa', gold:'#e0b94d', teal:'#4dd4c0'
 }
 const F = { head:"'Syne', sans-serif", mono:"'Space Mono', monospace", body:"'DM Sans', sans-serif" }
-const SHADOW = '0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5)'
-const GLOW   = c => `0 0 0 1px ${c}33, 0 4px 20px -6px ${c}44`
+const SHADOW = '0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -14px rgba(0,0,0,0.6)'
+const GLOW   = c => `0 0 0 1px ${c}30, 0 6px 24px -8px ${c}50`
 const card = (x = {}) => ({
-  background: `linear-gradient(160deg, ${C.surface} 0%, #0d0f13 100%)`,
-  border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 20px',
+  background: `linear-gradient(165deg, ${C.surface} 0%, #101013 100%)`,
+  border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px',
   boxShadow: SHADOW, ...x
 })
 const btn = (active = false, sm = false) => ({
-  background: active ? `linear-gradient(135deg, ${C.accent}, ${C.accentDim})` : 'rgba(255,255,255,0.02)',
-  color: active ? '#0a1400' : C.text,
-  border: `1px solid ${active ? 'transparent' : C.border}`, borderRadius: 11,
+  background: active ? `linear-gradient(135deg, ${C.accent}, ${C.accentDim})` : 'rgba(255,255,255,0.025)',
+  color: active ? '#0a0612' : C.text,
+  border: `1px solid ${active ? 'transparent' : C.border}`, borderRadius: 12,
   padding: sm ? '7px 15px' : '11px 22px', cursor: 'pointer',
   fontFamily: F.body, fontSize: sm ? 13 : 14, fontWeight: active ? 700 : 500,
   transition: 'all 0.18s cubic-bezier(.4,0,.2,1)',
   boxShadow: active ? GLOW(C.accent) : 'none'
 })
 const inp = (x = {}) => ({
-  background: '#0a0c10', border: `1px solid ${C.border}`, borderRadius: 11,
+  background: '#0c0c0f', border: `1px solid ${C.border}`, borderRadius: 12,
   padding: '11px 14px', color: C.text, fontFamily: F.body, fontSize: 14,
   width: '100%', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s', ...x
 })
 const LBL  = { fontSize: 10.5, color: C.textSub, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6, display: 'block' }
-const TT   = { contentStyle: { background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 11, fontFamily: F.body, fontSize: 12, color: C.text, boxShadow: SHADOW }, cursor: { stroke: C.border } }
+const TT   = { contentStyle: { background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 12, fontFamily: F.body, fontSize: 12, color: C.text, boxShadow: SHADOW }, cursor: { stroke: C.border } }
 
 /* ═══════════════════════════════════════════════════════════════
    AUTH SCREEN
@@ -252,7 +252,7 @@ function AuthScreen() {
     }
   }
   return (
-    <div style={{ background: `radial-gradient(ellipse 100% 70% at 50% 0%, #0f1610 0%, ${C.bg} 60%)`, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F.body, color: C.text }}>
+    <div style={{ background: `radial-gradient(ellipse 100% 70% at 50% 0%, #16111f 0%, ${C.bg} 60%)`, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F.body, color: C.text }}>
       <div style={{ width: '100%', maxWidth: 410, padding: 24 }}>
         <div style={{ textAlign: 'center', marginBottom: 44 }}>
           <div style={{ display:'inline-flex', alignItems:'center', gap:11, marginBottom: 14 }}>
@@ -410,7 +410,7 @@ const TABS = [
   {id:'nutrition', label:'🥗 Nutrition', short:'🥗'},
   {id:'progress',  label:'📈 Progress',  short:'📈'},
   {id:'inbody',    label:'🔬 InBody',    short:'🔬'},
-  {id:'plan',      label:'📅 Plan',      short:'📅'},
+  {id:'plan',      label:'📅 Schedule', short:'📅'},
   {id:'workout',   label:'💪 Workout',   short:'💪'},
 ]
 function TabBar({ tab, setTab }) {
@@ -576,7 +576,7 @@ function TaskPlanner({ tasks = [], onUpdate }) {
 
       {/* Add task form */}
       {addOpen && (
-        <div style={{ background:'#0c0e16', borderRadius:10, padding:14, marginBottom:14, border:`1px solid ${C.border}` }}>
+        <div style={{ background:'rgba(255,255,255,0.02)', borderRadius:10, padding:14, marginBottom:14, border:`1px solid ${C.border}` }}>
           <input
             style={inp({ marginBottom:10, fontSize:14 })}
             value={newTask.text}
@@ -627,7 +627,7 @@ function TaskPlanner({ tasks = [], onUpdate }) {
             const isEditT = editingTask === task.id
 
             if (isEditT) return (
-              <div key={task.id} style={{ background:'#0c0e16', borderRadius:10, padding:14, border:`1px solid ${C.accent}33` }}>
+              <div key={task.id} style={{ background:'rgba(255,255,255,0.02)', borderRadius:10, padding:14, border:`1px solid ${C.accent}33` }}>
                 <input style={inp({marginBottom:8,fontSize:14})} value={editForm.text||''} onChange={e=>setEditForm(p=>({...p,text:e.target.value}))} />
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
                   <input style={inp({fontSize:13})} type="number" value={editForm.target||''} placeholder="Target" onChange={e=>setEditForm(p=>({...p,target:e.target.value}))} />
@@ -728,11 +728,9 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
   const [historySearch,setHistorySearch]= useState('')
   const [editIdx,      setEditIdx]      = useState(null)
   const [editForm,     setEditForm]     = useState({})
-  const [zigzagOpen,   setZigzagOpen]   = useState(false)
-  const [zigzagSched,  setZigzagSched]  = useState(zigzagSettings?.schedule || 1)
-  const [zigzagMode,   setZigzagMode]   = useState(zigzagSettings?.mode || 'weight')
-  const [zigzagOn,     setZigzagOn]     = useState(zigzagSettings?.on || false)
-  // zigzag settings loaded from props (see App loadData)
+  const zigzagSched = zigzagSettings?.schedule || 1
+  const zigzagMode  = zigzagSettings?.mode || 'weight'
+  const zigzagOn    = zigzagSettings?.on || false
 
   useEffect(() => setLocal(log), [log])
 
@@ -867,7 +865,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
       <div style={card()}>
         <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:18 }}>Today's Vitals</div>
         <div style={{ display:'grid', gap:14 }}>
-          {[{key:'weight',icon:'⚖',label:'Weight',unit:'kg',step:'0.1',ph:'73.5'},{key:'sleep',icon:'😴',label:'Sleep',unit:'hrs',step:'0.5',ph:'7.5'},{key:'steps',icon:'👟',label:'Steps',unit:'',step:'100',ph:`${stepData.goal.toLocaleString()}`},{key:'deepWork',icon:'🧠',label:'Deep Work',unit:'hrs',step:'0.5',ph:'4'}].map(({key,icon,label,unit,step,ph}) => (
+          {[{key:'weight',icon:'⚖',label:'Weight',unit:'kg',step:'0.1',ph:'73.5'},{key:'sleep',icon:'😴',label:'Sleep',unit:'hrs',step:'0.5',ph:'7.5'},{key:'steps',icon:'👟',label:'Steps',unit:'',step:'100',ph:`${stepData.goal.toLocaleString()}`}].map(({key,icon,label,unit,step,ph}) => (
             <div key={key} style={{display:'flex',alignItems:'center',gap:10}}>
               <span style={{fontSize:18,width:26}}>{icon}</span>
               <span style={{color:C.textSub,fontSize:13,flex:1}}>{label}</span>
@@ -882,7 +880,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
             <span style={{fontSize:12,color:C.textSub}}>Step goal today</span>
             <span style={{fontFamily:F.mono,fontSize:14,color:stepData.extra>0?C.orange:C.accent}}>{stepData.goal.toLocaleString()} steps</span>
           </div>
-          {stepData.extra > 0 && <div style={{fontSize:11,color:C.orange,background:'#1a0e05',borderRadius:6,padding:'6px 10px',borderLeft:`3px solid ${C.orange}`,marginBottom:6}}>{stepData.reason}</div>}
+          {stepData.extra > 0 && <div style={{fontSize:11,color:C.orange,background:'rgba(240,150,77,0.1)',borderRadius:8,padding:'7px 11px',borderLeft:`3px solid ${C.orange}`,marginBottom:6}}>{stepData.reason}</div>}
           {local.steps != null && <>
             <div style={{height:4,background:C.border,borderRadius:2}}><div style={{height:'100%',width:`${Math.min((local.steps/stepData.goal)*100,100)}%`,background:local.steps>=stepData.goal?C.accent:C.purple,borderRadius:2}} /></div>
             <div style={{fontSize:11,color:C.textSub,marginTop:4,textAlign:'right'}}>{local.steps.toLocaleString()} / {stepData.goal.toLocaleString()}</div>
@@ -892,83 +890,6 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
           <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
             <div style={{...LBL,marginBottom:8}}>Sleep Quality</div>
             <div style={{display:'flex',gap:8}}>{['Poor','OK','Good','Great'].map(q => <button key={q} style={{...btn(local.sleepQuality===q,true),flex:1,padding:'5px 0',fontSize:12}} onClick={()=>upd('sleepQuality',q)}>{q}</button>)}</div>
-          </div>
-        )}
-      </div>
-
-      {/* TDEE + Macros */}
-      <div style={card()}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
-          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>{setup?.carbCycling?'Today\'s Macros':'Adaptive TDEE'}</div>
-          <div style={{display:'flex',gap:6}}>
-            {adaptiveTDEE.isDataDriven && <span style={{fontSize:10,color:C.accent,background:'#0a1209',border:'1px solid #1a2f12',padding:'3px 8px',borderRadius:20,fontWeight:600}}>DATA-DRIVEN</span>}
-            {adaptiveTDEE.isManual && <span style={{fontSize:10,color:C.purple,background:'#120e1a',border:'1px solid #2a1a4a',padding:'3px 8px',borderRadius:20,fontWeight:600}}>MANUAL</span>}
-          </div>
-        </div>
-        {setup?.carbCycling && (
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:18}}>
-            {[{label:'Protein',val:effectiveMacros.proteinG,unit:'g',color:C.orange},{label:'Carbs',val:effectiveMacros.carbG,unit:'g',color:C.blue},{label:'Fat',val:effectiveMacros.fatG,unit:'g',color:C.purple}].map(({label,val,unit,color}) => (
-              <div key={label} style={{textAlign:'center',background:'#0c0e16',borderRadius:8,padding:'12px 8px'}}>
-                <div style={{fontFamily:F.mono,fontSize:22,fontWeight:700,color}}>{val}<span style={{fontSize:12}}>{unit}</span></div>
-                <div style={{fontSize:11,color:C.textSub,marginTop:4}}>{label}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        {!adaptiveTDEE.isManual && [{label:'Maintenance TDEE',val:`${adaptiveTDEE.base} kcal`,color:C.text},{label:'Deficit',val:`−${adaptiveTDEE.deficit} kcal`,color:C.red}].map(({label,val,color}) => (
-          <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:`1px solid ${C.border}`,fontSize:13}}>
-            <span style={{color:C.textSub}}>{label}</span><span style={{fontFamily:F.mono,color}}>{val}</span>
-          </div>
-        ))}
-        <div style={{display:'flex',justifyContent:'space-between',padding:'13px 0',fontSize:15,fontWeight:600}}>
-          <span>Today's Target</span><span style={{fontFamily:F.mono,color:C.accent,fontSize:22}}>{calTarget} kcal</span>
-        </div>
-        <div style={{background:'#0a1209',border:'1px solid #1a2f12',borderRadius:8,padding:'10px 14px',fontSize:12,color:C.textSub}}>
-          💪 Protein: <strong style={{color:C.orange}}>130g/day</strong>&nbsp;&nbsp;|&nbsp;&nbsp;
-          {adaptiveTDEE.isDataDriven ? '📊 From your actual data' : '⏳ Data-driven after 7 days'}
-        </div>
-
-        {/* Zigzag toggle */}
-        <button style={{...btn(zigzagOn,true),width:'100%',marginTop:10,justifyContent:'center',display:'flex',alignItems:'center',gap:8}} onClick={() => { const next=!zigzagOn; setZigzagOn(next); setZigzagOpen(o=>!o); onSaveZigzag?.({on:next,schedule:zigzagSched,mode:zigzagMode}) }}>
-          〰 {zigzagOn ? `Zigzag ON — ${zigzagTarget} kcal today` : 'Zigzag Diet'}
-        </button>
-        {(zigzagOpen||zigzagOn) && (
-          <div style={{marginTop:10,background:'#0c0e16',borderRadius:10,padding:'14px',border:`1px solid ${C.border}`}}>
-            <div style={{marginBottom:12}}>
-              <div style={{...LBL,marginBottom:8}}>Schedule</div>
-              <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:8}}>
-                {[{id:1,label:'Schedule 1',desc:'High weekends, low weekdays'},{id:2,label:'Schedule 2',desc:'Wave — peaks mid-week'}].map(s => (
-                  <button key={s.id} style={{...btn(zigzagSched===s.id,true),textAlign:'left',padding:'10px 12px',display:'block'}} onClick={()=>{setZigzagSched(s.id);onSaveZigzag?.({on:zigzagOn,schedule:s.id,mode:zigzagMode})}}>
-                    <div style={{fontWeight:600}}>{s.label}</div>
-                    <div style={{fontSize:11,color:zigzagSched===s.id?'#000':C.textSub,marginTop:2}}>{s.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{marginBottom:14}}>
-              <div style={{...LBL,marginBottom:8}}>Intensity</div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
-                {Object.entries(ZIGZAG_LABELS).map(([key,label]) => (
-                  <button key={key} style={{...btn(zigzagMode===key,true),textAlign:'center',padding:'8px 6px',fontSize:12}} onClick={()=>{setZigzagMode(key);onSaveZigzag?.({on:zigzagOn,schedule:zigzagSched,mode:key})}}>
-                    <div style={{fontWeight:600,textTransform:'capitalize'}}>{key}</div>
-                    <div style={{fontSize:10,color:zigzagMode===key?'#000':C.textSub,marginTop:2}}>{label.split('(')[1]?.replace(')','')}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{...LBL,marginBottom:8}}>This Week</div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:mobile?3:6}}>
-              {getZigzagWeek(adaptiveTDEE.base,zigzagSched,zigzagMode).map((d,i) => (
-                <div key={i} style={{textAlign:'center',background:d.isToday?'#0a1209':'#0d0f18',border:`1px solid ${d.isToday?C.accent:C.border}`,borderRadius:7,padding:mobile?'6px 2px':'8px 4px'}}>
-                  <div style={{fontSize:10,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:4}}>{d.name}</div>
-                  <div style={{fontFamily:F.mono,fontSize:12,color:d.isToday?C.accent:C.text}}>{d.cals}</div>
-                  <div style={{fontSize:9,color:C.textSub,marginTop:2}}>kcal</div>
-                </div>
-              ))}
-            </div>
-            <div style={{marginTop:10,fontSize:11,color:C.textSub}}>
-              Avg deficit: <strong style={{color:C.text}}>~{adaptiveTDEE.base - Math.round(zigzagTarget ?? adaptiveTDEE.target)} kcal today</strong> · Weekly avg ~{AVG_DEFICIT[zigzagMode]} kcal/day deficit.
-            </div>
           </div>
         )}
       </div>
@@ -990,7 +911,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
 
         {/* Add meal panel */}
         {addOpen && (
-          <div style={{...card({background:'#0c0e16',marginBottom:16})}}>
+          <div style={{...card({background:'rgba(255,255,255,0.02)',marginBottom:16})}}>
             {mealHistory.length > 0 && (
               <div style={{marginBottom:16}}>
                 <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
@@ -999,8 +920,8 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
                 </div>
                 <div style={{display:'flex',flexWrap:'wrap',gap:8,maxHeight:130,overflowY:'auto'}}>
                   {mealHistory.filter(m=>!historySearch||m.name.toLowerCase().includes(historySearch.toLowerCase())).slice(0,historySearch?20:8).map((m,i) => (
-                    <button key={i} onClick={()=>quickAdd(m)} style={{display:'flex',alignItems:'center',gap:8,background:'#13151e',border:`1px solid ${C.border}`,borderRadius:8,padding:'7px 12px',cursor:'pointer',fontFamily:F.body,transition:'all 0.15s',textAlign:'left'}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.background='#0e1a0a'}}
+                    <button key={i} onClick={()=>quickAdd(m)} style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.03)',border:`1px solid ${C.border}`,borderRadius:8,padding:'7px 12px',cursor:'pointer',fontFamily:F.body,transition:'all 0.15s',textAlign:'left'}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.background='rgba(167,139,250,0.08)'}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background='#13151e'}}>
                       <div>
                         <div style={{fontSize:13,color:C.text,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</div>
@@ -1034,7 +955,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
           </div>
           {local.meals.map((m,i) => editIdx === i ? (
             // Inline edit row
-            <div key={i} style={{background:'#0c0e16',borderRadius:8,marginBottom:6,padding:'10px',border:`1px solid ${C.accent}33`}}>
+            <div key={i} style={{background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,padding:'10px',border:`1px solid ${C.accent}33`}}>
               <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr',gap:8,marginBottom:8}}>
                 {[{k:'name',ph:'Food',type:'text'},{k:'cals',ph:'Cal',type:'number'},{k:'protein',ph:'P(g)',type:'number'},{k:'carbs',ph:'C(g)',type:'number'},{k:'fat',ph:'F(g)',type:'number'}].map(({k,ph,type}) => (
                   <input key={k} style={inp({padding:'7px 10px',fontSize:13})} type={type} value={editForm[k]??''} placeholder={ph} onChange={e=>setEditForm(p=>({...p,[k]:e.target.value}))} />
@@ -1043,7 +964,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
               <div style={{display:'flex',gap:8}}><button style={btn(true,true)} onClick={saveEdit}>Save</button><button style={btn(false,true)} onClick={()=>setEditIdx(null)}>Cancel</button></div>
             </div>
           ) : (
-            <div key={i} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'12px 10px',background:'#0c0e16',borderRadius:8,marginBottom:6,alignItems:'center',fontSize:14}}>
+            <div key={i} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'12px 10px',background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,alignItems:'center',fontSize:14}}>
               <span>{m.name}</span>
               <span style={{fontFamily:F.mono,color:C.accent}}>{m.cals}</span>
               <span style={{fontFamily:F.mono,color:C.orange}}>{m.protein}g</span>
@@ -1168,11 +1089,9 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
   const avgOf=fn=>{const v=r7.filter(fn).map(fn);return v.length?Math.round(v.reduce((s,x)=>s+x)/v.length*10)/10:null}
   const avgSleep=avgOf(l=>l.sleep)
   const avgSteps=(()=>{const v=r7.filter(l=>l.steps).map(l=>l.steps);return v.length?Math.round(v.reduce((s,x)=>s+x)/v.length):null})()
-  const avgDW=avgOf(l=>l.deepWork)
   const weightData=logs.filter(l=>l.weight!=null).map(l=>({date:fmtDate(l.date),weight:l.weight,goal:+goalWeight.toFixed(1)}))
   const sleepData=logs.filter(l=>l.sleep!=null).map(l=>({date:fmtDate(l.date),sleep:l.sleep}))
   const stepsData=logs.filter(l=>l.steps!=null).map(l=>({date:fmtDate(l.date),steps:l.steps}))
-  const dwData=logs.filter(l=>l.deepWork!=null).map(l=>({date:fmtDate(l.date),hours:l.deepWork}))
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
       <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
@@ -1227,24 +1146,10 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
           ):<div style={{padding:'50px 0',textAlign:'center',color:C.textSub,fontSize:13}}>Log steps in Today tab</div>}
         </div>
       </div>
-      {dwData.length>1&&(
-        <div style={card()}>
-          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>Deep Work (hrs)</div>
-          <ResponsiveContainer width="100%" height={150}>
-            <BarChart data={dwData} margin={{top:5,right:5,bottom:5,left:-20}}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
-              <XAxis dataKey="date" tick={{fill:C.textSub,fontSize:10}} tickLine={false} axisLine={false}/>
-              <YAxis tick={{fill:C.textSub,fontSize:10}} tickLine={false} axisLine={false}/>
-              <Tooltip {...TT}/><ReferenceLine y={4} stroke={C.orange} strokeDasharray="4 4"/>
-              <Bar dataKey="hours" fill={C.orange} opacity={0.85} radius={[3,3,0,0]} name="Hours"/>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
       <div style={card()}>
         <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>7-Day Averages</div>
-        <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'repeat(3,1fr)',gap:16,textAlign:'center'}}>
-          {[{val:avgSleep,target:7,unit:'hrs',label:'Avg Sleep',color:C.blue},{val:avgSteps?Math.round(avgSteps/1000*10)/10:null,target:(setup.stepGoal||10000)/1000,unit:'k steps',label:'Avg Steps',color:C.purple},{val:avgDW,target:4,unit:'hrs',label:'Avg Deep Work',color:C.orange}].map(({val,target,unit,label,color})=>(
+        <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr':'repeat(2,1fr)',gap:16,textAlign:'center'}}>
+          {[{val:avgSleep,target:7,unit:'hrs',label:'Avg Sleep',color:C.blue},{val:avgSteps?Math.round(avgSteps/1000*10)/10:null,target:(setup.stepGoal||10000)/1000,unit:'k steps',label:'Avg Steps',color:C.purple}].map(({val,target,unit,label,color})=>(
             <div key={label}>
               <div style={{fontFamily:F.mono,fontSize:26,color}}>{val??'—'}{val!=null?` ${unit}`:''}</div>
               <div style={{fontSize:12,color:C.textSub,marginTop:4}}>{label}</div>
@@ -1326,13 +1231,18 @@ function InBodyTab({ scans, onAdd, setup }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PLAN TAB — Fasting day manager
+   SCHEDULE TAB — Calorie strategy + fasting manager
 ═══════════════════════════════════════════════════════════════ */
-function PlanTab({ planSettings, onSavePlanSettings }) {
+function PlanTab({ planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag }) {
   const mobile = useIsMobile()
   const today = todayStr()
 
-  // Current week Mon→Sun
+  const [zigzagSched, setZigzagSched] = useState(zigzagSettings?.schedule || 1)
+  const [zigzagMode,  setZigzagMode]  = useState(zigzagSettings?.mode || 'weight')
+  const [zigzagOn,    setZigzagOn]    = useState(zigzagSettings?.on || false)
+
+  const zigzagTarget = useMemo(() => zigzagOn ? getZigzagTarget(adaptiveTDEE.base, zigzagSched, zigzagMode) : null, [zigzagOn, adaptiveTDEE.base, zigzagSched, zigzagMode])
+
   const weekDates = useMemo(() => {
     const d = new Date(), day = d.getDay() || 7
     const mon = new Date(d); mon.setDate(d.getDate() - day + 1)
@@ -1341,7 +1251,6 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
 
   const dowOf  = dateStr => new Date(dateStr + 'T12:00:00').getDay()
   const isFast = dateStr => (planSettings?.fastingDays||[]).includes(dowOf(dateStr))
-
   const toggleFastDay = dow => {
     const cur = planSettings.fastingDays || []
     onSavePlanSettings({ ...planSettings, fastingDays: cur.includes(dow) ? cur.filter(d=>d!==dow) : [...cur, dow] })
@@ -1350,17 +1259,88 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
 
-      {/* Week strip — fasting day visualizer */}
+      {/* Calorie Strategy */}
+      <div style={card()}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
+          <div style={{fontFamily:F.head,fontWeight:700,fontSize:16}}>Calorie Strategy</div>
+          <div style={{display:'flex',gap:6}}>
+            {adaptiveTDEE.isDataDriven && <span style={{fontSize:10,color:C.accent,background:'rgba(167,139,250,0.12)',border:`1px solid ${C.accent}44`,padding:'3px 10px',borderRadius:20,fontWeight:700}}>DATA-DRIVEN</span>}
+            {adaptiveTDEE.isManual && <span style={{fontSize:10,color:C.purple,background:'rgba(167,139,250,0.12)',border:`1px solid ${C.accent}44`,padding:'3px 10px',borderRadius:20,fontWeight:700}}>MANUAL</span>}
+          </div>
+        </div>
+        {!adaptiveTDEE.isManual && [{label:'Maintenance TDEE',val:`${adaptiveTDEE.base} kcal`,color:C.text},{label:'Daily Deficit',val:`−${adaptiveTDEE.deficit} kcal`,color:C.red}].map(({label,val,color}) => (
+          <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
+            <span style={{color:C.textSub}}>{label}</span><span style={{fontFamily:F.mono,color}}>{val}</span>
+          </div>
+        ))}
+        <div style={{display:'flex',justifyContent:'space-between',padding:'14px 0 4px',fontSize:15,fontWeight:600}}>
+          <span>Base Daily Target</span><span style={{fontFamily:F.mono,color:C.accent,fontSize:24}}>{zigzagOn ? zigzagTarget : adaptiveTDEE.target} kcal</span>
+        </div>
+        <div style={{marginTop:12,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
+          💪 Protein locked at <strong style={{color:C.orange}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after 7 days of logging'}
+        </div>
+      </div>
+
+      {/* Zigzag scheduler */}
+      <div style={card()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div>
+            <div style={{fontFamily:F.head,fontWeight:700,fontSize:16}}>Zigzag Cycling</div>
+            <div style={{fontSize:12,color:C.textSub,marginTop:3}}>Vary calories across the week, same weekly deficit</div>
+          </div>
+          <button style={btn(zigzagOn,true)} onClick={()=>{ const n=!zigzagOn; setZigzagOn(n); onSaveZigzag?.({on:n,schedule:zigzagSched,mode:zigzagMode}) }}>
+            {zigzagOn ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        {zigzagOn && (
+          <div style={{marginTop:16}}>
+            <div style={{marginBottom:14}}>
+              <div style={{...LBL,marginBottom:8}}>Schedule</div>
+              <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:8}}>
+                {[{id:1,label:'Schedule 1',desc:'High weekends, low weekdays'},{id:2,label:'Schedule 2',desc:'Wave — peaks mid-week'}].map(s => (
+                  <button key={s.id} style={{...btn(zigzagSched===s.id,true),textAlign:'left',padding:'11px 14px',display:'block'}} onClick={()=>{setZigzagSched(s.id);onSaveZigzag?.({on:zigzagOn,schedule:s.id,mode:zigzagMode})}}>
+                    <div style={{fontWeight:600}}>{s.label}</div>
+                    <div style={{fontSize:11,color:zigzagSched===s.id?'#0a0612':C.textSub,marginTop:2}}>{s.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{marginBottom:16}}>
+              <div style={{...LBL,marginBottom:8}}>Intensity</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+                {Object.entries(ZIGZAG_LABELS).map(([key,label]) => (
+                  <button key={key} style={{...btn(zigzagMode===key,true),textAlign:'center',padding:'9px 6px',fontSize:12}} onClick={()=>{setZigzagMode(key);onSaveZigzag?.({on:zigzagOn,schedule:zigzagSched,mode:key})}}>
+                    <div style={{fontWeight:600,textTransform:'capitalize'}}>{key}</div>
+                    <div style={{fontSize:10,color:zigzagMode===key?'#0a0612':C.textSub,marginTop:2}}>{label.split('(')[1]?.replace(')','')}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{...LBL,marginBottom:8}}>This Week</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:mobile?3:6}}>
+              {getZigzagWeek(adaptiveTDEE.base,zigzagSched,zigzagMode).map((d,i) => (
+                <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:mobile?'7px 2px':'9px 4px'}}>
+                  <div style={{fontSize:10,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:4}}>{d.name}</div>
+                  <div style={{fontFamily:F.mono,fontSize:12,color:d.isToday?C.accent:C.text}}>{d.cals}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:12,fontSize:11,color:C.textFaint}}>
+              Weekly average ~{AVG_DEFICIT[zigzagMode]} kcal/day deficit.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Week strip — fasting visualizer */}
       <div style={card()}>
         <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:14}}>This Week</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8}}>
           {weekDates.map((date) => {
-            const isToday    = date===today
-            const fasting    = isFast(date)
-            const dayName    = DAY_NAMES[dowOf(date)]
-            const dayNum     = new Date(date+'T12:00:00').getDate()
+            const isToday = date===today, fasting = isFast(date)
+            const dayName = DAY_NAMES[dowOf(date)], dayNum = new Date(date+'T12:00:00').getDate()
             return (
-              <div key={date} style={{textAlign:'center',background:fasting?'#0e1e30':isToday?'#0a1209':'#0c0e14',border:`1px solid ${fasting?'#1a4a7a':isToday?C.accent+'44':C.border}`,borderRadius:10,padding:'12px 6px'}}>
+              <div key={date} style={{textAlign:'center',background:fasting?'rgba(106,169,245,0.12)':isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${fasting?C.blue+'66':isToday?C.accent+'66':C.borderSoft}`,borderRadius:12,padding:'12px 6px'}}>
                 <div style={{fontSize:11,color:fasting?C.blue:isToday?C.accent:C.textSub,fontWeight:isToday?700:400,marginBottom:4}}>{dayName}</div>
                 <div style={{fontFamily:F.mono,fontSize:16,color:fasting?C.blue:isToday?C.accent:C.text,marginBottom:6}}>{dayNum}</div>
                 {fasting && <div style={{fontSize:10,color:C.blue,fontWeight:600,letterSpacing:'0.06em'}}>FAST</div>}
@@ -1374,14 +1354,13 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
       {/* Fasting settings */}
       <div style={card()}>
         <div style={{fontFamily:F.head,fontWeight:700,fontSize:16,marginBottom:20}}>Fasting Days</div>
-
         <div style={{marginBottom:24}}>
-          <label style={LBL}>Recurring fasting days — click to toggle</label>
+          <label style={LBL}>Recurring fasting days — tap to toggle</label>
           <div style={{display:'flex',gap:8}}>
             {DAY_NAMES.map((name,i)=>{
               const isOn = (planSettings.fastingDays||[]).includes(i)
               return (
-                <button key={i} style={{...btn(isOn,true),flex:1,padding:'10px 0',fontSize:12,display:'block',textAlign:'center',...(isOn?{background:'#0e1e30',borderColor:C.blue,color:C.blue}:{})}} onClick={()=>toggleFastDay(i)}>
+                <button key={i} style={{...btn(isOn,true),flex:1,padding:'10px 0',fontSize:12,display:'block',textAlign:'center',...(isOn?{background:`linear-gradient(135deg, ${C.blue}, #4a8fd6)`,color:'#04101e'}:{})}} onClick={()=>toggleFastDay(i)}>
                   <div style={{fontWeight:600}}>{name}</div>
                   {isOn && <div style={{fontSize:10,marginTop:3,opacity:0.8}}>FAST</div>}
                 </button>
@@ -1389,31 +1368,19 @@ function PlanTab({ planSettings, onSavePlanSettings }) {
             })}
           </div>
         </div>
-
         <div>
           <label style={LBL}>On fasting days, calorie target</label>
           <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:12}}>
             <button style={{...btn(!planSettings.fastCompensation),textAlign:'left',padding:'16px 18px',display:'block',height:'auto'}} onClick={()=>onSavePlanSettings({...planSettings,fastCompensation:false})}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>🚫 Full Fast</div>
-              <div style={{fontSize:12,color:!planSettings.fastCompensation?'#000':C.textSub}}>0 kcal — maximum deficit. Autophagy benefits after ~16h.</div>
+              <div style={{fontSize:12,color:!planSettings.fastCompensation?'#0a0612':C.textSub}}>0 kcal — maximum deficit. Autophagy benefits after ~16h.</div>
             </button>
             <button style={{...btn(planSettings.fastCompensation),textAlign:'left',padding:'16px 18px',display:'block',height:'auto'}} onClick={()=>onSavePlanSettings({...planSettings,fastCompensation:true})}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>⚡ 25% Compensation</div>
-              <div style={{fontSize:12,color:planSettings.fastCompensation?'#000':C.textSub}}>Eat 25% of normal target — gentler deficit, more sustainable.</div>
+              <div style={{fontSize:12,color:planSettings.fastCompensation?'#0a0612':C.textSub}}>Eat 25% of normal target — gentler, more sustainable.</div>
             </button>
           </div>
         </div>
-
-        {(planSettings.fastingDays||[]).length > 0 && (
-          <div style={{marginTop:20,padding:'14px 16px',background:'#0a0c12',borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.textSub}}>
-            <div style={{color:C.text,fontWeight:600,marginBottom:6}}>How it works</div>
-            On your selected fasting days, the Today tab automatically switches to fasting mode.
-            {planSettings.fastCompensation
-              ? ` You'll be able to eat 25% of your normal daily target.`
-              : ` Your calorie target is 0 — full deficit locked in.`}
-            {' '}You can always override it manually from the Today tab.
-          </div>
-        )}
       </div>
     </div>
   )
@@ -1447,7 +1414,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const emptyLog = () => ({ date:todayStr(), weight:null, sleep:null, sleepQuality:null, steps:null, deepWork:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
+  const emptyLog = () => ({ date:todayStr(), weight:null, sleep:null, sleepQuality:null, steps:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
 
   const loadData = useCallback(async () => {
     setDataReady(false)
@@ -1526,7 +1493,7 @@ export default function App() {
   const daysLeft     = Math.max(0, 60 - dayCount + 1)
 
   return (
-    <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #0e1410 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
+    <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #14101e 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
@@ -1534,7 +1501,7 @@ export default function App() {
       {tab==='nutrition' && <NutritionTab log={todayLog} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
-      {tab==='plan'      && <PlanTab      planSettings={planSettings} onSavePlanSettings={savePlanSettings}/>}
+      {tab==='plan'      && <PlanTab      planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
       {tab==='workout'   && <WorkoutTab />}
     </div>
   )
