@@ -838,8 +838,8 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
             </div>
             {(!planSettings?.fastCompensation || !fastCompTarget) && (
               <div style={{ marginLeft:12, textAlign:'center', paddingLeft:18, borderLeft:`1px solid ${C.border}` }}>
-                <div style={{ fontFamily:F.mono, fontSize:30, fontWeight:700, color:C.accent }}>{adaptiveTDEE.target}</div>
-                <div style={{ fontSize:10.5, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.1em', marginTop:4 }}>kcal deficit</div>
+                <div style={{ fontFamily:F.mono, fontSize:30, fontWeight:700, color:C.accent }}>−{adaptiveTDEE.base}</div>
+                <div style={{ fontSize:10.5, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.1em', marginTop:4 }}>kcal deficit today</div>
               </div>
             )}
           </div>
@@ -1247,7 +1247,17 @@ function PlanTab({ planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzag
   const [zigzagMode,  setZigzagMode]  = useState(zigzagSettings?.mode || 'weight')
   const [zigzagOn,    setZigzagOn]    = useState(zigzagSettings?.on || false)
 
-  const zigzagTarget = useMemo(() => zigzagOn ? getZigzagTarget(adaptiveTDEE.base, zigzagSched, zigzagMode) : null, [zigzagOn, adaptiveTDEE.base, zigzagSched, zigzagMode])
+  // Resolve today's target through the SAME engine path as the Today tab
+  const todayDow      = new Date().getDay()
+  const isFastingToday= (planSettings?.fastingDays || []).includes(todayDow)
+  const resolvedToday = useMemo(() => resolveTarget({
+    baseTarget: adaptiveTDEE.target,
+    tdeeBase:   adaptiveTDEE.base,
+    regime:     zigzagOn ? 'zigzag' : 'steady',
+    zigzag:     { schedule: zigzagSched, mode: zigzagMode },
+    fasting:    { isFasting: isFastingToday, compensation: !!planSettings?.fastCompensation },
+  }), [adaptiveTDEE.target, adaptiveTDEE.base, zigzagOn, zigzagSched, zigzagMode, isFastingToday, planSettings])
+  const todayTarget = resolvedToday.calTarget
 
   const weekDates = useMemo(() => {
     const d = new Date(), day = d.getDay() || 7
@@ -1280,8 +1290,12 @@ function PlanTab({ planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzag
           </div>
         ))}
         <div style={{display:'flex',justifyContent:'space-between',padding:'14px 0 4px',fontSize:15,fontWeight:600}}>
-          <span>Base Daily Target</span><span style={{fontFamily:F.mono,color:C.accent,fontSize:24}}>{zigzagOn ? zigzagTarget : adaptiveTDEE.target} kcal</span>
+          <span>{isFastingToday ? "Today's Target (Fasting)" : "Today's Target"}</span>
+          <span style={{fontFamily:F.mono,color:isFastingToday?C.blue:C.accent,fontSize:24}}>{todayTarget} kcal</span>
         </div>
+        {isFastingToday && (
+          <div style={{fontSize:11,color:C.blue,marginBottom:4}}>🚫 Fasting day — {planSettings?.fastCompensation ? '25% compensation' : 'full fast'}</div>
+        )}
         <div style={{marginTop:12,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
           💪 Protein locked at <strong style={{color:C.orange}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after 7 days of logging'}
         </div>
