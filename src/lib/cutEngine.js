@@ -205,9 +205,11 @@ export function paceController({
   const idealRateKg = currentWeight * IDEAL_RATE
 
   // ── COLD START: don't recommend anything until we've actually learned ──
-  // Needs ~10 logged days AND a real measured rate before judging pace.
-  if (!hasRate || dataDays < 10) {
-    const daysToGo = Math.max(0, 10 - dataDays)
+  // Needs ~7 logged days AND a real measured rate before judging pace.
+  // (matches estimateTDEE's 5-day floor + projection's 7-day window)
+  const LEARN_DAYS = 7
+  if (!hasRate || dataDays < LEARN_DAYS) {
+    const daysToGo = Math.max(0, LEARN_DAYS - dataDays)
     return {
       status: 'learning',
       headline: dataDays === 0 ? 'Just getting started' : `Learning your body — ${daysToGo} more day${daysToGo === 1 ? '' : 's'} of data`,
