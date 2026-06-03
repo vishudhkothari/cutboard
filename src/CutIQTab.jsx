@@ -1,0 +1,318 @@
+import { useState, useEffect, useMemo } from 'react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from 'recharts'
+import { store } from './lib/store'
+import {
+  trendWeight, currentTrendWeight, estimateTDEE,
+  inferBodyComp, projectGoal, paceController,
+} from './lib/cutEngine'
+
+/* shared tokens (match App.jsx monochrome-violet) */
+const C = {
+  bg:'#0a0a0c', surface:'#141417', surfaceAlt:'#1b1b20', border:'#26262d', borderSoft:'#1e1e24',
+  accent:'#a78bfa', accentDim:'#8b6df0', text:'#f4f4f6', textSub:'#85858f', textFaint:'#4d4d56',
+  red:'#f0566f', orange:'#f0964d', blue:'#6aa9f5', purple:'#a78bfa', gold:'#e0b94d', teal:'#4dd4c0'
+}
+const F = { head:"'Syne',sans-serif", mono:"'Space Mono',monospace", body:"'DM Sans',sans-serif" }
+const SHADOW = '0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -14px rgba(0,0,0,0.6)'
+const GLOW = c => `0 0 0 1px ${c}30, 0 6px 24px -8px ${c}50`
+const card = (x={}) => ({ background:`linear-gradient(165deg, ${C.surface} 0%, #101013 100%)`, border:`1px solid ${C.border}`, borderRadius:18, padding:'18px 20px', boxShadow:SHADOW, ...x })
+const btn = (a=false,sm=false) => ({ background:a?`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`:'rgba(255,255,255,0.025)', color:a?'#0a0612':C.text, border:`1px solid ${a?'transparent':C.border}`, borderRadius:12, padding:sm?'7px 14px':'11px 20px', cursor:'pointer', fontFamily:F.body, fontSize:sm?13:14, fontWeight:a?700:500, transition:'all 0.18s', boxShadow:a?GLOW(C.accent):'none' })
+const inp = (x={}) => ({ background:'#0c0c0f', border:`1px solid ${C.border}`, borderRadius:12, padding:'11px 14px', color:C.text, fontFamily:F.body, fontSize:14, width:'100%', boxSizing:'border-box', outline:'none', ...x })
+const LBL = { fontSize:10.5, color:C.textSub, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6, display:'block' }
+const TT = { contentStyle:{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, fontFamily:F.body, fontSize:12, color:C.text, boxShadow:SHADOW }, cursor:{stroke:C.border} }
+
+function useIsMobile() {
+  const [m,setM] = useState(()=>window.innerWidth<768)
+  useEffect(()=>{ const fn=()=>setM(window.innerWidth<768); addEventListener('resize',fn); return()=>removeEventListener('resize',fn) },[])
+  return m
+}
+
+const fmtD = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
+const STATUS_COLOR = {
+  on_track:C.teal, lever_steps:C.blue, lever_cardio:C.purple, lever_calories:C.orange,
+  too_fast:C.orange, muscle_risk:C.red, too_slow:C.gold,
+}
+const STRENGTH_OPTS = [
+  { id:'up',          label:'Up 💪',        desc:'Lifts climbing' },
+  { id:'same',        label:'Holding',       desc:'Same as last week' },
+  { id:'slight_down', label:'Slight dip',    desc:'A little weaker' },
+  { id:'down',        label:'Down',          desc:'Clearly weaker' },
+]
+
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
+  const mobile = useIsMobile()
+  const [cutData, setCutData] = useState(null)   // { anchor, strengthSignal, strengthWeek, cardioMin }
+  const [loaded,  setLoaded]  = useState(false)
+  const [editAnchor, setEditAnchor] = useState(false)
+  const [anchorForm, setAnchorForm] = useState({ weight:'', bf:'' })
+
+  useEffect(()=>{
+    store.get('cut_intel').then(d=>{
+      setCutData(d || { anchor:null, strengthSignal:null, strengthWeek:null, cardioMin:0 })
+      setLoaded(true)
+    })
+  },[])
+
+  const save = async next => { await store.set('cut_intel', next); setCutData(next) }
+
+  // ── derived model outputs ──────────────────────────────────
+  const trend       = useMemo(()=>trendWeight(allLogs), [allLogs])
+  const trendNow    = useMemo(()=>currentTrendWeight(allLogs), [allLogs])
+  const tdeeEst     = useMemo(()=>estimateTDEE(allLogs), [allLogs])
+  const weeksIntoCut= setup?.startDate ? Math.max(0,(Date.now()-new Date(setup.startDate))/604800000) : 0
+
+  const anchor = cutData?.anchor || (setup ? {
+    date: setup.startDate, weight: setup.startWeight, bf: setup.startBF
+  } : null)
+
+  const bodyComp = useMemo(()=> setup && anchor ? inferBodyComp({
+    logs:allLogs, anchor, strengthSignal:cutData?.strengthSignal, startDate:setup.startDate
+  }) : null, [allLogs, anchor, cutData?.strengthSignal, setup])
+
+  const currentBF = bodyComp?.bf ?? anchor?.bf
+  const leanMass  = anchor ? anchor.weight * (1 - anchor.bf/100) : null
+  const curWeight = trendNow ?? setup?.startWeight
+
+  const projection = useMemo(()=> setup && leanMass && currentBF ? projectGoal({
+    logs:allLogs, currentBF, goalBF:setup.goalBF, currentWeight:curWeight, leanMass
+  }) : null, [allLogs, currentBF, setup, curWeight, leanMass])
+
+  const daysLeft = setup?.startDate ? Math.max(1, 60 - Math.floor((Date.now()-new Date(setup.startDate))/86400000)) : 60
+
+  const pace = useMemo(()=> setup && leanMass ? paceController({
+    currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, daysLeft,
+    actualWeeklyRateKg: tdeeEst?.weeklyRateKg ?? 0,
+    currentSteps: setup.stepGoal || 10000,
+    currentCardioMin: cutData?.cardioMin || 0,
+    strengthSignal: cutData?.strengthSignal,
+  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData])
+
+  // weekly strength check-in due?
+  const thisWeek = Math.floor(weeksIntoCut)
+  const checkInDue = cutData?.strengthWeek !== thisWeek
+
+  if (!loaded) return <div style={{ textAlign:'center', padding:'60px 0', color:C.accent, fontFamily:F.mono }}>Loading…</div>
+  if (!setup) return <div style={{ textAlign:'center', padding:'60px 0', color:C.textSub }}>Complete setup first</div>
+
+  const chartData = trend.map(t => ({ date:fmtD(t.date), raw:t.raw, trend:t.trend }))
+
+  return (
+    <div style={{ padding:mobile?12:20, maxWidth:980, margin:'0 auto', display:'grid', gap:mobile?10:16 }}>
+
+      {/* ─── HERO: Projection ─── */}
+      <div style={card({ background:`linear-gradient(165deg, #16111f 0%, #0d0b13 100%)`, border:`1px solid ${C.accent}33` })}>
+        <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:16 }}>
+          <span style={{ fontSize:18 }}>🎯</span>
+          <div style={{ fontFamily:F.head, fontWeight:800, fontSize:17 }}>Cut Intelligence</div>
+        </div>
+
+        {projection?.reached ? (
+          <div style={{ textAlign:'center', padding:'20px 0' }}>
+            <div style={{ fontSize:40, marginBottom:8 }}>🏆</div>
+            <div style={{ fontFamily:F.head, fontWeight:800, fontSize:22, color:C.teal }}>Goal reached!</div>
+          </div>
+        ) : projection?.stalled ? (
+          <div style={{ textAlign:'center', padding:'14px 0' }}>
+            <div style={{ fontFamily:F.head, fontWeight:800, fontSize:20, color:C.gold }}>Trend is flat right now</div>
+            <div style={{ fontSize:13, color:C.textSub, marginTop:6 }}>Not enough downward movement to project. Check the coach panel below.</div>
+          </div>
+        ) : projection ? (
+          <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr':'1.2fr 1fr', gap:18 }}>
+            <div>
+              <div style={LBL}>Projected to hit {setup.goalBF}% body fat</div>
+              <div style={{ fontFamily:F.head, fontWeight:800, fontSize:mobile?26:30, color:C.accent, lineHeight:1.1 }}>
+                {fmtD(projection.dateMid)}
+              </div>
+              <div style={{ fontSize:12, color:C.textSub, marginTop:6 }}>
+                Range: {fmtD(projection.dateFast)} – {fmtD(projection.dateSlow)}
+              </div>
+              <div style={{ fontSize:12, color:C.textFaint, marginTop:4 }}>
+                ~{projection.weeksMid} weeks · {projection.kgToGo} kg to goal weight ({projection.goalWeight} kg)
+              </div>
+            </div>
+            <div style={{ display:'grid', gap:8 }}>
+              {[
+                { label:'Current (trend)', val:`${curWeight?.toFixed(1)} kg`, color:C.text },
+                { label:'Est. body fat',   val:`${currentBF?.toFixed(1)}%`,   color:C.orange },
+                { label:'Losing',          val:`${Math.abs(projection.meanRateKg)} kg/wk`, color:C.teal },
+              ].map(s=>(
+                <div key={s.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(255,255,255,0.02)', borderRadius:11, padding:'9px 13px' }}>
+                  <span style={{ fontSize:12, color:C.textSub }}>{s.label}</span>
+                  <span style={{ fontFamily:F.mono, fontSize:15, color:s.color, fontWeight:700 }}>{s.val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign:'center', padding:'14px 0', color:C.textSub, fontSize:13 }}>
+            Log weight daily for ~7 days to unlock your projection.
+          </div>
+        )}
+      </div>
+
+      {/* ─── COACH: Pace controller ─── */}
+      {pace && (
+        <div style={card({ borderLeft:`3px solid ${STATUS_COLOR[pace.status]||C.accent}` })}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:6 }}>
+            <span style={{ fontSize:17 }}>🧭</span>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:STATUS_COLOR[pace.status]||C.accent }}>{pace.headline}</div>
+          </div>
+
+          {pace.goalTooAggressive && (
+            <div style={{ background:'rgba(240,86,111,0.1)', border:`1px solid ${C.red}33`, borderRadius:11, padding:'11px 14px', fontSize:12.5, color:C.text, lineHeight:1.55, margin:'10px 0' }}>
+              <strong style={{ color:C.red }}>Honest take:</strong> hitting {setup.goalBF}% in {daysLeft} days needs {pace.requiredPct}%/wk —
+              above the safe muscle-sparing ceiling (~1%/wk). You can push for it, but expect some muscle loss.
+              The projection above shows your realistic clean-cut date.
+            </div>
+          )}
+
+          <div style={{ display:'grid', gap:7, marginTop:10 }}>
+            {pace.actions.map((a,i)=>(
+              <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start', fontSize:12.5, color:C.text, opacity:0.85, lineHeight:1.5 }}>
+                <span style={{ color:STATUS_COLOR[pace.status]||C.accent, flexShrink:0 }}>›</span>{a}
+              </div>
+            ))}
+          </div>
+
+          {/* Zone 2 cardio prescription */}
+          {pace.cardioRx && (
+            <div style={{ marginTop:12, background:'rgba(167,139,250,0.08)', border:`1px solid ${C.purple}33`, borderRadius:12, padding:'13px 15px' }}>
+              <div style={{ fontFamily:F.head, fontWeight:700, fontSize:13, color:C.purple, marginBottom:8 }}>🚴 Zone 2 Prescription</div>
+              {[
+                ['Dose', `${pace.cardioRx.sessions} (${pace.cardioRx.weeklyMin} min/week)`],
+                ['Intensity', pace.cardioRx.intensity],
+                ['What', pace.cardioRx.what],
+                ['When', pace.cardioRx.when],
+              ].map(([k,v])=>(
+                <div key={k} style={{ display:'flex', gap:10, fontSize:12, marginBottom:5 }}>
+                  <span style={{ color:C.textSub, width:64, flexShrink:0 }}>{k}</span>
+                  <span style={{ color:C.text }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* rate readout */}
+          <div style={{ display:'flex', gap:14, marginTop:14, paddingTop:14, borderTop:`1px solid ${C.borderSoft}`, fontSize:11, color:C.textSub, flexWrap:'wrap' }}>
+            <span>Need: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.requiredRateKg} kg/wk</strong></span>
+            <span>Actual: <strong style={{ color:C.teal, fontFamily:F.mono }}>{pace.actualRateKg} kg/wk</strong></span>
+            <span>Safe max: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.safeRateKg} kg/wk</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Weekly strength check-in ─── */}
+      <div style={card(checkInDue ? { border:`1px solid ${C.accent}55`, boxShadow:GLOW(C.accent) } : {})}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>Weekly Strength Check-in</div>
+          {checkInDue && <span style={{ fontSize:10, color:C.accent, background:'rgba(167,139,250,0.12)', border:`1px solid ${C.accent}44`, padding:'3px 10px', borderRadius:20, fontWeight:700 }}>DUE</span>}
+        </div>
+        <div style={{ fontSize:12.5, color:C.textSub, marginBottom:14, lineHeight:1.5 }}>
+          Keep logging in Hevy — just tell me how your main lifts feel vs last week. This drives the fat-vs-muscle model.
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr 1fr':'repeat(4,1fr)', gap:8 }}>
+          {STRENGTH_OPTS.map(o=>(
+            <button key={o.id} onClick={()=>save({ ...cutData, strengthSignal:o.id, strengthWeek:thisWeek })}
+              style={{ ...btn(cutData?.strengthSignal===o.id,true), flexDirection:'column', display:'flex', alignItems:'center', gap:3, padding:'12px 6px', textAlign:'center' }}>
+              <span style={{ fontWeight:700 }}>{o.label}</span>
+              <span style={{ fontSize:10, color:cutData?.strengthSignal===o.id?'#0a0612':C.textSub }}>{o.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── Trend weight chart ─── */}
+      <div style={card()}>
+        <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:4 }}>Weight Trend</div>
+        <div style={{ fontSize:12, color:C.textSub, marginBottom:14 }}>Faint = daily scale · Bold = smoothed trend (ignores water noise)</div>
+        {chartData.length > 1 ? (
+          <ResponsiveContainer width="100%" height={210}>
+            <ComposedChart data={chartData} margin={{ top:5, right:8, bottom:5, left:-18 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.borderSoft} vertical={false} />
+              <XAxis dataKey="date" tick={{ fill:C.textSub, fontSize:10 }} tickLine={false} axisLine={false} minTickGap={28} />
+              <YAxis domain={['dataMin - 0.5','dataMax + 0.5']} tick={{ fill:C.textSub, fontSize:10 }} tickLine={false} axisLine={false} />
+              <Tooltip {...TT} />
+              <Line type="monotone" dataKey="raw" stroke={C.textFaint} strokeWidth={1} dot={false} name="Scale" />
+              <Line type="monotone" dataKey="trend" stroke={C.accent} strokeWidth={2.5} dot={false} name="Trend" />
+              {projection?.goalWeight && <ReferenceLine y={projection.goalWeight} stroke={C.teal} strokeDasharray="5 4" label={{ value:`Goal ${projection.goalWeight}kg`, fill:C.teal, fontSize:10, position:'insideTopRight' }} />}
+            </ComposedChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign:'center', padding:'30px 0', color:C.textFaint, fontSize:13 }}>Need a few daily weigh-ins to draw the trend.</div>
+        )}
+      </div>
+
+      {/* ─── Body composition + re-anchor ─── */}
+      <div style={card()}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>Body Composition</div>
+          <button style={btn(false,true)} onClick={()=>{ setAnchorForm({ weight:curWeight?.toFixed(1)||'', bf:'' }); setEditAnchor(true) }}>Re-anchor</button>
+        </div>
+        {bodyComp ? (
+          <>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
+              {[
+                { label:'Est. BF%',   val:`${bodyComp.bf}%`,         color:C.orange },
+                { label:'Fat lost',   val:`${bodyComp.fatLost} kg`,  color:C.teal },
+                { label:'Lean lost',  val:`${bodyComp.leanLost} kg`, color:bodyComp.leanLost>1?C.red:C.textSub },
+              ].map(s=>(
+                <div key={s.label} style={{ textAlign:'center', background:'rgba(255,255,255,0.02)', borderRadius:12, padding:'14px 8px', border:`1px solid ${C.borderSoft}` }}>
+                  <div style={{ fontFamily:F.mono, fontSize:20, fontWeight:700, color:s.color }}>{s.val}</div>
+                  <div style={{ fontSize:11, color:C.textSub, marginTop:4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize:11.5, color:C.textFaint, lineHeight:1.5 }}>
+              Of {bodyComp.massLost} kg lost since anchor, ~{Math.round(bodyComp.fatFractionUsed*100)}% modelled as fat
+              {cutData?.strengthSignal ? ` (from your "${STRENGTH_OPTS.find(o=>o.id===cutData.strengthSignal)?.label}" strength signal)` : ' (default — log a strength check-in to refine)'}.
+              Scales lie day-to-day; re-anchor from a progress photo or your Realme reading when you trust it.
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize:13, color:C.textSub }}>Set an anchor and log weight to estimate composition.</div>
+        )}
+
+        {editAnchor && (
+          <div style={{ marginTop:14, background:'rgba(255,255,255,0.02)', borderRadius:12, padding:14, border:`1px solid ${C.border}` }}>
+            <div style={{ ...LBL, marginBottom:10 }}>Re-anchor body fat (use your Realme reading or honest visual)</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+              <div><label style={LBL}>Weight (kg)</label><input style={inp()} type="number" step="0.1" value={anchorForm.weight} onChange={e=>setAnchorForm(p=>({...p,weight:e.target.value}))} /></div>
+              <div><label style={LBL}>Body fat %</label><input style={inp()} type="number" step="0.1" value={anchorForm.bf} placeholder="e.g. 19" onChange={e=>setAnchorForm(p=>({...p,bf:e.target.value}))} /></div>
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button style={btn(true,true)} onClick={()=>{
+                if(!anchorForm.weight||!anchorForm.bf) return
+                save({ ...cutData, anchor:{ date:new Date().toISOString().slice(0,10), weight:+anchorForm.weight, bf:+anchorForm.bf } })
+                setEditAnchor(false)
+              }}>Save Anchor</button>
+              <button style={btn(false,true)} onClick={()=>setEditAnchor(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Live TDEE estimate ─── */}
+      {tdeeEst && (
+        <div style={card()}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}>Live TDEE Estimate</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+            {[
+              { label:'Real TDEE',   val:`${tdeeEst.tdee}`,       color:C.accent },
+              { label:'Avg intake',  val:`${tdeeEst.avgIntake}`,  color:C.text },
+              { label:'Rate',        val:`${tdeeEst.weeklyRateKg} kg/wk`, color:tdeeEst.weeklyRateKg<0?C.teal:C.orange },
+            ].map(s=>(
+              <div key={s.label} style={{ textAlign:'center', background:'rgba(255,255,255,0.02)', borderRadius:12, padding:'14px 8px', border:`1px solid ${C.borderSoft}` }}>
+                <div style={{ fontFamily:F.mono, fontSize:19, fontWeight:700, color:s.color }}>{s.val}</div>
+                <div style={{ fontSize:11, color:C.textSub, marginTop:4 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:11.5, color:C.textFaint, marginTop:12, lineHeight:1.5 }}>
+            Calculated from {tdeeEst.dataPoints} logged days over {tdeeEst.spanDays} days, using your trend weight (not raw scale). Self-corrects for week-1 water weight.
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}

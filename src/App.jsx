@@ -16,6 +16,7 @@ import {
 import { supabase } from './lib/supabase'
 import { store } from './lib/store'
 import WorkoutTab from './WorkoutTab'
+import CutIQTab from './CutIQTab'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -409,6 +410,7 @@ const TABS = [
   {id:'today',     label:'📋 Today',     short:'📋'},
   {id:'nutrition', label:'🥗 Nutrition', short:'🥗'},
   {id:'progress',  label:'📈 Progress',  short:'📈'},
+  {id:'cutiq',     label:'🎯 Cut IQ',   short:'🎯'},
   {id:'inbody',    label:'🔬 InBody',    short:'🔬'},
   {id:'plan',      label:'📅 Schedule', short:'📅'},
   {id:'workout',   label:'💪 Workout',   short:'💪'},
@@ -416,8 +418,9 @@ const TABS = [
 function TabBar({ tab, setTab }) {
   const mobile = useIsMobile()
   if (mobile) {
-    const row1 = TABS.slice(0, 3)
-    const row2 = TABS.slice(3)
+    const half = Math.ceil(TABS.length / 2)
+    const row1 = TABS.slice(0, half)
+    const row2 = TABS.slice(half)
     return (
       <div style={{ borderBottom: `1px solid ${C.borderSoft}`, background: 'rgba(7,8,9,0.6)' }}>
         {[row1, row2].map((row, ri) => (
@@ -1503,6 +1506,7 @@ export default function App() {
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
       {tab==='plan'      && <PlanTab      planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
       {tab==='workout'   && <WorkoutTab />}
+      {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE}/>}
     </div>
   )
 }
