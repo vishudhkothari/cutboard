@@ -17,7 +17,7 @@ import { supabase } from './lib/supabase'
 import { store } from './lib/store'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
-import { resolveTarget, macrosFromCalories, zigzagWeek as engineZigzagWeek, currentTrendWeight, estimateTDEE } from './lib/cutEngine'
+import { buildDayPlan, macrosFromCalories, currentTrendWeight, estimateTDEE } from './lib/cutEngine'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -725,7 +725,7 @@ function TaskPlanner({ tasks = [], onUpdate }) {
   )
 }
 
-function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings, onSaveZigzag }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
@@ -736,26 +736,15 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
 
   const upd = (k, v) => { const next = { ...local, [k]: v }; setLocal(next); onSave(next) }
 
-  // Fasting: planned day OR manual toggle
-  const todayDow       = new Date().getDay()
-  const isPlannedFast  = planSettings?.fastingDays?.includes(todayDow) && !local.fastingOverridden
-  const isFasting      = local.fasting || isPlannedFast
-
   const stepData  = useMemo(() => getDynamicStepGoal(setup, allLogs, adaptiveTDEE), [setup, allLogs, adaptiveTDEE])
 
-  // ── UNIFIED TARGET (single source of truth via engine) ──
-  const regime = zigzagSettings?.on ? 'zigzag' : 'steady'
-  const resolved = useMemo(() => resolveTarget({
-    baseTarget: adaptiveTDEE.target,
-    tdeeBase:   adaptiveTDEE.base,
-    regime,
-    zigzag:     { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
-    fasting:    { isFasting, compensation: !!(isPlannedFast && planSettings?.fastCompensation) },
-  }), [adaptiveTDEE.target, adaptiveTDEE.base, regime, zigzagSettings, isFasting, isPlannedFast, planSettings])
-
-  const effectiveMacros = resolved
-  const calTarget       = resolved.calTarget
-  const fastCompTarget  = isFasting && resolved.source === 'fast_25' ? resolved.calTarget : 0
+  // ── ALL targets come from dayPlan (the single source of truth) ──
+  const regime          = dayPlan.regime
+  const isFasting        = dayPlan.fasting.isFasting
+  const isPlannedFast    = dayPlan.fasting.planned
+  const effectiveMacros  = { calTarget: dayPlan.eatTarget, proteinG: dayPlan.proteinG, carbG: dayPlan.carbG, fatG: dayPlan.fatG }
+  const calTarget        = dayPlan.eatTarget
+  const fastCompTarget   = dayPlan.fasting.kind === 'comp25' ? dayPlan.eatTarget : 0
 
   const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData),
     [setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData])
@@ -786,7 +775,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
     const next = { ...local, meals: updated }; setLocal(next); onSave(next); setEditIdx(null)
   }
   const toggleFasting = () => {
-    const isPlannedDay = planSettings?.fastingDays?.includes(todayDow)
+    const isPlannedDay = planSettings?.fastingDays?.includes(new Date().getDay())
     if (isFasting) {
       // Turn off fasting — keep override flag if this is a planned day to prevent re-activation
       const next = { ...local, fasting: false, fastingOverridden: isPlannedDay, meals: local.meals }
@@ -838,7 +827,7 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
             </div>
             {(!planSettings?.fastCompensation || !fastCompTarget) && (
               <div style={{ marginLeft:12, textAlign:'center', paddingLeft:18, borderLeft:`1px solid ${C.border}` }}>
-                <div style={{ fontFamily:F.mono, fontSize:30, fontWeight:700, color:C.accent }}>−{adaptiveTDEE.base}</div>
+                <div style={{ fontFamily:F.mono, fontSize:30, fontWeight:700, color:C.accent }}>−{dayPlan.deficit}</div>
                 <div style={{ fontSize:10.5, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.1em', marginTop:4 }}>kcal deficit today</div>
               </div>
             )}
@@ -1018,12 +1007,12 @@ function TodayTab({ log, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [],
 /* ═══════════════════════════════════════════════════════════════
    NUTRITION TAB
 ═══════════════════════════════════════════════════════════════ */
-function NutritionTab({ log, adaptiveTDEE, allLogs, setup, zigzagSettings }) {
+function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup }) {
   const mobile = useIsMobile()
   const sum = fn => (log.meals||[]).reduce((s,m)=>s+(fn(m)||0),0)
   const todayCals=sum(m=>+m.cals),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat)
-  const regime = zigzagSettings?.on ? 'zigzag' : 'steady'
-  const macros = resolveTarget({ baseTarget:adaptiveTDEE.target, tdeeBase:adaptiveTDEE.base, regime, zigzag:{ schedule:zigzagSettings?.schedule||1, mode:zigzagSettings?.mode||'weight' } })
+  const regime = dayPlan.regime
+  const macros = { calTarget: dayPlan.eatTarget, proteinG: dayPlan.proteinG, carbG: dayPlan.carbG, fatG: dayPlan.fatG }
   const r7=allLogs.slice(-7)
   const avg7=fn=>r7.length?Math.round(r7.reduce((s,l)=>s+fn(l),0)/r7.length):0
   const avgCals=avg7(l=>l.meals.reduce((s,m)=>s+(+m.cals||0),0))
@@ -1065,17 +1054,13 @@ function NutritionTab({ log, adaptiveTDEE, allLogs, setup, zigzagSettings }) {
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>This Week's Zigzag Targets</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8}}>
-            {engineZigzagWeek(adaptiveTDEE.base,zigzagSettings?.schedule||1,zigzagSettings?.mode||'weight').map((d,i)=>{
-              // shift to Cut IQ base, same as resolver
-              const week=engineZigzagWeek(adaptiveTDEE.base,zigzagSettings?.schedule||1,zigzagSettings?.mode||'weight')
-              const weekMean=week.reduce((s,x)=>s+x.cals,0)/7
-              const shifted=Math.max(1200,Math.round(d.cals+(adaptiveTDEE.target-weekMean)))
-              return(<div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:'10px 6px'}}>
+            {dayPlan.week.map((d,i)=>(
+              <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:'10px 6px'}}>
                 <div style={{fontSize:11,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:6}}>{d.name}</div>
-                <div style={{fontFamily:F.mono,fontSize:14,color:d.isToday?C.accent:C.text}}>{shifted}</div>
-                <div style={{fontSize:10,color:C.textSub,marginTop:3}}>kcal</div>
-              </div>)
-            })}
+                <div style={{fontFamily:F.mono,fontSize:14,color:d.isFast?C.blue:d.isToday?C.accent:C.text}}>{d.isFast?'Fast':d.eat}</div>
+                <div style={{fontSize:10,color:C.textSub,marginTop:3}}>{d.isFast?'':'kcal'}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1239,7 +1224,7 @@ function InBodyTab({ scans, onAdd, setup }) {
 /* ═══════════════════════════════════════════════════════════════
    SCHEDULE TAB — Calorie strategy + fasting manager
 ═══════════════════════════════════════════════════════════════ */
-function PlanTab({ planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag }) {
+function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag }) {
   const mobile = useIsMobile()
   const today = todayStr()
 
@@ -1247,17 +1232,9 @@ function PlanTab({ planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzag
   const [zigzagMode,  setZigzagMode]  = useState(zigzagSettings?.mode || 'weight')
   const [zigzagOn,    setZigzagOn]    = useState(zigzagSettings?.on || false)
 
-  // Resolve today's target through the SAME engine path as the Today tab
-  const todayDow      = new Date().getDay()
-  const isFastingToday= (planSettings?.fastingDays || []).includes(todayDow)
-  const resolvedToday = useMemo(() => resolveTarget({
-    baseTarget: adaptiveTDEE.target,
-    tdeeBase:   adaptiveTDEE.base,
-    regime:     zigzagOn ? 'zigzag' : 'steady',
-    zigzag:     { schedule: zigzagSched, mode: zigzagMode },
-    fasting:    { isFasting: isFastingToday, compensation: !!planSettings?.fastCompensation },
-  }), [adaptiveTDEE.target, adaptiveTDEE.base, zigzagOn, zigzagSched, zigzagMode, isFastingToday, planSettings])
-  const todayTarget = resolvedToday.calTarget
+  // today's target comes straight from the single source of truth
+  const isFastingToday = dayPlan.fasting.isFasting
+  const todayTarget    = dayPlan.eatTarget
 
   const weekDates = useMemo(() => {
     const d = new Date(), day = d.getDay() || 7
@@ -1523,16 +1500,28 @@ export default function App() {
   const dayCount     = daysBetween(setup.startDate, todayStr()) + 1
   const daysLeft     = Math.max(0, 60 - dayCount + 1)
 
+  // ★ THE SINGLE SOURCE OF TRUTH — computed once, passed read-only everywhere ★
+  const dayPlan = buildDayPlan({
+    baseTarget:   adaptiveTDEE.target,
+    maintenance:  adaptiveTDEE.base,
+    regime:       zigzagSettings?.on ? 'zigzag' : 'steady',
+    zigzag:       { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
+    fastingDays:  planSettings?.fastingDays || [],
+    fastComp:     !!planSettings?.fastCompensation,
+    manualFastToday: !!todayLog.fasting,
+    overriddenToday: !!todayLog.fastingOverridden,
+  })
+
   return (
     <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #14101e 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
-      {tab==='today'     && <TodayTab     log={todayLog} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
-      {tab==='nutrition' && <NutritionTab log={todayLog} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup} zigzagSettings={zigzagSettings}/>}
+      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings}/>}
+      {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
-      {tab==='plan'      && <PlanTab      planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
+      {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
       {tab==='workout'   && <WorkoutTab />}
       {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE}/>}
     </div>

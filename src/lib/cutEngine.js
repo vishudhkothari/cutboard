@@ -320,7 +320,6 @@ export function paceController({
   }
 }
 
-export const ENGINE_CONST = { KCAL_PER_KG, MIN_CALS, SAFE_RATE, IDEAL_RATE }
 
 /* ───────────────────────────────────────────────────────────────
    6. UNIFIED TARGET RESOLVER  ★ SINGLE SOURCE OF TRUTH ★
@@ -382,34 +381,95 @@ export function macrosFromCalories(calTarget, proteinG = PROTEIN_G) {
   }
 }
 
-export function resolveTarget({
-  baseTarget, tdeeBase, regime = 'steady',
+/* ───────────────────────────────────────────────────────────────
+   ★★★ buildDayPlan — THE SINGLE SOURCE OF TRUTH ★★★
+   Called ONCE at App root. Every tab reads this object, none recompute.
+
+   Returns a complete, self-consistent plan:
+   {
+     eatTarget      — the ONE number: kcal to eat today
+     proteinG/carbG/fatG — macros for eatTarget
+     maintenance    — maintenance TDEE (for deficit display)
+     deficit        — maintenance - eatTarget (today's actual deficit)
+     baseTarget     — the steady daily target (Cut IQ / formula driven)
+     regime         — 'steady' | 'zigzag'
+     fasting        — { isFasting, compensation, kind }
+     week           — [{name, dow, eat, isToday, isFast}] the FULL shifted week
+                      (zigzag varies but week mean === baseTarget)
+   }
+
+   params:
+     baseTarget   — Cut IQ recommended daily target (or formula fallback)
+     maintenance  — maintenance TDEE
+     regime       — 'steady' | 'zigzag'
+     zigzag       — { schedule, mode }
+     fastingDays  — array of weekday indexes (0=Sun) that are fasting days
+     fastComp     — bool: 25% compensation on fast days vs full fast
+     manualFastToday / overriddenToday — manual fast toggles for today only
+     dateObj      — defaults today
+─────────────────────────────────────────────────────────────── */
+export function buildDayPlan({
+  baseTarget, maintenance, regime = 'steady',
   zigzag = { schedule: 1, mode: 'weight' },
-  fasting = { isFasting: false, compensation: false },
+  fastingDays = [], fastComp = false,
+  manualFastToday = false, overriddenToday = false,
   dateObj = new Date(),
 }) {
-  // 1. Fasting overrides everything
-  if (fasting.isFasting) {
-    const compTarget = fasting.compensation ? Math.round(baseTarget * 0.25) : 0
-    return {
-      calTarget: compTarget,
-      ...(compTarget > 0 ? macrosFromCalories(compTarget) : { calTarget: 0, proteinG: 0, carbG: 0, fatG: 0 }),
-      source: fasting.compensation ? 'fast_25' : 'fast_full',
-    }
-  }
+  const todayDow = dateObj.getDay()
 
-  // 2 + 3. Regime distribution
+  // --- compute the shifted weekly eat-targets (zigzag) or flat (steady) ---
+  // This is the ONLY place zigzag math happens.
+  let weekEat            // array[7] of kcal to eat each weekday (pre-fasting)
   if (regime === 'zigzag') {
-    const week = zigzagWeek(tdeeBase, zigzag.schedule, zigzag.mode)
-    const dow  = dateObj.getDay()
-    const raw  = week[dow].cals
-    // shift the wave so its weekly mean equals baseTarget (keeps Cut IQ in charge of total)
-    const weekMean = week.reduce((s, d) => s + d.cals, 0) / 7
-    const shifted  = Math.max(MIN_CALS, Math.round(raw + (baseTarget - weekMean)))
-    return { ...macrosFromCalories(shifted), source: 'zigzag', weekRaw: week }
+    const raw      = zigzagWeek(maintenance, zigzag.schedule, zigzag.mode)
+    const weekMean = raw.reduce((s, d) => s + d.cals, 0) / 7
+    const shift    = baseTarget - weekMean      // re-center so week mean === baseTarget
+    weekEat = raw.map(d => Math.max(MIN_CALS, Math.round(d.cals + shift)))
+  } else {
+    const flat = Math.max(MIN_CALS, Math.round(baseTarget))
+    weekEat = Array(7).fill(flat)
   }
 
-  // steady
-  const steady = Math.max(MIN_CALS, Math.round(baseTarget))
-  return { ...macrosFromCalories(steady), source: 'steady' }
+  // --- apply fasting per day to build the displayed week ---
+  const isFastDow = dow => fastingDays.includes(dow)
+  const week = weekEat.map((eat, dow) => {
+    const fast = isFastDow(dow)
+    const dayEat = fast ? (fastComp ? Math.round(eat * 0.25) : 0) : eat
+    return {
+      name: _DAYS[dow], dow,
+      eat: dayEat,
+      baseEat: eat,            // what they'd eat if not fasting
+      isToday: dow === todayDow,
+      isFast: fast,
+    }
+  })
+
+  // --- resolve TODAY (manual fast toggle can override the schedule) ---
+  const plannedFastToday = isFastDow(todayDow) && !overriddenToday
+  const isFasting = manualFastToday || plannedFastToday
+  const baseEatToday = weekEat[todayDow]
+  let eatTarget, fastKind = null
+  if (isFasting) {
+    if (fastComp) { eatTarget = Math.round(baseEatToday * 0.25); fastKind = 'comp25' }
+    else          { eatTarget = 0; fastKind = 'full' }
+  } else {
+    eatTarget = baseEatToday
+  }
+
+  const macros  = eatTarget > 0 ? macrosFromCalories(eatTarget) : { calTarget: 0, proteinG: 0, carbG: 0, fatG: 0 }
+  const deficit = Math.round(maintenance - eatTarget)
+
+  return {
+    eatTarget,
+    ...macros,
+    maintenance: Math.round(maintenance),
+    deficit,
+    baseTarget: Math.round(baseTarget),
+    baseEatToday,
+    regime,
+    fasting: { isFasting, compensation: fastComp, kind: fastKind, planned: plannedFastToday },
+    week,
+  }
 }
+
+export const ENGINE_CONST = { KCAL_PER_KG, MIN_CALS, SAFE_RATE, IDEAL_RATE, PROTEIN_G }
