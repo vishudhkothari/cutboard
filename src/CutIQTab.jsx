@@ -30,7 +30,7 @@ function useIsMobile() {
 const fmtD = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
 const STATUS_COLOR = {
   on_track:C.teal, lever_steps:C.blue, lever_cardio:C.purple, lever_calories:C.orange,
-  too_fast:C.orange, muscle_risk:C.red, too_slow:C.gold,
+  too_fast:C.orange, muscle_risk:C.red, too_slow:C.gold, learning:C.textSub,
 }
 const STRENGTH_OPTS = [
   { id:'up',          label:'Up 💪',        desc:'Lifts climbing' },
@@ -79,13 +79,17 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
 
   const daysLeft = setup?.startDate ? Math.max(1, 60 - Math.floor((Date.now()-new Date(setup.startDate))/86400000)) : 60
 
+  const loggedDays = useMemo(()=> allLogs.filter(l=>l.weight!=null).length, [allLogs])
+
   const pace = useMemo(()=> setup && leanMass ? paceController({
     currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, daysLeft,
     actualWeeklyRateKg: tdeeEst?.weeklyRateKg ?? 0,
     currentSteps: setup.stepGoal || 10000,
     currentCardioMin: cutData?.cardioMin || 0,
     strengthSignal: cutData?.strengthSignal,
-  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData])
+    dataDays: loggedDays,
+    hasRate: !!tdeeEst,
+  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, loggedDays])
 
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
@@ -158,7 +162,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
             <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:STATUS_COLOR[pace.status]||C.accent }}>{pace.headline}</div>
           </div>
 
-          {pace.goalTooAggressive && (
+          {pace.goalTooAggressive && !pace.learning && (
             <div style={{ background:'rgba(240,86,111,0.1)', border:`1px solid ${C.red}33`, borderRadius:11, padding:'11px 14px', fontSize:12.5, color:C.text, lineHeight:1.55, margin:'10px 0' }}>
               <strong style={{ color:C.red }}>Honest take:</strong> hitting {setup.goalBF}% in {daysLeft} days needs {pace.requiredPct}%/wk —
               above the safe muscle-sparing ceiling (~1%/wk). You can push for it, but expect some muscle loss.
@@ -192,12 +196,14 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
             </div>
           )}
 
-          {/* rate readout */}
-          <div style={{ display:'flex', gap:14, marginTop:14, paddingTop:14, borderTop:`1px solid ${C.borderSoft}`, fontSize:11, color:C.textSub, flexWrap:'wrap' }}>
-            <span>Need: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.requiredRateKg} kg/wk</strong></span>
-            <span>Actual: <strong style={{ color:C.teal, fontFamily:F.mono }}>{pace.actualRateKg} kg/wk</strong></span>
-            <span>Safe max: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.safeRateKg} kg/wk</strong></span>
-          </div>
+          {/* rate readout — only once we have a real measured rate */}
+          {!pace.learning && (
+            <div style={{ display:'flex', gap:14, marginTop:14, paddingTop:14, borderTop:`1px solid ${C.borderSoft}`, fontSize:11, color:C.textSub, flexWrap:'wrap' }}>
+              <span>Need: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.requiredRateKg} kg/wk</strong></span>
+              {pace.actualRateKg != null && <span>Actual: <strong style={{ color:C.teal, fontFamily:F.mono }}>{pace.actualRateKg} kg/wk</strong></span>}
+              <span>Safe max: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.safeRateKg} kg/wk</strong></span>
+            </div>
+          )}
         </div>
       )}
 

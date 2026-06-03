@@ -191,6 +191,8 @@ export function paceController({
   currentWeight, currentBF, goalBF, leanMass,
   daysLeft, actualWeeklyRateKg, currentSteps = 10000,
   currentCardioMin = 0, strengthSignal,
+  dataDays = 0,           // # of logged days with usable data
+  hasRate = false,        // whether actualWeeklyRateKg is a real measurement (not a 0 placeholder)
 }) {
   const goalWeight   = leanMass / (1 - goalBF / 100)
   const kgToGo       = currentWeight - goalWeight
@@ -201,6 +203,31 @@ export function paceController({
 
   const safeRateKg  = currentWeight * SAFE_RATE
   const idealRateKg = currentWeight * IDEAL_RATE
+
+  // ── COLD START: don't recommend anything until we've actually learned ──
+  // Needs ~10 logged days AND a real measured rate before judging pace.
+  if (!hasRate || dataDays < 10) {
+    const daysToGo = Math.max(0, 10 - dataDays)
+    return {
+      status: 'learning',
+      headline: dataDays === 0 ? 'Just getting started' : `Learning your body — ${daysToGo} more day${daysToGo === 1 ? '' : 's'} of data`,
+      actions: [
+        'Log your weight daily and your meals — that\'s all for now.',
+        'I won\'t suggest changes until I\'ve learned your real maintenance and loss rate (about 10 days).',
+        'Week 1 weight swings are mostly water, so early numbers can\'t be trusted yet.',
+      ],
+      cardioRx: null,
+      requiredRateKg: Math.round(requiredRate * 100) / 100,
+      requiredPct: Math.round(requiredPct * 1000) / 10,
+      actualRateKg: hasRate ? Math.round(actualRate * 100) / 100 : null,
+      safeRateKg: Math.round(safeRateKg * 100) / 100,
+      idealRateKg: Math.round(idealRateKg * 100) / 100,
+      goalTooAggressive: requiredPct > SAFE_RATE,
+      goalWeight: Math.round(goalWeight * 10) / 10,
+      kgToGo: Math.round(kgToGo * 10) / 10,
+      learning: true,
+    }
+  }
 
   // classify
   const onTrack  = actualRate >= requiredRate * 0.9 && actualRate <= requiredRate * 1.15
