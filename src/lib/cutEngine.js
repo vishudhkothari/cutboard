@@ -292,3 +292,95 @@ export function paceController({
 }
 
 export const ENGINE_CONST = { KCAL_PER_KG, MIN_CALS, SAFE_RATE, IDEAL_RATE }
+
+/* ───────────────────────────────────────────────────────────────
+   6. UNIFIED TARGET RESOLVER  ★ SINGLE SOURCE OF TRUTH ★
+   Every tab calls this. Given the user's regime + live model state,
+   returns the canonical daily calorie target and macro split.
+
+   Priority chain:
+   1. Fasting day  → 0 or 25% compensation
+   2. Cut IQ live target (model-driven base, auto-applied)
+   3. Regime distribution: 'steady' = flat, 'zigzag' = weekly wave
+   Protein is FIXED at 130g; remaining kcal split 50/50 carb/fat.
+
+   params:
+     baseTarget   — Cut IQ recommended daily target (or adaptiveTDEE.target fallback)
+     tdeeBase     — maintenance TDEE (for zigzag wave math)
+     regime       — 'steady' | 'zigzag'
+     zigzag       — { schedule, mode }
+     fasting      — { isFasting, compensation }  (compensation = 25% if true)
+     dateObj      — Date to resolve for (defaults today)
+─────────────────────────────────────────────────────────────── */
+const PROTEIN_G = 130
+const _DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+const _AVG_DEFICIT = { mild: 250, weight: 500, extreme: 1000 }
+const _S2_MULT     = [2, 4/3, 2/3, 0, 1/3, 1, 5/3]
+const _S2_EXT_FLAT = [1042, 1014, 986, 958, 972, 1000, 1028]
+
+/* weekly zigzag distribution (Sun–Sat) around a maintenance base */
+export function zigzagWeek(tdeeBase, schedule = 1, intensity = 'weight') {
+  const avgDef = _AVG_DEFICIT[intensity] || 500
+  const todayDow = new Date().getDay()
+  return _DAYS.map((name, dow) => {
+    let cals
+    if (schedule === 1) {
+      const isHigh = dow === 0 || dow === 6
+      if (intensity === 'extreme') {
+        const lowCals = Math.max(MIN_CALS, tdeeBase - 1042)
+        const highDeficit = (7000 - 5 * (tdeeBase - lowCals)) / 2
+        cals = isHigh ? Math.max(MIN_CALS, Math.round(tdeeBase - highDeficit)) : lowCals
+      } else {
+        cals = isHigh ? tdeeBase : Math.max(MIN_CALS, Math.round(tdeeBase - (avgDef * 7 / 5)))
+      }
+    } else {
+      cals = intensity === 'extreme'
+        ? Math.max(MIN_CALS, Math.round(tdeeBase - _S2_EXT_FLAT[dow]))
+        : Math.max(MIN_CALS, Math.round(tdeeBase - avgDef * _S2_MULT[dow]))
+    }
+    return { name, cals, isToday: todayDow === dow }
+  })
+}
+
+export function macrosFromCalories(calTarget, proteinG = PROTEIN_G) {
+  const proteinCal = proteinG * 4
+  const remaining  = Math.max(calTarget - proteinCal, 200)
+  return {
+    calTarget,
+    proteinG,
+    carbG: Math.round(remaining * 0.5 / 4),
+    fatG:  Math.round(remaining * 0.5 / 9),
+  }
+}
+
+export function resolveTarget({
+  baseTarget, tdeeBase, regime = 'steady',
+  zigzag = { schedule: 1, mode: 'weight' },
+  fasting = { isFasting: false, compensation: false },
+  dateObj = new Date(),
+}) {
+  // 1. Fasting overrides everything
+  if (fasting.isFasting) {
+    const compTarget = fasting.compensation ? Math.round(baseTarget * 0.25) : 0
+    return {
+      calTarget: compTarget,
+      ...(compTarget > 0 ? macrosFromCalories(compTarget) : { calTarget: 0, proteinG: 0, carbG: 0, fatG: 0 }),
+      source: fasting.compensation ? 'fast_25' : 'fast_full',
+    }
+  }
+
+  // 2 + 3. Regime distribution
+  if (regime === 'zigzag') {
+    const week = zigzagWeek(tdeeBase, zigzag.schedule, zigzag.mode)
+    const dow  = dateObj.getDay()
+    const raw  = week[dow].cals
+    // shift the wave so its weekly mean equals baseTarget (keeps Cut IQ in charge of total)
+    const weekMean = week.reduce((s, d) => s + d.cals, 0) / 7
+    const shifted  = Math.max(MIN_CALS, Math.round(raw + (baseTarget - weekMean)))
+    return { ...macrosFromCalories(shifted), source: 'zigzag', weekRaw: week }
+  }
+
+  // steady
+  const steady = Math.max(MIN_CALS, Math.round(baseTarget))
+  return { ...macrosFromCalories(steady), source: 'steady' }
+}

@@ -45,4 +45,19 @@ export const store = {
       return []
     }
   },
+
+  async clearAll() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase
+        .from('user_data')
+        .delete()
+        .eq('user_id', user.id)
+      if (error) throw error
+      return true
+    } catch (e) {
+      console.error('store.clearAll error', e)
+      return false
+    }
+  },
 }
