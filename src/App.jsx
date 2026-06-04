@@ -725,7 +725,7 @@ function TaskPlanner({ tasks = [], onUpdate }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, viewDate, onChangeDate }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
@@ -788,8 +788,32 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }
 
   const mobile = useIsMobile()
+  const isToday = viewDate === todayStr()
+  const shiftDay = delta => {
+    const d = new Date(viewDate + 'T12:00:00'); d.setDate(d.getDate() + delta)
+    const ns = d.toISOString().slice(0, 10)
+    if (ns <= todayStr()) onChangeDate(ns)
+  }
+  const niceDate = (() => {
+    const d = new Date(viewDate + 'T12:00:00')
+    const y = new Date(); y.setDate(y.getDate() - 1)
+    if (isToday) return 'Today'
+    if (viewDate === y.toISOString().slice(0, 10)) return 'Yesterday'
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })
+  })()
+
   return (
     <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
+
+      {/* Date navigator */}
+      <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <button onClick={() => shiftDay(-1)} style={{ ...btn(false, true), padding: '8px 14px', fontSize: 16, lineHeight: 1 }}>‹</button>
+        <div style={{ textAlign: 'center', minWidth: mobile ? 140 : 180 }}>
+          <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 16, color: isToday ? C.accent : C.text }}>{niceDate}</div>
+          {!isToday && <button onClick={() => onChangeDate(todayStr())} style={{ background: 'none', border: 'none', color: C.textSub, fontSize: 11, cursor: 'pointer', marginTop: 2, fontFamily: F.body }}>↩ Jump to today</button>}
+        </div>
+        <button onClick={() => shiftDay(1)} disabled={isToday} style={{ ...btn(false, true), padding: '8px 14px', fontSize: 16, lineHeight: 1, opacity: isToday ? 0.3 : 1, cursor: isToday ? 'default' : 'pointer' }}>›</button>
+      </div>
 
       {/* Coach Panel */}
       <div style={{ ...card(), gridColumn: '1/-1' }}>
@@ -1406,6 +1430,7 @@ export default function App() {
   const [dataReady,    setDataReady]    = useState(false)
   const [onboarding,   setOnboarding]   = useState(false)
   const [todayLog,     setTodayLog]     = useState(null)
+  const [viewDate,     setViewDate]     = useState(todayStr())
   const [allLogs,      setAllLogs]      = useState([])
   const [inBodyScans,  setInBodyScans]  = useState([])
   const [mealHistory,  setMealHistory]  = useState([])
@@ -1418,7 +1443,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const emptyLog = () => ({ date:todayStr(), weight:null, sleep:null, sleepQuality:null, steps:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
+  const emptyLog = (date = todayStr()) => ({ date, weight:null, sleep:null, sleepQuality:null, steps:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
 
   const loadData = useCallback(async () => {
     setDataReady(false)
@@ -1458,9 +1483,20 @@ export default function App() {
       setAllLogs(logs)
     }
   }
+  // Navigate to a specific day (won't go past today)
+  const changeViewDate = async (dateStr) => {
+    if (dateStr > todayStr()) return
+    setViewDate(dateStr)
+    const existing = allLogs.find(l => l.date === dateStr)
+    if (existing) { setTodayLog(existing); return }
+    const fromStore = await store.get(`log:${dateStr}`)
+    setTodayLog(fromStore || emptyLog(dateStr))
+  }
+
   const saveTodayLog = async log => {
-    await store.set(`log:${todayStr()}`, log); setTodayLog(log)
-    setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===todayStr()); if(idx>=0)return prev.map((l,i)=>i===idx?log:l); return [...prev,log].sort((a,b)=>a.date.localeCompare(b.date)) })
+    const date = log.date || viewDate
+    await store.set(`log:${date}`, log); setTodayLog(log)
+    setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?log:l); return [...prev,log].sort((a,b)=>a.date.localeCompare(b.date)) })
   }
   const saveInBody = async scan => {
     const updated=[...inBodyScans,scan].sort((a,b)=>a.date.localeCompare(b.date))
@@ -1510,6 +1546,7 @@ export default function App() {
     fastComp:     !!planSettings?.fastCompensation,
     manualFastToday: !!todayLog.fasting,
     overriddenToday: !!todayLog.fastingOverridden,
+    dateObj:      new Date(viewDate + 'T12:00:00'),
   })
 
   return (
@@ -1517,7 +1554,7 @@ export default function App() {
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
-      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings}/>}
+      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate}/>}
       {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
