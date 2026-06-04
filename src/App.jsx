@@ -18,6 +18,7 @@ import { store } from './lib/store'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
 import { buildDayPlan, macrosFromCalories, currentTrendWeight, estimateTDEE } from './lib/cutEngine'
+import { FOOD_DB, FOOD_CATS, computeFoodMacros } from './lib/foodDB'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -721,9 +722,156 @@ function TaskPlanner({ tasks = [], onUpdate }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, viewDate, onChangeDate }) {
+/* ═══════════════════════════════════════════════════════════════
+   FOOD PICKER — search DB, set weight, auto-calc macros
+═══════════════════════════════════════════════════════════════ */
+const UNIT_LABEL = { g:'grams', ml:'ml', piece:'pieces', scoop:'scoops', cup:'cups', tbsp:'tbsp' }
+
+function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
+  const mobile = useIsMobile()
+  const [search, setSearch] = useState('')
+  const [cat, setCat]       = useState('All')
+  const [selected, setSelected] = useState(null)
+  const [amount, setAmount] = useState('')
+  const [showCustom, setShowCustom] = useState(false)
+  const [cf, setCf] = useState({ name:'', kcal:'', protein:'', carbs:'', fat:'', unit:'g' })
+
+  const allFoods = [...FOOD_DB, ...customFoods]
+  const cats = ['All', ...FOOD_CATS]
+  const list = allFoods.filter(f =>
+    (cat==='All' || f.cat===cat) && f.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  // default amount when selecting
+  const selectFood = f => {
+    setSelected(f)
+    setAmount(f.unit==='g'||f.unit==='ml' ? '100' : '1')
+  }
+
+  const macros = selected && amount ? computeFoodMacros(selected, +amount) : null
+
+  const confirmAdd = () => {
+    if (!selected || !amount) return
+    const m = computeFoodMacros(selected, +amount)
+    const unitTxt = selected.unit==='g'||selected.unit==='ml' ? `${m.grams}${selected.unit}` : `${amount} ${UNIT_LABEL[selected.unit]}`
+    onPick({ name: `${selected.name} (${unitTxt})`, cals:m.cals, protein:m.protein, carbs:m.carbs, fat:m.fat })
+  }
+
+  const saveCustom = () => {
+    if (!cf.name || !cf.kcal) return
+    const food = {
+      id: `custom_${Date.now()}`, name: cf.name.trim(), cat:'Custom',
+      kcal:+cf.kcal, protein:+cf.protein||0, carbs:+cf.carbs||0, fat:+cf.fat||0, unit:cf.unit, custom:true
+    }
+    onAddCustom?.(food)
+    setShowCustom(false); setCf({ name:'', kcal:'', protein:'', carbs:'', fat:'', unit:'g' })
+    selectFood(food)
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'#000b', zIndex:600, display:'flex', alignItems:'flex-end' }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:C.bg, width:'100%', maxHeight:'90vh', borderRadius:'20px 20px 0 0', display:'flex', flexDirection:'column', overflow:'hidden', border:`1px solid ${C.border}` }}>
+        {/* Header */}
+        <div style={{ padding:'16px 18px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:16 }}>{showCustom ? 'Add Custom Food' : 'Food Database'}</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:24, lineHeight:1 }}>×</button>
+        </div>
+
+        {showCustom ? (
+          /* ── Custom food form ── */
+          <div style={{ padding:18, overflowY:'auto' }}>
+            <div style={{ fontSize:12, color:C.textSub, marginBottom:14, lineHeight:1.5 }}>Add nutrition per <strong style={{color:C.accent}}>100g</strong> (or per piece/scoop). It'll be saved to your database for next time.</div>
+            <div style={{ marginBottom:12 }}><label style={LBL}>Food name</label><input style={inp()} value={cf.name} placeholder="e.g. Homemade protein bar" onChange={e=>setCf(p=>({...p,name:e.target.value}))} autoFocus /></div>
+            <div style={{ marginBottom:12 }}>
+              <label style={LBL}>Measured in</label>
+              <div style={{ display:'flex', gap:6 }}>
+                {['g','ml','piece','scoop'].map(u=>(
+                  <button key={u} style={{...btn(cf.unit===u,true),flex:1,fontSize:12}} onClick={()=>setCf(p=>({...p,unit:u}))}>{u}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+              {[{k:'kcal',l:`Calories per ${cf.unit==='g'||cf.unit==='ml'?'100'+cf.unit:cf.unit}`},{k:'protein',l:'Protein (g)'},{k:'carbs',l:'Carbs (g)'},{k:'fat',l:'Fat (g)'}].map(({k,l})=>(
+                <div key={k}><label style={LBL}>{l}</label><input style={inp()} type="number" value={cf[k]} onChange={e=>setCf(p=>({...p,[k]:e.target.value}))} /></div>
+              ))}
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button style={btn(true,true)} onClick={saveCustom}>Save to Database</button>
+              <button style={btn(false,true)} onClick={()=>setShowCustom(false)}>Back</button>
+            </div>
+          </div>
+        ) : selected ? (
+          /* ── Amount entry for selected food ── */
+          <div style={{ padding:18, overflowY:'auto' }}>
+            <button onClick={()=>setSelected(null)} style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:13, marginBottom:14, padding:0 }}>← Back to list</button>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:18, marginBottom:4 }}>{selected.name}</div>
+            <div style={{ fontSize:12, color:C.textSub, marginBottom:18 }}>{selected.cat} · {selected.kcal} kcal / {selected.unit==='g'||selected.unit==='ml'?`100${selected.unit}`:selected.unit}{selected.perUnit?` (~${selected.perUnit}g)`:''}</div>
+
+            <label style={LBL}>How much? ({UNIT_LABEL[selected.unit]})</label>
+            <input style={inp({ fontSize:20, fontFamily:F.mono, textAlign:'center', marginBottom:8 })} type="number" value={amount} onChange={e=>setAmount(e.target.value)} autoFocus />
+            {/* quick chips */}
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:18 }}>
+              {(selected.unit==='g'||selected.unit==='ml' ? [50,100,150,200,250] : [1,2,3,4]).map(q=>(
+                <button key={q} style={{...btn(+amount===q,true),fontSize:12,padding:'5px 12px'}} onClick={()=>setAmount(String(q))}>{q}{selected.unit==='g'||selected.unit==='ml'?selected.unit:''}</button>
+              ))}
+            </div>
+
+            {macros && (
+              <div style={{ background:'rgba(167,139,250,0.08)', border:`1px solid ${C.accent}33`, borderRadius:14, padding:16, marginBottom:16 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:12 }}>
+                  <span style={{ fontSize:12, color:C.textSub }}>{macros.grams}g total</span>
+                  <span style={{ fontFamily:F.mono, fontSize:26, fontWeight:700, color:C.accent }}>{macros.cals} <span style={{fontSize:13}}>kcal</span></span>
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+                  {[['Protein',macros.protein,C.orange],['Carbs',macros.carbs,C.blue],['Fat',macros.fat,C.purple]].map(([l,v,c])=>(
+                    <div key={l} style={{ textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:10, padding:'9px 4px' }}>
+                      <div style={{ fontFamily:F.mono, fontSize:16, fontWeight:700, color:c }}>{v}g</div>
+                      <div style={{ fontSize:10, color:C.textSub, marginTop:2 }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button style={{...btn(true),width:'100%'}} onClick={confirmAdd}>Add to Today</button>
+          </div>
+        ) : (
+          /* ── Food list ── */
+          <>
+            <div style={{ padding:'12px 18px', borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+              <input style={{ ...inp(), marginBottom:10 }} placeholder="Search foods…" value={search} onChange={e=>setSearch(e.target.value)} autoFocus />
+              <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:2 }}>
+                {cats.map(c=>(
+                  <button key={c} style={{...btn(cat===c,true),whiteSpace:'nowrap',flexShrink:0,fontSize:12}} onClick={()=>setCat(c)}>{c}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ overflowY:'auto', flex:1 }}>
+              {list.map(f=>(
+                <button key={f.id} onClick={()=>selectFood(f)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', padding:'13px 18px', background:'none', border:'none', borderBottom:`1px solid ${C.borderSoft}`, cursor:'pointer', textAlign:'left', fontFamily:F.body }}
+                  onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                  <div>
+                    <div style={{ fontSize:14, color:C.text }}>{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:6}}>★</span>}</div>
+                    <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{f.cat} · {f.protein}g P / 100g</div>
+                  </div>
+                  <div style={{ fontFamily:F.mono, fontSize:13, color:C.accent }}>{f.kcal}</div>
+                </button>
+              ))}
+              {list.length===0 && <div style={{ textAlign:'center', padding:'40px 20px', color:C.textSub, fontSize:13 }}>No foods found</div>}
+            </div>
+            <div style={{ padding:'12px 18px', borderTop:`1px solid ${C.border}`, flexShrink:0 }}>
+              <button style={{...btn(false,true),width:'100%',borderStyle:'dashed'}} onClick={()=>setShowCustom(true)}>+ Add Custom Food to Database</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, viewDate, onChangeDate, customFoods = [], onSaveCustomFood }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
+  const [foodPickerOpen, setFoodPickerOpen] = useState(false)
   const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
   const [historySearch,setHistorySearch]= useState('')
   const [editIdx,      setEditIdx]      = useState(null)
@@ -952,6 +1100,10 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
                 <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:12,fontSize:11,color:C.textSub}}>Or enter manually:</div>
               </div>
             )}
+            <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12}}>
+              <button style={{...btn(true,true),flex:'0 0 auto'}} onClick={()=>setFoodPickerOpen(true)}>📖 From Food Database</button>
+              <span style={{fontSize:11,color:C.textFaint}}>or enter manually below</span>
+            </div>
             <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr',gap:10,marginBottom:12}}>
               {[{k:'name',label:'Food / Meal',ph:'Chicken breast 200g',type:'text'},{k:'cals',label:'Calories',ph:'330',type:'number'},{k:'protein',label:'Protein (g)',ph:'62',type:'number'},{k:'carbs',label:'Carbs (g)',ph:'0',type:'number'},{k:'fat',label:'Fat (g)',ph:'7',type:'number'}].map(({k,label,ph,type}) => (
                 <div key={k}><label style={LBL}>{label}</label><input style={inp()} type={type} value={mf[k]} placeholder={ph} onChange={e=>setMf(p=>({...p,[k]:e.target.value}))} /></div>
@@ -959,6 +1111,15 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             </div>
             <div style={{display:'flex',gap:10}}><button style={btn(true,true)} onClick={addMeal}>Add</button><button style={btn(false,true)} onClick={()=>{setAddOpen(false);setHistorySearch('')}}>Cancel</button></div>
           </div>
+        )}
+
+        {foodPickerOpen && (
+          <FoodPicker
+            customFoods={customFoods}
+            onPick={(meal)=>{ const next={...local,meals:[...local.meals,meal]}; setLocal(next); onSave(next); onSaveMealHistory?.(meal); setFoodPickerOpen(false); setAddOpen(false) }}
+            onAddCustom={onSaveCustomFood}
+            onClose={()=>setFoodPickerOpen(false)}
+          />
         )}
 
         {local.meals.length === 0 ? (
@@ -1281,17 +1442,33 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
             {adaptiveTDEE.isManual && <span style={{fontSize:10,color:C.purple,background:'rgba(167,139,250,0.12)',border:`1px solid ${C.accent}44`,padding:'3px 10px',borderRadius:20,fontWeight:700}}>MANUAL</span>}
           </div>
         </div>
-        {!adaptiveTDEE.isManual && [{label:'Maintenance TDEE',val:`${adaptiveTDEE.base} kcal`,color:C.text},{label:'Daily Deficit',val:`−${adaptiveTDEE.deficit} kcal`,color:C.red}].map(({label,val,color}) => (
-          <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
-            <span style={{color:C.textSub}}>{label}</span><span style={{fontFamily:F.mono,color}}>{val}</span>
-          </div>
-        ))}
-        <div style={{display:'flex',justifyContent:'space-between',padding:'14px 0 4px',fontSize:15,fontWeight:600}}>
+        {!adaptiveTDEE.isManual && (
+          <>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
+              <span style={{color:C.textSub}}>Maintenance TDEE</span>
+              <span style={{fontFamily:F.mono,color:C.text}}>{adaptiveTDEE.base} kcal</span>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
+              <span style={{color:C.textSub}}>{zigzagOn ? 'Avg Daily Deficit' : 'Daily Deficit'}</span>
+              <span style={{fontFamily:F.mono,color:C.red}}>−{adaptiveTDEE.deficit} kcal</span>
+            </div>
+            {zigzagOn && !isFastingToday && (
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
+                <span style={{color:C.textSub}}>Today's Deficit (zigzag)</span>
+                <span style={{fontFamily:F.mono,color:C.red}}>−{dayPlan.deficit} kcal</span>
+              </div>
+            )}
+          </>
+        )}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 0 4px',fontSize:15,fontWeight:600}}>
           <span>{isFastingToday ? "Today's Target (Fasting)" : "Today's Target"}</span>
           <span style={{fontFamily:F.mono,color:isFastingToday?C.blue:C.accent,fontSize:24}}>{todayTarget} kcal</span>
         </div>
         {isFastingToday && (
           <div style={{fontSize:11,color:C.blue,marginBottom:4}}>🚫 Fasting day — {planSettings?.fastCompensation ? '25% compensation' : 'full fast'}</div>
+        )}
+        {zigzagOn && !isFastingToday && (
+          <div style={{fontSize:11,color:C.textFaint,marginBottom:4}}>〰 Zigzag low day — varies daily, week averages to {adaptiveTDEE.target} kcal</div>
         )}
         <div style={{marginTop:12,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
           💪 Protein locked at <strong style={{color:C.orange}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after 7 days of logging'}
@@ -1342,10 +1519,10 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
             </div>
             <div style={{...LBL,marginBottom:8}}>This Week</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:mobile?3:6}}>
-              {getZigzagWeek(adaptiveTDEE.base,zigzagSched,zigzagMode).map((d,i) => (
+              {dayPlan.week.map((d,i) => (
                 <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:mobile?'7px 2px':'9px 4px'}}>
                   <div style={{fontSize:10,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:4}}>{d.name}</div>
-                  <div style={{fontFamily:F.mono,fontSize:12,color:d.isToday?C.accent:C.text}}>{d.cals}</div>
+                  <div style={{fontFamily:F.mono,fontSize:12,color:d.isFast?C.blue:d.isToday?C.accent:C.text}}>{d.isFast?'Fast':d.eat}</div>
                 </div>
               ))}
             </div>
@@ -1430,6 +1607,7 @@ export default function App() {
   const [allLogs,      setAllLogs]      = useState([])
   const [inBodyScans,  setInBodyScans]  = useState([])
   const [mealHistory,  setMealHistory]  = useState([])
+  const [customFoods,  setCustomFoods]  = useState([])
   const [planSettings,   setPlanSettings]   = useState({ fastingDays:[], fastCompensation:false })
   const [zigzagSettings, setZigzagSettings] = useState({ on:false, schedule:1, mode:'weight' })
 
@@ -1451,6 +1629,7 @@ export default function App() {
       setAllLogs(logs)
       setInBodyScans(await store.get('inbody') || [])
       setMealHistory(await store.get('meal_history') || [])
+      setCustomFoods(await store.get('custom_foods') || [])
       setPlanSettings(await store.get('plan_settings') || { fastingDays:[], fastCompensation:false })
       setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
     }
@@ -1513,6 +1692,10 @@ export default function App() {
   const saveZigzagSettings = async zs => {
     await store.set('zigzag_settings', zs); setZigzagSettings(zs)
   }
+  const saveCustomFood = async food => {
+    const updated = [...customFoods.filter(f => f.id !== food.id), food]
+    await store.set('custom_foods', updated); setCustomFoods(updated)
+  }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
 
@@ -1550,7 +1733,7 @@ export default function App() {
       <Header dayCount={dayCount} daysLeft={daysLeft} latestWeight={latestWeight} goalWeight={goalWeight}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
-      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate}/>}
+      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood}/>}
       {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
       {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
