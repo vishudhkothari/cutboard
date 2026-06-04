@@ -51,14 +51,10 @@ function getAdaptiveTDEE(setup, logs) {
   const mult  = ACTIVITY.find(a => a.id === setup.activity)?.mult ?? 1.45
   const formulaTDEE = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex, setup.startBF) * mult)
   let base = formulaTDEE, isDataDriven = false
-  const pairedLogs = logs.filter(l => l.weight != null && l.meals?.length > 0).sort((a, b) => a.date.localeCompare(b.date))
-  if (pairedLogs.length >= 7) {
-    const recent  = pairedLogs.slice(-7)
-    const avgCals = recent.reduce((s, l) => s + l.meals.reduce((a, m) => a + (+m.cals || 0), 0), 0) / recent.length
-    const wtLost  = recent[0].weight - recent[recent.length - 1].weight
-    const dataTDEE = Math.round(avgCals + (wtLost * 7700 / 7))
-    if (dataTDEE > 1200 && dataTDEE < 5500) { base = dataTDEE; isDataDriven = true }
-  }
+  // Use the SAME estimator Cut IQ uses (trend-based rolling regression) so all
+  // surfaces agree on maintenance. Falls back to the formula until enough data.
+  const est = estimateTDEE(logs)
+  if (est && est.tdee > 1200 && est.tdee < 5500) { base = est.tdee; isDataDriven = true }
   if (setup.manualCalTarget) return { target: +setup.manualCalTarget, base, adj: 0, curW, deficit: base - setup.manualCalTarget, isDataDriven, isManual: true }
   return { target: Math.round(base - 600), base, adj: 0, curW, deficit: 600, isDataDriven }
 }
