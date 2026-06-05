@@ -1411,25 +1411,6 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
           </div>
         )}
       </div>
-
-      {/* Fasting settings */}
-      <div style={card()}>
-        <div style={{fontFamily:F.head,fontWeight:700,fontSize:16,marginBottom:6}}>Fasting</div>
-        <div style={{fontSize:12,color:C.textSub,marginBottom:18,lineHeight:1.5}}>Toggle a fast anytime with the <strong style={{color:C.blue}}>Fasting Day</strong> button on the Today tab. This sets what that button targets:</div>
-        <div>
-          <label style={LBL}>On a fasting day, calorie target</label>
-          <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:12}}>
-            <button style={{...btn(!planSettings.fastCompensation),textAlign:'left',padding:'16px 18px',display:'block',height:'auto'}} onClick={()=>onSavePlanSettings({...planSettings,fastCompensation:false})}>
-              <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>🚫 Full Fast</div>
-              <div style={{fontSize:12,color:!planSettings.fastCompensation?'#0a0612':C.textSub}}>0 kcal — maximum deficit. Autophagy benefits after ~16h.</div>
-            </button>
-            <button style={{...btn(planSettings.fastCompensation),textAlign:'left',padding:'16px 18px',display:'block',height:'auto'}} onClick={()=>onSavePlanSettings({...planSettings,fastCompensation:true})}>
-              <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>⚡ 25% Compensation</div>
-              <div style={{fontSize:12,color:planSettings.fastCompensation?'#0a0612':C.textSub}}>Eat 25% of normal target — gentler, more sustainable.</div>
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
