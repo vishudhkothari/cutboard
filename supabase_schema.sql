@@ -1,5 +1,7 @@
 -- Run this in your Supabase SQL editor (Dashboard → SQL Editor → New Query)
+-- This script is idempotent — safe to run multiple times.
 
+-- ── Per-user data (existing) ──────────────────────────────────
 create table if not exists user_data (
   id          uuid        default gen_random_uuid() primary key,
   user_id     uuid        references auth.users on delete cascade not null,
@@ -9,14 +11,39 @@ create table if not exists user_data (
   constraint user_data_user_id_key_key unique (user_id, key)
 );
 
--- Row Level Security: users can only see/edit their own data
 alter table user_data enable row level security;
 
+drop policy if exists "Users can manage their own data" on user_data;
 create policy "Users can manage their own data"
   on user_data
   for all
   using  (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- Optional: index for fast lookups
 create index if not exists user_data_user_id_key_idx on user_data (user_id, key);
+
+-- ── Shared custom foods (visible to ALL authenticated users) ──
+-- Both you and Adarsh see the same custom food database.
+create table if not exists shared_foods (
+  id          text        primary key,
+  food        jsonb       not null,
+  created_by  uuid        references auth.users on delete set null,
+  created_at  timestamptz default now()
+);
+
+alter table shared_foods enable row level security;
+
+drop policy if exists "Anyone authenticated can read shared foods" on shared_foods;
+create policy "Anyone authenticated can read shared foods"
+  on shared_foods for select
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Anyone authenticated can insert shared foods" on shared_foods;
+create policy "Anyone authenticated can insert shared foods"
+  on shared_foods for insert
+  with check (auth.role() = 'authenticated');
+
+drop policy if exists "Anyone authenticated can update shared foods" on shared_foods;
+create policy "Anyone authenticated can update shared foods"
+  on shared_foods for update
+  using (auth.role() = 'authenticated');

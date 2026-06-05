@@ -60,4 +60,33 @@ export const store = {
       return false
     }
   },
+
+  // ── Shared custom foods (visible to ALL users) ──
+  async getSharedFoods() {
+    try {
+      const { data, error } = await supabase
+        .from('shared_foods')
+        .select('food')
+        .order('created_at', { ascending: true })
+      if (error) throw error
+      return data?.map(r => r.food) ?? []
+    } catch (e) {
+      console.error('store.getSharedFoods error', e)
+      return []
+    }
+  },
+
+  async addSharedFood(food) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase
+        .from('shared_foods')
+        .upsert({ id: food.id, food, created_by: user.id }, { onConflict: 'id' })
+      if (error) throw error
+      return true
+    } catch (e) {
+      console.error('store.addSharedFood error', e)
+      return false
+    }
+  },
 }

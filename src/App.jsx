@@ -72,76 +72,10 @@ function getAdaptiveTDEE(setup, logs) {
      Extreme: −1000 kcal/day (~1 kg/wk)
 ──────────────────────────────────────────────────────────────── */
 const AVG_DEFICIT   = { mild: 250, weight: 500, extreme: 1000 }
-const S2_MULT       = [2, 4/3, 2/3, 0, 1/3, 1, 5/3]          // Sun–Sat deficit multipliers
-const S2_EXT_FLAT   = [1042, 1014, 986, 958, 972, 1000, 1028]  // Extreme wave (compressed)
 const MIN_CALS      = 1200
 
-function getZigzagWeek(tdeeBase, schedule, intensity) {
-  const avgDef  = AVG_DEFICIT[intensity] || 500
-  const todayDow = new Date().getDay()
-  return DAY_NAMES.map((name, dow) => {
-    let cals
-    if (schedule === 1) {
-      const isHigh = dow === 0 || dow === 6
-      if (intensity === 'extreme') {
-        const lowCals     = Math.max(MIN_CALS, tdeeBase - 1042)
-        const highDeficit = (7000 - 5 * (tdeeBase - lowCals)) / 2
-        cals = isHigh ? Math.max(MIN_CALS, Math.round(tdeeBase - highDeficit)) : lowCals
-      } else {
-        cals = isHigh ? tdeeBase : Math.max(MIN_CALS, Math.round(tdeeBase - (avgDef * 7 / 5)))
-      }
-    } else {
-      cals = intensity === 'extreme'
-        ? Math.max(MIN_CALS, Math.round(tdeeBase - S2_EXT_FLAT[dow]))
-        : Math.max(MIN_CALS, Math.round(tdeeBase - avgDef * S2_MULT[dow]))
-    }
-    return { name, cals, isToday: todayDow === dow }
-  })
-}
-function getZigzagTarget(tdeeBase, schedule, intensity) {
-  return getZigzagWeek(tdeeBase, schedule, intensity)[new Date().getDay()].cals
-}
 const ZIGZAG_LABELS = { mild: 'Mild (−250/day avg)', weight: 'Weight (−500/day avg)', extreme: 'Extreme (−1000/day avg)' }
 
-// Zigzag macros: protein fixed at 130g, carbs/fat flex to fill remaining calories
-function getZigzagMacros(zigzagCalTarget) {
-  const proteinG   = 130
-  const proteinCal = 130 * 4          // 520 kcal
-  const remaining  = Math.max(zigzagCalTarget - proteinCal, 0)
-  return {
-    calTarget: zigzagCalTarget,
-    proteinG,
-    carbG: Math.round(remaining * 0.50 / 4),   // 50% of remaining from carbs
-    fatG:  Math.round(remaining * 0.50 / 9),   // 50% from fat
-  }
-}
-
-/* ─── CARB CYCLING ───────────────────────────────────────────────*/
-function getDayType(setup, dateStr) {
-  if (!setup?.carbCycling) return 'standard'
-  const dow = new Date(dateStr + 'T12:00:00').getDay()
-  const training = setup.trainingDays || [1, 3, 5]
-  const dayAfter = training.map(d => (d + 1) % 7)
-  if (training.includes(dow)) return 'high'
-  if (dayAfter.includes(dow)) return 'moderate'
-  return 'low'
-}
-const DAY_TYPE_META = {
-  high:     { label: 'HIGH CARB', color: '#4da8f7', bg: '#0e1e30', border: '#1a4a7a', desc: 'Training day — fuel up with carbs before your workout.' },
-  moderate: { label: 'MODERATE',  color: '#b4ff47', bg: '#0a1209', border: '#1a2f12', desc: 'Day after training — moderate carbs support recovery.' },
-  low:      { label: 'LOW CARB',  color: '#ff8533', bg: '#1a0e05', border: '#4a2a10', desc: 'Rest day — keep carbs low, let your body burn fat.' },
-  standard: { label: 'STANDARD',  color: '#5c6180', bg: '#0d0f14', border: '#1c1f2e', desc: 'Flat daily calorie target.' },
-}
-function getCarbCycleMacros(dayType, tdeeData) {
-  const proteinG   = 130  // user-set fixed protein target
-  const proteinCal = proteinG * 4
-  const calTargets = { high: tdeeData.base - 400, moderate: tdeeData.base - 600, low: tdeeData.base - 750, standard: tdeeData.target }
-  const calTarget  = Math.round(calTargets[dayType] || tdeeData.target)
-  const remaining  = Math.max(calTarget - proteinCal, 200)
-  const ratios     = { high: { c: 0.60, f: 0.40 }, moderate: { c: 0.40, f: 0.60 }, low: { c: 0.18, f: 0.82 }, standard: { c: 0.40, f: 0.60 } }
-  const { c, f }   = ratios[dayType] || ratios.standard
-  return { calTarget, proteinG, carbG: Math.round(remaining * c / 4), fatG: Math.round(remaining * f / 9) }
-}
 
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
 function getDynamicStepGoal(setup, logs, tdeeData) {
@@ -160,7 +94,7 @@ function getDynamicStepGoal(setup, logs, tdeeData) {
 function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepData) {
   if (!todayLog) return []
   const todayCals    = todayLog.meals?.reduce((s, m) => s + (+m.cals || 0), 0) || 0
-  const todayProtein = todayLog.meals?.reduce((s, m) => s + (+m.protein || 0), 0) || 0
+  const todayProtein = Math.round((todayLog.meals?.reduce((s, m) => s + (+m.protein || 0), 0) || 0) * 10) / 10
   const insights     = []
   insights.push({ icon: '🎯', color: '#a78bfa', msg: `Today's target: ${macros.calTarget} kcal · 130g protein${regime === 'zigzag' ? ' (zigzag day)' : ''}.` })
   if (stepData.extra > 0) {
@@ -168,7 +102,7 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
     insights.push({ icon: '👟', color: '#f0964d', msg: `You ate ~${kcal} kcal over target yesterday. Walk ${stepData.extra.toLocaleString()} extra steps today to stay in deficit.` })
   }
   if (todayCals > macros.calTarget * 0.4) {
-    const short = macros.proteinG - todayProtein
+    const short = Math.round((macros.proteinG - todayProtein) * 10) / 10
     if (short > 20) insights.push({ icon: '⚠️', color: '#f0566f', msg: `Protein is ${short}g short of today's ${macros.proteinG}g target. Add a protein source to your next meal.` })
   }
   if (todayLog.sleep > 0 && todayLog.sleep < 6.5) {
@@ -409,7 +343,6 @@ const TABS = [
   {id:'nutrition', label:'🥗 Nutrition', short:'🥗'},
   {id:'progress',  label:'📈 Progress',  short:'📈'},
   {id:'cutiq',     label:'🎯 Cut IQ',   short:'🎯'},
-  {id:'inbody',    label:'🔬 InBody',    short:'🔬'},
   {id:'plan',      label:'📅 Schedule', short:'📅'},
   {id:'workout',   label:'💪 Workout',   short:'💪'},
 ]
@@ -734,9 +667,14 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
   const [selected, setSelected] = useState(null)
   const [amount, setAmount] = useState('')
   const [showCustom, setShowCustom] = useState(false)
-  const [cf, setCf] = useState({ name:'', kcal:'', protein:'', carbs:'', fat:'', unit:'g' })
+  const [editingId, setEditingId] = useState(null)  // id of food being edited (null = new)
+  const [cf, setCf] = useState({ name:'', kcal:'', protein:'', carbs:'', fat:'', fiber:'', unit:'g' })
 
-  const allFoods = [...FOOD_DB, ...customFoods]
+  // custom foods override built-ins with the same id
+  const overrides = Object.fromEntries(customFoods.map(f => [f.id, f]))
+  const merged = FOOD_DB.map(f => overrides[f.id] || f)
+  const customOnly = customFoods.filter(f => !FOOD_DB.some(b => b.id === f.id))
+  const allFoods = [...merged, ...customOnly]
   const cats = ['All', ...FOOD_CATS]
   const list = allFoods.filter(f =>
     (cat==='All' || f.cat===cat) && f.name.toLowerCase().includes(search.toLowerCase())
@@ -748,32 +686,45 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
     setAmount(f.unit==='g'||f.unit==='ml' ? '100' : '1')
   }
 
+  // open editor pre-filled with a food's current values
+  const editFood = (f, e) => {
+    e.stopPropagation()
+    setEditingId(f.id)
+    setCf({ name:f.name, kcal:String(f.kcal), protein:String(f.protein), carbs:String(f.carbs), fat:String(f.fat), fiber:String(f.fiber||0), unit:f.unit })
+    setShowCustom(true)
+  }
+
   const macros = selected && amount ? computeFoodMacros(selected, +amount) : null
 
   const confirmAdd = () => {
     if (!selected || !amount) return
     const m = computeFoodMacros(selected, +amount)
     const unitTxt = selected.unit==='g'||selected.unit==='ml' ? `${m.grams}${selected.unit}` : `${amount} ${UNIT_LABEL[selected.unit]}`
-    onPick({ name: `${selected.name} (${unitTxt})`, cals:m.cals, protein:m.protein, carbs:m.carbs, fat:m.fat })
+    onPick({ name: `${selected.name} (${unitTxt})`, cals:m.cals, protein:m.protein, carbs:m.carbs, fat:m.fat, fiber:m.fiber })
   }
 
   const saveCustom = () => {
     if (!cf.name || !cf.kcal) return
+    const orig = editingId ? allFoods.find(f => f.id === editingId) : null
     const food = {
-      id: `custom_${Date.now()}`, name: cf.name.trim(), cat:'Custom',
-      kcal:+cf.kcal, protein:+cf.protein||0, carbs:+cf.carbs||0, fat:+cf.fat||0, unit:cf.unit, custom:true
+      id: editingId || `custom_${Date.now()}`,
+      name: cf.name.trim(),
+      cat: orig?.cat || 'Custom',
+      kcal:+cf.kcal, protein:+cf.protein||0, carbs:+cf.carbs||0, fat:+cf.fat||0, fiber:+cf.fiber||0,
+      unit:cf.unit, ...(orig?.perUnit ? { perUnit: orig.perUnit } : {}), custom:true
     }
     onAddCustom?.(food)
-    setShowCustom(false); setCf({ name:'', kcal:'', protein:'', carbs:'', fat:'', unit:'g' })
+    setShowCustom(false); setEditingId(null); setCf({ name:'', kcal:'', protein:'', carbs:'', fat:'', fiber:'', unit:'g' })
     selectFood(food)
   }
 
   return (
     <div style={{ position:'fixed', inset:0, background:'#000b', zIndex:600, display:'flex', alignItems:'flex-end' }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+
       <div style={{ background:C.bg, width:'100%', maxHeight:'90vh', borderRadius:'20px 20px 0 0', display:'flex', flexDirection:'column', overflow:'hidden', border:`1px solid ${C.border}` }}>
         {/* Header */}
         <div style={{ padding:'16px 18px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:16 }}>{showCustom ? 'Add Custom Food' : 'Food Database'}</div>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:16 }}>{showCustom ? (editingId ? 'Edit Food' : 'Add Custom Food') : 'Food Database'}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:24, lineHeight:1 }}>×</button>
         </div>
 
@@ -791,14 +742,15 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
               </div>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
-              {[{k:'kcal',l:`Calories per ${cf.unit==='g'||cf.unit==='ml'?'100'+cf.unit:cf.unit}`},{k:'protein',l:'Protein (g)'},{k:'carbs',l:'Carbs (g)'},{k:'fat',l:'Fat (g)'}].map(({k,l})=>(
+              {[{k:'kcal',l:`Calories per ${cf.unit==='g'||cf.unit==='ml'?'100'+cf.unit:cf.unit}`},{k:'protein',l:'Protein (g)'},{k:'carbs',l:'Carbs (g)'},{k:'fat',l:'Fat (g)'},{k:'fiber',l:'Fibre (g)'}].map(({k,l})=>(
                 <div key={k}><label style={LBL}>{l}</label><input style={inp()} type="number" value={cf[k]} onChange={e=>setCf(p=>({...p,[k]:e.target.value}))} /></div>
               ))}
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <button style={btn(true,true)} onClick={saveCustom}>Save to Database</button>
-              <button style={btn(false,true)} onClick={()=>setShowCustom(false)}>Back</button>
+              <button style={btn(true,true)} onClick={saveCustom}>{editingId ? 'Save Changes' : 'Save to Database'}</button>
+              <button style={btn(false,true)} onClick={()=>{setShowCustom(false);setEditingId(null)}}>Back</button>
             </div>
+            {editingId && <div style={{ fontSize:11, color:C.textFaint, marginTop:10 }}>Edits are shared with all users and override the built-in values.</div>}
           </div>
         ) : selected ? (
           /* ── Amount entry for selected food ── */
@@ -822,10 +774,10 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
                   <span style={{ fontSize:12, color:C.textSub }}>{macros.grams}g total</span>
                   <span style={{ fontFamily:F.mono, fontSize:26, fontWeight:700, color:C.accent }}>{macros.cals} <span style={{fontSize:13}}>kcal</span></span>
                 </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
-                  {[['Protein',macros.protein,C.orange],['Carbs',macros.carbs,C.blue],['Fat',macros.fat,C.purple]].map(([l,v,c])=>(
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
+                  {[['Protein',macros.protein,C.orange],['Carbs',macros.carbs,C.blue],['Fat',macros.fat,C.purple],['Fibre',macros.fiber,C.teal]].map(([l,v,c])=>(
                     <div key={l} style={{ textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:10, padding:'9px 4px' }}>
-                      <div style={{ fontFamily:F.mono, fontSize:16, fontWeight:700, color:c }}>{v}g</div>
+                      <div style={{ fontFamily:F.mono, fontSize:15, fontWeight:700, color:c }}>{v}g</div>
                       <div style={{ fontSize:10, color:C.textSub, marginTop:2 }}>{l}</div>
                     </div>
                   ))}
@@ -847,14 +799,18 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
             </div>
             <div style={{ overflowY:'auto', flex:1 }}>
               {list.map(f=>(
-                <button key={f.id} onClick={()=>selectFood(f)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', padding:'13px 18px', background:'none', border:'none', borderBottom:`1px solid ${C.borderSoft}`, cursor:'pointer', textAlign:'left', fontFamily:F.body }}
+                <div key={f.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', padding:'11px 18px', borderBottom:`1px solid ${C.borderSoft}` }}
                   onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background='none'}>
-                  <div>
+                  <div onClick={()=>selectFood(f)} style={{ flex:1, cursor:'pointer' }}>
                     <div style={{ fontSize:14, color:C.text }}>{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:6}}>★</span>}</div>
-                    <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{f.cat} · {f.protein}g P / 100g</div>
+                    <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{f.cat} · {f.protein}g P · {f.fiber||0}g fibre / 100g</div>
                   </div>
-                  <div style={{ fontFamily:F.mono, fontSize:13, color:C.accent }}>{f.kcal}</div>
-                </button>
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <span onClick={()=>selectFood(f)} style={{ fontFamily:F.mono, fontSize:13, color:C.accent, cursor:'pointer' }}>{f.kcal}</span>
+                    <button onClick={(e)=>editFood(f,e)} style={{ background:'none', border:'none', color:C.textFaint, cursor:'pointer', fontSize:14, padding:'4px 2px' }}
+                      onMouseEnter={e=>e.currentTarget.style.color=C.accent} onMouseLeave={e=>e.currentTarget.style.color=C.textFaint}>✎</button>
+                  </div>
+                </div>
               ))}
               {list.length===0 && <div style={{ textAlign:'center', padding:'40px 20px', color:C.textSub, fontSize:13 }}>No foods found</div>}
             </div>
@@ -872,6 +828,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
+  const [mealsExpanded, setMealsExpanded] = useState(false)
   const [mf,           setMf]           = useState({ name:'', cals:'', protein:'', carbs:'', fat:'' })
   const [historySearch,setHistorySearch]= useState('')
   const [editIdx,      setEditIdx]      = useState(null)
@@ -893,10 +850,11 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData),
     [setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData])
 
-  const totalCals    = local.meals.reduce((s, m) => s + (+m.cals || 0), 0)
-  const totalProtein = local.meals.reduce((s, m) => s + (+m.protein || 0), 0)
-  const totalCarbs   = local.meals.reduce((s, m) => s + (+m.carbs || 0), 0)
-  const totalFat     = local.meals.reduce((s, m) => s + (+m.fat || 0), 0)
+  const r1 = n => Math.round(n * 10) / 10
+  const totalCals    = Math.round(local.meals.reduce((s, m) => s + (+m.cals || 0), 0))
+  const totalProtein = r1(local.meals.reduce((s, m) => s + (+m.protein || 0), 0))
+  const totalCarbs   = r1(local.meals.reduce((s, m) => s + (+m.carbs || 0), 0))
+  const totalFat     = r1(local.meals.reduce((s, m) => s + (+m.fat || 0), 0))
   const remaining    = calTarget > 0 ? calTarget - totalCals : 0
   const pct          = calTarget > 0 ? Math.min((totalCals / calTarget) * 100, 100) : 0
 
@@ -1125,8 +1083,18 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
         {local.meals.length === 0 ? (
           <div style={{textAlign:'center',padding:'40px 0',color:C.textSub,fontSize:14}}>{isFasting?'Fasting — no meals today.':'No meals logged yet — add your first!'}</div>
         ) : (<>
-          <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr 1fr 32px':'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'4px 10px',fontSize:11,color:C.textSub,textTransform:'uppercase',letterSpacing:'0.07em'}}>
-            {(mobile?['Food','Cals','Protein','']:['Food','Calories','Protein','Carbs','Fat','']).map(h=><span key={h}>{h}</span>)}
+          {/* Collapsible summary bar */}
+          <button onClick={()=>setMealsExpanded(e=>!e)} style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:12, padding:'12px 14px', cursor:'pointer', fontFamily:F.body, marginBottom: mealsExpanded ? 10 : 0 }}>
+            <span style={{ display:'flex', alignItems:'center', gap:9 }}>
+              <span style={{ fontSize:13, color:C.text, fontWeight:600 }}>{local.meals.length} {local.meals.length===1?'item':'items'}</span>
+              <span style={{ fontSize:12, color:C.textSub, fontFamily:F.mono }}>{totalCals} kcal · {totalProtein}P / {totalCarbs}C / {totalFat}F</span>
+            </span>
+            <span style={{ color:C.textSub, fontSize:13, transition:'transform 0.2s', transform: mealsExpanded?'rotate(180deg)':'none' }}>▾</span>
+          </button>
+
+          {mealsExpanded && <>
+          <div style={{display:'grid',gridTemplateColumns:mobile?'1.6fr 0.8fr 0.8fr 56px':'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'4px 10px',fontSize:10.5,color:C.textSub,textTransform:'uppercase',letterSpacing:'0.07em'}}>
+            {(mobile?['Food','Cals','Prot','']:['Food','Calories','Protein','Carbs','Fat','']).map(h=><span key={h}>{h}</span>)}
           </div>
           {local.meals.map((m,i) => editIdx === i ? (
             // Inline edit row
@@ -1139,13 +1107,13 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
               <div style={{display:'flex',gap:8}}><button style={btn(true,true)} onClick={saveEdit}>Save</button><button style={btn(false,true)} onClick={()=>setEditIdx(null)}>Cancel</button></div>
             </div>
           ) : (
-            <div key={i} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'12px 10px',background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,alignItems:'center',fontSize:14}}>
-              <span>{m.name}</span>
+            <div key={i} style={{display:'grid',gridTemplateColumns:mobile?'1.6fr 0.8fr 0.8fr 56px':'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'12px 10px',background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,alignItems:'center',fontSize:mobile?13:14}}>
+              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</span>
               <span style={{fontFamily:F.mono,color:C.accent}}>{m.cals}</span>
               <span style={{fontFamily:F.mono,color:C.orange}}>{m.protein}g</span>
-              <span style={{fontFamily:F.mono,color:C.blue}}>{m.carbs}g</span>
-              <span style={{fontFamily:F.mono,color:C.textSub}}>{m.fat}g</span>
-              <div style={{display:'flex',gap:4}}>
+              {!mobile && <span style={{fontFamily:F.mono,color:C.blue}}>{m.carbs}g</span>}
+              {!mobile && <span style={{fontFamily:F.mono,color:C.textSub}}>{m.fat}g</span>}
+              <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
                 <button onClick={()=>startEdit(i)} style={{background:'none',border:'none',color:C.textSub,cursor:'pointer',fontSize:15,padding:'4px 6px',lineHeight:1}}
                   onMouseEnter={e=>e.currentTarget.style.color=C.accent} onMouseLeave={e=>e.currentTarget.style.color=C.textSub}>✎</button>
                 <button onClick={()=>removeMeal(i)} style={{background:'none',border:'none',color:C.textSub,cursor:'pointer',fontSize:19,padding:'4px 6px',lineHeight:1}}
@@ -1153,14 +1121,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
               </div>
             </div>
           ))}
-          <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 64px',gap:8,padding:'10px 10px',borderTop:`1px solid ${C.border}`,marginTop:4,fontSize:13,fontWeight:600}}>
-            <span style={{color:C.textSub}}>Total</span>
-            <span style={{fontFamily:F.mono,color:C.accent}}>{totalCals}</span>
-            <span style={{fontFamily:F.mono,color:C.orange}}>{totalProtein}g</span>
-            <span style={{fontFamily:F.mono,color:C.blue}}>{totalCarbs}g</span>
-            <span style={{fontFamily:F.mono,color:C.textSub}}>{totalFat}g</span>
-            <span/>
-          </div>
+          </>}
           {!isFasting && (
             <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
               {[{label:'Protein',eaten:totalProtein,target:effectiveMacros.proteinG,color:C.orange},{label:'Carbs',eaten:totalCarbs,target:effectiveMacros.carbG,color:C.blue},{label:'Fat',eaten:totalFat,target:effectiveMacros.fatG,color:C.purple}].map(({label,eaten,target,color}) => (
@@ -1190,8 +1151,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 ═══════════════════════════════════════════════════════════════ */
 function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup }) {
   const mobile = useIsMobile()
-  const sum = fn => (log.meals||[]).reduce((s,m)=>s+(fn(m)||0),0)
-  const todayCals=sum(m=>+m.cals),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat)
+  const sum = fn => Math.round((log.meals||[]).reduce((s,m)=>s+(fn(m)||0),0)*10)/10
+  const todayCals=Math.round(sum(m=>+m.cals)),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat)
   const regime = dayPlan.regime
   const macros = { calTarget: dayPlan.eatTarget, proteinG: dayPlan.proteinG, carbG: dayPlan.carbG, fatG: dayPlan.fatG }
   const r7=allLogs.slice(-7)
@@ -1335,79 +1296,10 @@ function ProgressTab({ logs, setup, inBodyScans, goalWeight }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   INBODY TAB
-═══════════════════════════════════════════════════════════════ */
-function InBodyTab({ scans, onAdd, setup }) {
-  const mobile = useIsMobile()
-  const [showAdd,setShowAdd]=useState(false)
-  const [f,setF]=useState({weight:'',bf:'',muscleMass:'',bmr:'',visceralFat:'',bmi:''})
-  const sf=(k,v)=>setF(p=>({...p,[k]:v}))
-  const addScan=()=>{
-    if(!f.weight||!f.bf)return
-    onAdd({date:todayStr(),weight:+f.weight,bf:+f.bf,muscleMass:f.muscleMass?+f.muscleMass:null,bmr:f.bmr?+f.bmr:null,visceralFat:f.visceralFat?+f.visceralFat:null,bmi:f.bmi?+f.bmi:null})
-    setF({weight:'',bf:'',muscleMass:'',bmr:'',visceralFat:'',bmi:''});setShowAdd(false)
-  }
-  const bfData=scans.map(s=>({date:fmtDate(s.date),bf:s.bf,muscle:s.muscleMass}))
-  return (
-    <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div style={{fontFamily:F.head,fontWeight:800,fontSize:20}}>InBody Scans</div>
-        <button style={btn(true,true)} onClick={()=>setShowAdd(o=>!o)}>+ Log Scan</button>
-      </div>
-      {showAdd&&(
-        <div style={card()}>
-          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>New Scan Entry</div>
-          <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(3,1fr)',gap:14,marginBottom:16}}>
-            {[{k:'weight',label:'Body Weight (kg)',ph:'74.0'},{k:'bf',label:'Body Fat %',ph:'20.0'},{k:'muscleMass',label:'Skeletal Muscle (kg)',ph:'32.0'},{k:'bmr',label:'BMR (kcal)',ph:'1800'},{k:'visceralFat',label:'Visceral Fat Level',ph:'5'},{k:'bmi',label:'BMI',ph:'24.5'}].map(({k,label,ph})=>(
-              <div key={k}><label style={LBL}>{label}</label><input style={inp()} type="number" step="0.1" value={f[k]} placeholder={ph} onChange={e=>sf(k,e.target.value)}/></div>
-            ))}
-          </div>
-          <div style={{display:'flex',gap:10}}><button style={btn(true,true)} onClick={addScan}>Save Scan</button><button style={btn(false,true)} onClick={()=>setShowAdd(false)}>Cancel</button></div>
-        </div>
-      )}
-      {bfData.length>0&&(
-        <div style={card()}>
-          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>Body Fat % Trend</div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={bfData} margin={{top:5,right:30,bottom:5,left:-20}}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
-              <XAxis dataKey="date" tick={{fill:C.textSub,fontSize:11}} tickLine={false} axisLine={false}/>
-              <YAxis tick={{fill:C.textSub,fontSize:11}} tickLine={false} axisLine={false}/>
-              <Tooltip {...TT}/>
-              <ReferenceLine y={setup.goalBF} stroke={C.accent} strokeDasharray="5 5" label={{value:`Goal ${setup.goalBF}%`,fill:C.accent,fontSize:11,position:'insideTopRight'}}/>
-              <Line type="monotone" dataKey="bf" stroke={C.orange} strokeWidth={2.5} dot={{fill:C.orange,r:4,strokeWidth:0}} name="Body Fat %"/>
-              {bfData[0]?.muscle!=null&&<Line type="monotone" dataKey="muscle" stroke={C.blue} strokeWidth={2} dot={{fill:C.blue,r:3,strokeWidth:0}} name="Muscle (kg)"/>}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-      {scans.length===0?(
-        <div style={card({textAlign:'center',padding:'64px 20px'})}><div style={{fontSize:52,marginBottom:16}}>🔬</div><div style={{fontSize:16,marginBottom:8}}>Log your first InBody scan</div><div style={{color:C.textSub,fontSize:13}}>Recommended every 2–3 weeks</div></div>
-      ):(
-        <div style={{display:'grid',gap:10}}>
-          {[...scans].reverse().map((s,i)=>{
-            const prev=scans[scans.length-2-i],bfDelta=prev?Math.round((s.bf-prev.bf)*10)/10:null
-            return(<div key={i} style={card({display:'grid',gridTemplateColumns:'auto repeat(6,1fr)',gap:16,alignItems:'center'})}>
-              <div style={{fontFamily:F.mono,fontSize:12,color:C.textSub,whiteSpace:'nowrap'}}>{fmtDate(s.date)}</div>
-              <div><div style={{fontSize:11,color:C.textSub}}>Weight</div><div style={{fontFamily:F.mono,color:C.accent,marginTop:3}}>{s.weight}kg</div></div>
-              <div><div style={{fontSize:11,color:C.textSub}}>Body Fat</div><div style={{fontFamily:F.mono,color:C.orange,marginTop:3}}>{s.bf}%{bfDelta!==null&&<span style={{fontSize:11,color:bfDelta<0?C.accent:C.red,marginLeft:6}}>{bfDelta>0?'+':''}{bfDelta}%</span>}</div></div>
-              {s.muscleMass&&<div><div style={{fontSize:11,color:C.textSub}}>Muscle</div><div style={{fontFamily:F.mono,color:C.blue,marginTop:3}}>{s.muscleMass}kg</div></div>}
-              {s.bmr&&<div><div style={{fontSize:11,color:C.textSub}}>BMR</div><div style={{fontFamily:F.mono,marginTop:3}}>{s.bmr} kcal</div></div>}
-              {s.visceralFat&&<div><div style={{fontSize:11,color:C.textSub}}>Visceral</div><div style={{fontFamily:F.mono,marginTop:3}}>Lvl {s.visceralFat}</div></div>}
-            </div>)
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════════════════════════════
    SCHEDULE TAB — Calorie strategy + fasting manager
 ═══════════════════════════════════════════════════════════════ */
 function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag }) {
   const mobile = useIsMobile()
-  const today = todayStr()
 
   const [zigzagSched, setZigzagSched] = useState(zigzagSettings?.schedule || 1)
   const [zigzagMode,  setZigzagMode]  = useState(zigzagSettings?.mode || 'weight')
@@ -1416,19 +1308,6 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
   // today's target comes straight from the single source of truth
   const isFastingToday = dayPlan.fasting.isFasting
   const todayTarget    = dayPlan.eatTarget
-
-  const weekDates = useMemo(() => {
-    const d = new Date(), day = d.getDay() || 7
-    const mon = new Date(d); mon.setDate(d.getDate() - day + 1)
-    return Array.from({length:7}, (_,i) => { const dd=new Date(mon); dd.setDate(mon.getDate()+i); return dd.toISOString().slice(0,10) })
-  }, [])
-
-  const dowOf  = dateStr => new Date(dateStr + 'T12:00:00').getDay()
-  const isFast = dateStr => (planSettings?.fastingDays||[]).includes(dowOf(dateStr))
-  const toggleFastDay = dow => {
-    const cur = planSettings.fastingDays || []
-    onSavePlanSettings({ ...planSettings, fastingDays: cur.includes(dow) ? cur.filter(d=>d!==dow) : [...cur, dow] })
-  }
 
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
@@ -1533,44 +1412,12 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         )}
       </div>
 
-      {/* Week strip — fasting visualizer */}
-      <div style={card()}>
-        <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:14}}>This Week</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8}}>
-          {weekDates.map((date) => {
-            const isToday = date===today, fasting = isFast(date)
-            const dayName = DAY_NAMES[dowOf(date)], dayNum = new Date(date+'T12:00:00').getDate()
-            return (
-              <div key={date} style={{textAlign:'center',background:fasting?'rgba(106,169,245,0.12)':isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${fasting?C.blue+'66':isToday?C.accent+'66':C.borderSoft}`,borderRadius:12,padding:'12px 6px'}}>
-                <div style={{fontSize:11,color:fasting?C.blue:isToday?C.accent:C.textSub,fontWeight:isToday?700:400,marginBottom:4}}>{dayName}</div>
-                <div style={{fontFamily:F.mono,fontSize:16,color:fasting?C.blue:isToday?C.accent:C.text,marginBottom:6}}>{dayNum}</div>
-                {fasting && <div style={{fontSize:10,color:C.blue,fontWeight:600,letterSpacing:'0.06em'}}>FAST</div>}
-                {isToday && !fasting && <div style={{fontSize:10,color:C.accent,fontWeight:600}}>TODAY</div>}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
       {/* Fasting settings */}
       <div style={card()}>
-        <div style={{fontFamily:F.head,fontWeight:700,fontSize:16,marginBottom:20}}>Fasting Days</div>
-        <div style={{marginBottom:24}}>
-          <label style={LBL}>Recurring fasting days — tap to toggle</label>
-          <div style={{display:'flex',gap:8}}>
-            {DAY_NAMES.map((name,i)=>{
-              const isOn = (planSettings.fastingDays||[]).includes(i)
-              return (
-                <button key={i} style={{...btn(isOn,true),flex:1,padding:'10px 0',fontSize:12,display:'block',textAlign:'center',...(isOn?{background:`linear-gradient(135deg, ${C.blue}, #4a8fd6)`,color:'#04101e'}:{})}} onClick={()=>toggleFastDay(i)}>
-                  <div style={{fontWeight:600}}>{name}</div>
-                  {isOn && <div style={{fontSize:10,marginTop:3,opacity:0.8}}>FAST</div>}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <div style={{fontFamily:F.head,fontWeight:700,fontSize:16,marginBottom:6}}>Fasting</div>
+        <div style={{fontSize:12,color:C.textSub,marginBottom:18,lineHeight:1.5}}>Toggle a fast anytime with the <strong style={{color:C.blue}}>Fasting Day</strong> button on the Today tab. This sets what that button targets:</div>
         <div>
-          <label style={LBL}>On fasting days, calorie target</label>
+          <label style={LBL}>On a fasting day, calorie target</label>
           <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:12}}>
             <button style={{...btn(!planSettings.fastCompensation),textAlign:'left',padding:'16px 18px',display:'block',height:'auto'}} onClick={()=>onSavePlanSettings({...planSettings,fastCompensation:false})}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>🚫 Full Fast</div>
@@ -1629,7 +1476,7 @@ export default function App() {
       setAllLogs(logs)
       setInBodyScans(await store.get('inbody') || [])
       setMealHistory(await store.get('meal_history') || [])
-      setCustomFoods(await store.get('custom_foods') || [])
+      setCustomFoods(await store.getSharedFoods() || [])
       setPlanSettings(await store.get('plan_settings') || { fastingDays:[], fastCompensation:false })
       setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
     }
@@ -1673,10 +1520,6 @@ export default function App() {
     await store.set(`log:${date}`, log); setTodayLog(log)
     setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?log:l); return [...prev,log].sort((a,b)=>a.date.localeCompare(b.date)) })
   }
-  const saveInBody = async scan => {
-    const updated=[...inBodyScans,scan].sort((a,b)=>a.date.localeCompare(b.date))
-    await store.set('inbody',updated); setInBodyScans(updated)
-  }
   const saveMealToHistory = async (meal) => {
     const key=meal.name.trim().toLowerCase()
     const existing=mealHistory.find(m=>m.name.trim().toLowerCase()===key)
@@ -1693,8 +1536,8 @@ export default function App() {
     await store.set('zigzag_settings', zs); setZigzagSettings(zs)
   }
   const saveCustomFood = async food => {
-    const updated = [...customFoods.filter(f => f.id !== food.id), food]
-    await store.set('custom_foods', updated); setCustomFoods(updated)
+    await store.addSharedFood(food)
+    setCustomFoods(prev => [...prev.filter(f => f.id !== food.id), food])
   }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
@@ -1736,7 +1579,6 @@ export default function App() {
       {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood}/>}
       {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} inBodyScans={inBodyScans} goalWeight={goalWeight}/>}
-      {tab==='inbody'    && <InBodyTab    scans={inBodyScans} onAdd={saveInBody} setup={setup}/>}
       {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
       {tab==='workout'   && <WorkoutTab />}
       {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE}/>}
