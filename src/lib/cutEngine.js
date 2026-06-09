@@ -215,7 +215,7 @@ export function paceController({
       headline: dataDays === 0 ? 'Just getting started' : `Learning your body — ${daysToGo} more day${daysToGo === 1 ? '' : 's'} of data`,
       actions: [
         'Log your weight daily and your meals — that\'s all for now.',
-        'I won\'t suggest changes until I\'ve learned your real maintenance and loss rate (about 10 days).',
+        'I won\'t suggest changes until I\'ve learned your real maintenance and loss rate (about a week).',
         'Week 1 weight swings are mostly water, so early numbers can\'t be trusted yet.',
       ],
       cardioRx: null,
@@ -231,12 +231,19 @@ export function paceController({
     }
   }
 
-  // classify
-  const onTrack  = actualRate >= requiredRate * 0.9 && actualRate <= requiredRate * 1.15
-  const tooSlow  = actualRate < requiredRate * 0.9
-  const tooFast  = actualRate > safeRateKg * 1.1
+  // ── CLASSIFY against the HEALTHY rate band, not the aggressive goal ──
+  // A cut is "working" if you're losing at a sustainable, muscle-sparing
+  // rate (roughly ideal..safe). Whether that pace also hits an aggressive
+  // calendar goal is a SEPARATE question (goalTooAggressive note below).
   const goalTooAggressive = requiredPct > SAFE_RATE
   const losingMuscle = strengthSignal === 'down'
+
+  // healthy band: from a gentle floor (~60% of ideal) up to the safe ceiling
+  const healthyFloor = idealRateKg * 0.6
+  const onTrack  = actualRate >= healthyFloor && actualRate <= safeRateKg * 1.1
+  const tooFast  = actualRate > safeRateKg * 1.1
+  // only "too slow" if losing meaningfully less than a healthy minimum
+  const tooSlow  = actualRate < healthyFloor
 
   let status, headline, actions = [], cardioRx = null
 
@@ -258,10 +265,10 @@ export function paceController({
     ]
   } else if (onTrack) {
     status = 'on_track'
-    headline = `On pace — ${actualRate.toFixed(2)} kg/wk`
+    headline = `On track — losing ${actualRate.toFixed(2)} kg/wk`
     actions = [
-      'Hold everything exactly as is. The plan is working.',
-      `Projected to hit ${goalBF}% on schedule at this rate.`,
+      'You\'re losing at a healthy, muscle-sparing rate. Hold everything as is.',
+      'Trend weight is moving the right way — consistency is doing its job.',
     ]
   } else if (tooSlow) {
     status = 'too_slow'
@@ -342,30 +349,31 @@ export function paceController({
 ─────────────────────────────────────────────────────────────── */
 const PROTEIN_G = 130
 const _DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-const _AVG_DEFICIT = { mild: 250, weight: 500, extreme: 1000 }
-const _S2_MULT     = [2, 4/3, 2/3, 0, 1/3, 1, 5/3]
-const _S2_EXT_FLAT = [1042, 1014, 986, 958, 972, 1000, 1028]
 
-/* weekly zigzag distribution (Sun–Sat) around a maintenance base */
-export function zigzagWeek(tdeeBase, schedule = 1, intensity = 'weight') {
-  const avgDef = _AVG_DEFICIT[intensity] || 500
+/* Zigzag as a bounded % swing AROUND the daily cut target.
+   High days +15%, low days −12% — the pattern's mean is ~0 so the
+   weekly average stays at target. Sustainable, never floors out.
+   schedule 1: high on weekends (Sat/Sun)
+   schedule 2: wave — high mid-week (Wed), low at week edges        */
+const _ZZ_HIGH = 0.15   // +15% on high days
+const _ZZ_LOW  = -0.12  // −12% on low days
+// pattern multipliers per weekday (Sun..Sat), chosen so the 7-day mean ≈ 0
+const _ZZ_PATTERN = {
+  1: [ 0.15, -0.12, -0.12, -0.06, -0.12, -0.12, 0.15 ],  // weekends high
+  2: [ -0.12, -0.06, 0.06, 0.15, 0.06, -0.06, -0.12 ],   // wave, peaks Wed
+}
+
+/* weekly zigzag distribution (Sun–Sat) as eat-targets around `target`.
+   The pattern is auto-centered so the 7-day mean equals `target` exactly,
+   keeping the weekly deficit identical to steady mode. */
+export function zigzagWeek(target, schedule = 1, intensity = 'weight') {
+  const ampScale = intensity === 'mild' ? 0.6 : intensity === 'extreme' ? 1.5 : 1
+  const pattern = _ZZ_PATTERN[schedule] || _ZZ_PATTERN[1]
+  const patMean = pattern.reduce((s, x) => s + x, 0) / 7   // center the pattern
   const todayDow = new Date().getDay()
   return _DAYS.map((name, dow) => {
-    let cals
-    if (schedule === 1) {
-      const isHigh = dow === 0 || dow === 6
-      if (intensity === 'extreme') {
-        const lowCals = Math.max(MIN_CALS, tdeeBase - 1042)
-        const highDeficit = (7000 - 5 * (tdeeBase - lowCals)) / 2
-        cals = isHigh ? Math.max(MIN_CALS, Math.round(tdeeBase - highDeficit)) : lowCals
-      } else {
-        cals = isHigh ? tdeeBase : Math.max(MIN_CALS, Math.round(tdeeBase - (avgDef * 7 / 5)))
-      }
-    } else {
-      cals = intensity === 'extreme'
-        ? Math.max(MIN_CALS, Math.round(tdeeBase - _S2_EXT_FLAT[dow]))
-        : Math.max(MIN_CALS, Math.round(tdeeBase - avgDef * _S2_MULT[dow]))
-    }
+    const pct = (pattern[dow] - patMean) * ampScale
+    const cals = Math.max(MIN_CALS, Math.round(target * (1 + pct)))
     return { name, cals, isToday: todayDow === dow }
   })
 }
@@ -417,14 +425,14 @@ export function buildDayPlan({
 }) {
   const todayDow = dateObj.getDay()
 
-  // --- compute the shifted weekly eat-targets (zigzag) or flat (steady) ---
-  // This is the ONLY place zigzag math happens.
+  // --- compute the weekly eat-targets (zigzag) or flat (steady) ---
+  // This is the ONLY place zigzag math happens. zigzagWeek now swings
+  // around the cut TARGET directly, so its mean is already the target —
+  // no re-centering shift needed.
   let weekEat            // array[7] of kcal to eat each weekday (pre-fasting)
   if (regime === 'zigzag') {
-    const raw      = zigzagWeek(maintenance, zigzag.schedule, zigzag.mode)
-    const weekMean = raw.reduce((s, d) => s + d.cals, 0) / 7
-    const shift    = baseTarget - weekMean      // re-center so week mean === baseTarget
-    weekEat = raw.map(d => Math.max(MIN_CALS, Math.round(d.cals + shift)))
+    const raw = zigzagWeek(baseTarget, zigzag.schedule, zigzag.mode)
+    weekEat = raw.map(d => d.cals)
   } else {
     const flat = Math.max(MIN_CALS, Math.round(baseTarget))
     weekEat = Array(7).fill(flat)

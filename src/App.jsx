@@ -78,12 +78,15 @@ const ZIGZAG_LABELS = { mild: 'Mild (−250/day avg)', weight: 'Weight (−500/d
 
 
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
-function getDynamicStepGoal(setup, logs, tdeeData) {
+function getDynamicStepGoal(setup, logs, tdeeData, dayPlan) {
   const base      = setup?.stepGoal || 10000
   const yesterday = logs.filter(l => l.date < todayStr()).at(-1)
   if (!yesterday) return { goal: base, extra: 0, reason: null }
   const yCals   = yesterday.meals?.reduce((s, m) => s + (+m.cals || 0), 0) || 0
-  const surplus = yCals - tdeeData.target
+  // Compare against yesterday's ACTUAL target that day (zigzag-aware), not the flat base.
+  const yDow      = new Date(yesterday.date + 'T12:00:00').getDay()
+  const yTarget   = dayPlan?.week?.[yDow]?.eat ?? tdeeData.target
+  const surplus = Math.round(yCals - yTarget)
   if (surplus <= 100) return { goal: base, extra: 0, reason: null }
   const calPerStep = tdeeData.curW * 0.00061
   const extra      = Math.min(Math.round(surplus / calPerStep), 6000)
@@ -837,7 +840,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 
   const upd = (k, v) => { const next = { ...local, [k]: v }; setLocal(next); onSave(next) }
 
-  const stepData  = useMemo(() => getDynamicStepGoal(setup, allLogs, adaptiveTDEE), [setup, allLogs, adaptiveTDEE])
+  const stepData  = useMemo(() => getDynamicStepGoal(setup, allLogs, adaptiveTDEE, dayPlan), [setup, allLogs, adaptiveTDEE, dayPlan])
 
   // ── ALL targets come from dayPlan (the single source of truth) ──
   const regime          = dayPlan.regime
