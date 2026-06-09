@@ -115,6 +115,30 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
             <div style={{ fontSize:40, marginBottom:8 }}>🏆</div>
             <div style={{ fontFamily:F.head, fontWeight:800, fontSize:22, color:C.teal }}>Goal reached!</div>
           </div>
+        ) : projection?.early ? (
+          <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr':'1.2fr 1fr', gap:18, alignItems:'center' }}>
+            <div>
+              <div style={LBL}>Learning your rate</div>
+              <div style={{ fontFamily:F.head, fontWeight:800, fontSize:mobile?22:24, color:C.accent, lineHeight:1.15 }}>
+                Building your projection
+              </div>
+              <div style={{ fontSize:12.5, color:C.textSub, marginTop:8, lineHeight:1.5 }}>
+                Early weight changes are mostly water and glycogen. I need about 2 weeks of trend data before projecting a reliable goal date — projecting now would be misleading.
+              </div>
+            </div>
+            <div style={{ display:'grid', gap:8 }}>
+              {[
+                { label:'Current (trend)', val:`${curWeight?.toFixed(1)} kg`, color:C.text },
+                { label:'Est. body fat',   val:`${currentBF?.toFixed(1)}%`,   color:C.orange },
+                { label:'Goal',            val:`${setup.goalBF}%`,            color:C.teal },
+              ].map(s=>(
+                <div key={s.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(255,255,255,0.02)', borderRadius:11, padding:'9px 13px' }}>
+                  <span style={{ fontSize:12, color:C.textSub }}>{s.label}</span>
+                  <span style={{ fontFamily:F.mono, fontSize:15, color:s.color, fontWeight:700 }}>{s.val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : projection?.stalled ? (
           <div style={{ textAlign:'center', padding:'14px 0' }}>
             <div style={{ fontFamily:F.head, fontWeight:800, fontSize:20, color:C.gold }}>Trend is flat right now</div>
@@ -149,7 +173,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
           </div>
         ) : (
           <div style={{ textAlign:'center', padding:'14px 0', color:C.textSub, fontSize:13 }}>
-            Log weight daily for ~7 days to unlock your projection.
+            Log weight daily for ~2 weeks to unlock your projection.
           </div>
         )}
       </div>
@@ -301,6 +325,11 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
       {tdeeEst && (
         <div style={card()}>
           <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}>Live TDEE Estimate</div>
+          {tdeeEst.spanDays < 14 ? (
+            <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55 }}>
+              Still learning — a data-driven TDEE needs about 2 weeks of logging before it's trustworthy. Until then, your targets use the proven formula estimate (BMR × activity), so they stay stable. <span style={{ color:C.textFaint }}>({tdeeEst.dataPoints} days logged so far.)</span>
+            </div>
+          ) : (<>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
             {[
               { label:'Real TDEE',   val:`${tdeeEst.tdee}`,       color:C.accent },
@@ -314,8 +343,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
             ))}
           </div>
           <div style={{ fontSize:11.5, color:C.textFaint, marginTop:12, lineHeight:1.5 }}>
-            Calculated from {tdeeEst.dataPoints} logged days over {tdeeEst.spanDays} days, using your trend weight (not raw scale). Self-corrects for week-1 water weight.
+            Calculated from {tdeeEst.dataPoints} logged days over {tdeeEst.spanDays} days, using your trend weight (not raw scale). Blended with the formula and clamped for stability.
           </div>
+          </>)}
         </div>
       )}
 

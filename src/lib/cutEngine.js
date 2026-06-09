@@ -142,7 +142,9 @@ export function inferBodyComp({ logs, anchor, strengthSignal, startDate }) {
 ─────────────────────────────────────────────────────────────── */
 export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }) {
   const trend = trendWeight(logs)
-  if (trend.length < 7 || currentBF == null) return null
+  // Need ~14 days before projecting — a week of trend is still water-contaminated
+  // and produces wildly wrong completion dates.
+  if (trend.length < 14 || currentBF == null) return { early: true }
 
   // weekly rates over trailing trend points
   const rates = []
@@ -205,9 +207,10 @@ export function paceController({
   const idealRateKg = currentWeight * IDEAL_RATE
 
   // ── COLD START: don't recommend anything until we've actually learned ──
-  // Needs ~7 logged days AND a real measured rate before judging pace.
-  // (matches estimateTDEE's 5-day floor + projection's 7-day window)
-  const LEARN_DAYS = 7
+  // Needs ~14 logged days AND a real measured rate before judging pace.
+  // 14 days matches the TDEE water-clearance window — early trend weight is
+  // dominated by glycogen/water, so judging "stalled" before then is wrong.
+  const LEARN_DAYS = 14
   if (!hasRate || dataDays < LEARN_DAYS) {
     const daysToGo = Math.max(0, LEARN_DAYS - dataDays)
     return {
@@ -215,8 +218,8 @@ export function paceController({
       headline: dataDays === 0 ? 'Just getting started' : `Learning your body — ${daysToGo} more day${daysToGo === 1 ? '' : 's'} of data`,
       actions: [
         'Log your weight daily and your meals — that\'s all for now.',
-        'I won\'t suggest changes until I\'ve learned your real maintenance and loss rate (about a week).',
-        'Week 1 weight swings are mostly water, so early numbers can\'t be trusted yet.',
+        'I won\'t judge your pace until I\'ve learned your real loss rate (about 2 weeks).',
+        'Early weight swings are mostly water and glycogen, so they can\'t be trusted yet.',
       ],
       cardioRx: null,
       requiredRateKg: Math.round(requiredRate * 100) / 100,
