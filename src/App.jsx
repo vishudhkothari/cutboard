@@ -46,18 +46,38 @@ function calcBMR(w, h, age, sex = 'male', bfPct = null) {
    TDEE = avg_calories_eaten + (kg_lost × 7700 / 7)
 ──────────────────────────────────────────────────────────────── */
 function getAdaptiveTDEE(setup, logs) {
-  if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false }
+  if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600 }
   const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
   const curW  = wLogs.at(-1)?.weight ?? setup.startWeight
   const mult  = ACTIVITY.find(a => a.id === setup.activity)?.mult ?? 1.45
-  const formulaTDEE = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex, setup.startBF) * mult)
+  const bmr   = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex, setup.startBF))
+  const formulaTDEE = Math.round(bmr * mult)
+
+  // ── Maintenance estimation (coach-standard) ──
+  // Weeks 1-2: trust the formula completely (early loss is water/glycogen,
+  // so scale-derived TDEE is meaningless and would crater the target).
+  // Week 3+: BLEND formula with the data estimate, but CLAMP the data
+  // value to ±15% of the formula so a noisy regression can't swing the
+  // target into famine territory.
   let base = formulaTDEE, isDataDriven = false
-  // Use the SAME estimator Cut IQ uses (trend-based rolling regression) so all
-  // surfaces agree on maintenance. Falls back to the formula until enough data.
-  const est = estimateTDEE(logs)
-  if (est && est.tdee > 1200 && est.tdee < 5500) { base = est.tdee; isDataDriven = true }
-  if (setup.manualCalTarget) return { target: +setup.manualCalTarget, base, adj: 0, curW, deficit: base - setup.manualCalTarget, isDataDriven, isManual: true }
-  return { target: Math.round(base - 600), base, adj: 0, curW, deficit: 600, isDataDriven }
+  const daysLogged = logs.filter(l => l.weight != null || (l.meals && l.meals.length)).length
+  if (daysLogged >= 14) {
+    const est = estimateTDEE(logs)
+    if (est && est.tdee > 0) {
+      const lo = formulaTDEE * 0.85, hi = formulaTDEE * 1.15
+      const clamped = Math.min(hi, Math.max(lo, est.tdee))   // never >15% off formula
+      base = Math.round(formulaTDEE * 0.5 + clamped * 0.5)   // 50/50 blend
+      isDataDriven = true
+    }
+  }
+
+  // ── Target = maintenance − deficit, floored at BMR (never below resting) ──
+  if (setup.manualCalTarget) {
+    const t = Math.max(bmr, +setup.manualCalTarget)
+    return { target: t, base, adj: 0, curW, deficit: base - t, isDataDriven, isManual: true, bmr }
+  }
+  const target = Math.max(bmr, Math.round(base - 600))
+  return { target, base, adj: 0, curW, deficit: base - target, isDataDriven, bmr }
 }
 
 /* ─── ZIGZAG CALORIE CYCLING ─────────────────────────────────────
@@ -1546,6 +1566,7 @@ export default function App() {
   const dayPlan = buildDayPlan({
     baseTarget:   adaptiveTDEE.target,
     maintenance:  adaptiveTDEE.base,
+    floor:        adaptiveTDEE.bmr,
     regime:       zigzagSettings?.on ? 'zigzag' : 'steady',
     zigzag:       { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
     fastingDays:  planSettings?.fastingDays || [],

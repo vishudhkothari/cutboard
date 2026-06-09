@@ -366,14 +366,14 @@ const _ZZ_PATTERN = {
 /* weekly zigzag distribution (Sun–Sat) as eat-targets around `target`.
    The pattern is auto-centered so the 7-day mean equals `target` exactly,
    keeping the weekly deficit identical to steady mode. */
-export function zigzagWeek(target, schedule = 1, intensity = 'weight') {
+export function zigzagWeek(target, schedule = 1, intensity = 'weight', floor = MIN_CALS) {
   const ampScale = intensity === 'mild' ? 0.6 : intensity === 'extreme' ? 1.5 : 1
   const pattern = _ZZ_PATTERN[schedule] || _ZZ_PATTERN[1]
   const patMean = pattern.reduce((s, x) => s + x, 0) / 7   // center the pattern
   const todayDow = new Date().getDay()
   return _DAYS.map((name, dow) => {
     const pct = (pattern[dow] - patMean) * ampScale
-    const cals = Math.max(MIN_CALS, Math.round(target * (1 + pct)))
+    const cals = Math.max(floor, Math.round(target * (1 + pct)))
     return { name, cals, isToday: todayDow === dow }
   })
 }
@@ -417,24 +417,24 @@ export function macrosFromCalories(calTarget, proteinG = PROTEIN_G) {
      dateObj      — defaults today
 ─────────────────────────────────────────────────────────────── */
 export function buildDayPlan({
-  baseTarget, maintenance, regime = 'steady',
+  baseTarget, maintenance, floor = MIN_CALS, regime = 'steady',
   zigzag = { schedule: 1, mode: 'weight' },
   fastingDays = [], fastComp = false,
   manualFastToday = false, overriddenToday = false,
   dateObj = new Date(),
 }) {
   const todayDow = dateObj.getDay()
+  const floorCals = Math.max(MIN_CALS, Math.round(floor))
 
   // --- compute the weekly eat-targets (zigzag) or flat (steady) ---
-  // This is the ONLY place zigzag math happens. zigzagWeek now swings
-  // around the cut TARGET directly, so its mean is already the target —
-  // no re-centering shift needed.
+  // This is the ONLY place zigzag math happens. zigzagWeek swings around
+  // the cut TARGET (mean === target), and never drops below the floor.
   let weekEat            // array[7] of kcal to eat each weekday (pre-fasting)
   if (regime === 'zigzag') {
-    const raw = zigzagWeek(baseTarget, zigzag.schedule, zigzag.mode)
+    const raw = zigzagWeek(baseTarget, zigzag.schedule, zigzag.mode, floorCals)
     weekEat = raw.map(d => d.cals)
   } else {
-    const flat = Math.max(MIN_CALS, Math.round(baseTarget))
+    const flat = Math.max(floorCals, Math.round(baseTarget))
     weekEat = Array(7).fill(flat)
   }
 
