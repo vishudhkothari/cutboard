@@ -73,7 +73,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
     logs:allLogs, currentBF, goalBF:setup.goalBF, currentWeight:curWeight, leanMass
   }) : null, [allLogs, currentBF, setup, curWeight, leanMass])
 
-  const daysLeft = setup?.startDate ? Math.max(1, 60 - Math.floor((Date.now()-new Date(setup.startDate+'T00:00:00'))/86400000)) : 60
+  const cutLen   = setup?.cutLength || 60
+  const daysLeft = setup?.startDate ? Math.max(1, cutLen - Math.floor((Date.now()-new Date(setup.startDate+'T00:00:00'))/86400000)) : cutLen
+  const inMaintenance = adaptiveTDEE?.phase === 'maintenance'
 
   // 14-day learning gate is a water-clearance CLOCK — measure the calendar
   // span of weigh-ins, not how many entries exist
@@ -179,8 +181,30 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
         )}
       </div>
 
+      {/* ─── COACH: maintenance mode after the cut window ─── */}
+      {inMaintenance && (
+        <div style={card({ borderLeft:`3px solid ${C.teal}` })}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10 }}>
+            <span style={{ fontSize:17 }}>🏁</span>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.teal }}>Cut complete — maintenance mode</div>
+          </div>
+          <div style={{ display:'grid', gap:7 }}>
+            {[
+              `Your target is ramping +150 kcal each week (currently ${adaptiveTDEE.target} kcal) until it reaches maintenance (~${adaptiveTDEE.base} kcal).`,
+              'The goal now is a FLAT trend line — weight holding steady while eating more.',
+              'Keep protein at 130g and keep lifting heavy; that\'s what locks the result in.',
+              'Want to cut again later? Raise the cut length in Settings, or reset with a new start date.',
+            ].map((a,i)=>(
+              <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start', fontSize:12.5, color:C.text, opacity:0.85, lineHeight:1.5 }}>
+                <span style={{ color:C.teal, flexShrink:0 }}>›</span>{a}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ─── COACH: Pace controller ─── */}
-      {pace && (
+      {!inMaintenance && pace && (
         <div style={card({ borderLeft:`3px solid ${STATUS_COLOR[pace.status]||C.accent}` })}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:6 }}>
             <span style={{ fontSize:17 }}>🧭</span>

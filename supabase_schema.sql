@@ -53,3 +53,21 @@ drop policy if exists "Anyone authenticated can delete shared foods" on shared_f
 create policy "Anyone authenticated can delete shared foods"
   on shared_foods for delete
   using (auth.role() = 'authenticated');
+
+-- ── Progress photos (PRIVATE storage — each user sees only their own) ──
+-- Photos live at progress-photos/<user_id>/<date>_<ts>.jpg
+insert into storage.buckets (id, name, public)
+  values ('progress-photos', 'progress-photos', false)
+  on conflict (id) do nothing;
+
+drop policy if exists "Users manage own progress photos" on storage.objects;
+create policy "Users manage own progress photos"
+  on storage.objects for all
+  using (
+    bucket_id = 'progress-photos'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  )
+  with check (
+    bucket_id = 'progress-photos'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );

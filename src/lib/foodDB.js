@@ -106,6 +106,22 @@ export const FOOD_DB = [
 
 export const FOOD_CATS = ['Dal','Grain','Bread','Protein','Veg','Fat','Fruit','Misc']
 
+/* Build a meal-log entry from a food + amount. Carries provenance
+   (foodId + amount) so the entry can later be re-edited by amount alone —
+   the macros recompute instead of the user redoing the math. */
+const UNIT_PLURAL = { piece:'pieces', scoop:'scoops', cup:'cups', tbsp:'tbsp' }
+export function mealFromFood(food, amount) {
+  const m = computeFoodMacros(food, amount)
+  const unitTxt = (food.unit === 'g' || food.unit === 'ml')
+    ? `${m.grams}${food.unit}`
+    : `${amount} ${UNIT_PLURAL[food.unit] || food.unit}`
+  return {
+    name: `${food.name} (${unitTxt})`,
+    cals: m.cals, protein: m.protein, carbs: m.carbs, fat: m.fat, fiber: m.fiber,
+    foodId: food.id, amount: +amount,
+  }
+}
+
 /* Compute macros for a given food + amount.
    amount is in the food's unit (grams, or count of pieces/scoops). */
 export function computeFoodMacros(food, amount) {

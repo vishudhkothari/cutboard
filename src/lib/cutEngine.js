@@ -453,6 +453,8 @@ export function macrosFromCalories(calTarget, proteinG = PROTEIN_G) {
     proteinG: p,
     carbG: Math.round(remaining * 0.5 / 4),
     fatG:  Math.round(remaining * 0.5 / 9),
+    // fibre: evidence-based ~14g per 1000 kcal, floored at 15g
+    fiberG: calTarget > 0 ? Math.max(15, Math.round(calTarget * 14 / 1000)) : 0,
   }
 }
 
@@ -531,7 +533,7 @@ export function buildDayPlan({
     eatTarget = baseEatToday
   }
 
-  const macros  = eatTarget > 0 ? macrosFromCalories(eatTarget) : { calTarget: 0, proteinG: 0, carbG: 0, fatG: 0 }
+  const macros  = eatTarget > 0 ? macrosFromCalories(eatTarget) : { calTarget: 0, proteinG: 0, carbG: 0, fatG: 0, fiberG: 0 }
   const deficit = Math.round(maintenance - eatTarget)
 
   return {

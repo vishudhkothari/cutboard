@@ -89,4 +89,58 @@ export const store = {
       return false
     }
   },
+
+  // ── Progress photos (private per-user storage bucket) ──
+  async uploadPhoto(blob, dateStr) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const path = `${user.id}/${dateStr}_${Date.now()}.jpg`
+      const { error } = await supabase.storage
+        .from('progress-photos')
+        .upload(path, blob, { contentType: 'image/jpeg' })
+      if (error) throw error
+      return path
+    } catch (e) {
+      console.error('store.uploadPhoto error', e)
+      return null
+    }
+  },
+
+  async listPhotos() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data, error } = await supabase.storage
+        .from('progress-photos')
+        .list(user.id, { sortBy: { column: 'name', order: 'asc' } })
+      if (error) throw error
+      return (data ?? []).filter(f => f.name).map(f => `${user.id}/${f.name}`)
+    } catch (e) {
+      console.error('store.listPhotos error', e)
+      return []
+    }
+  },
+
+  async photoUrl(path) {
+    try {
+      const { data, error } = await supabase.storage
+        .from('progress-photos')
+        .createSignedUrl(path, 3600)
+      if (error) throw error
+      return data.signedUrl
+    } catch (e) {
+      console.error('store.photoUrl error', e)
+      return null
+    }
+  },
+
+  async deletePhoto(path) {
+    try {
+      const { error } = await supabase.storage.from('progress-photos').remove([path])
+      if (error) throw error
+      return true
+    } catch (e) {
+      console.error('store.deletePhoto error', e)
+      return false
+    }
+  },
 }
