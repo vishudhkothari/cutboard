@@ -388,13 +388,13 @@ function Header({ dayCount, daysLeft, cutLength = 60, phase = 'cut', latestWeigh
           <div style={{ height: 5, background: C.borderSoft, borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: `linear-gradient(90deg, ${C.accentDim}, ${C.accent})`, borderRadius: 3, boxShadow: `0 0 8px ${C.accent}66`, transition: 'width 0.6s' }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, fontSize: 10, color: C.textSub, fontFamily: F.mono, letterSpacing: '0.02em' }}>
-            <span>{phase === 'maintenance' ? `DAY ${dayCount} · MAINTENANCE` : `DAY ${dayCount} / ${cutLength}`}</span>
-            <span>{phase === 'maintenance' ? 'CUT DONE ✓' : `${daysLeft}D LEFT`}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 5, fontSize: 10, color: C.textSub, fontFamily: F.mono, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{phase === 'maintenance' ? (mobile ? `D${dayCount} · MAINT` : `DAY ${dayCount} · MAINTENANCE`) : (mobile ? `D${dayCount}/${cutLength}` : `DAY ${dayCount} / ${cutLength}`)}</span>
+            <span>{phase === 'maintenance' ? (mobile ? 'DONE ✓' : 'CUT DONE ✓') : (mobile ? `${daysLeft}D` : `${daysLeft}D LEFT`)}</span>
           </div>
         </div>
-        {streak >= 2 && (
-          <div title={`${streak}-day logging streak`} style={{ fontFamily: F.mono, fontSize: 12, color: C.orange, flexShrink: 0, background: 'rgba(240,150,77,0.08)', padding: mobile ? '6px 9px' : '6px 11px', borderRadius: 10, border: '1px solid rgba(240,150,77,0.25)' }}>
+        {!mobile && streak >= 2 && (
+          <div title={`${streak}-day logging streak`} style={{ fontFamily: F.mono, fontSize: 12, color: C.orange, flexShrink: 0, background: 'rgba(240,150,77,0.08)', padding: '6px 11px', borderRadius: 10, border: '1px solid rgba(240,150,77,0.25)' }}>
             🔥{streak}
           </div>
         )}
@@ -412,12 +412,15 @@ function Header({ dayCount, daysLeft, cutLength = 60, phase = 'cut', latestWeigh
           {mobile ? '↪' : 'Sign Out'}
         </button>
       </div>
-      {mobile && latestWeight && (
-        <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 10, fontFamily: F.mono, fontSize: 12, color: C.textSub }}>
-          <span style={{ color: C.text }}>{latestWeight}kg</span>
-          <span style={{ margin: '0 6px', color: C.textFaint }}>→</span>
-          <span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span>
-          <span style={{ marginLeft: 8, color: C.textFaint }}>goal</span>
+      {mobile && (latestWeight || streak >= 2) && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: 10, fontFamily: F.mono, fontSize: 12, color: C.textSub }}>
+          {latestWeight && (<>
+            <span style={{ color: C.text }}>{latestWeight}kg</span>
+            <span style={{ margin: '0 6px', color: C.textFaint }}>→</span>
+            <span style={{ color: C.accent }}>{goalWeight?.toFixed(1)}kg</span>
+            <span style={{ marginLeft: 8, color: C.textFaint }}>goal</span>
+          </>)}
+          {streak >= 2 && <span style={{ marginLeft: latestWeight ? 12 : 0, color: C.orange }}>🔥{streak}d</span>}
         </div>
       )}
     </div>
@@ -1339,9 +1342,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
               <button style={{...btn(true,true),flex:'0 0 auto'}} onClick={()=>setFoodPickerOpen(true)}>📖 From Food Database</button>
               <span style={{fontSize:11,color:C.textFaint}}>or enter manually below</span>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr',gap:10,marginBottom:12}}>
+            <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(3,minmax(0,1fr))':'2fr 1fr 1fr 1fr 1fr 1fr',gap:10,marginBottom:12}}>
               {[{k:'name',label:'Food / Meal',ph:'Chicken breast 200g',type:'text'},{k:'cals',label:'Calories',ph:'330',type:'number'},{k:'protein',label:'Protein (g)',ph:'62',type:'number'},{k:'carbs',label:'Carbs (g)',ph:'0',type:'number'},{k:'fat',label:'Fat (g)',ph:'7',type:'number'},{k:'fiber',label:'Fibre (g)',ph:'0',type:'number'}].map(({k,label,ph,type}) => (
-                <div key={k}><label style={LBL}>{label}</label><input style={inp()} type={type} inputMode={type==='number'?'decimal':undefined} value={mf[k]} placeholder={ph} onChange={e=>setMf(p=>({...p,[k]:e.target.value}))} /></div>
+                <div key={k} style={mobile&&k==='name'?{gridColumn:'1/-1'}:undefined}><label style={LBL}>{label}</label><input style={inp()} type={type} inputMode={type==='number'?'decimal':undefined} value={mf[k]} placeholder={ph} onChange={e=>setMf(p=>({...p,[k]:e.target.value}))} /></div>
               ))}
             </div>
             <div style={{display:'flex',gap:10}}><button style={btn(true,true)} onClick={addMeal}>Add</button><button style={btn(false,true)} onClick={()=>{setAddOpen(false);setHistorySearch('')}}>Cancel</button></div>
@@ -1403,9 +1406,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             ) : (
             // Manual edit row
             <div key={i} style={{background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,padding:'10px',border:`1px solid ${C.accent}33`}}>
-              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr',gap:8,marginBottom:8}}>
+              <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(5,minmax(0,1fr))':'2fr 1fr 1fr 1fr 1fr 1fr',gap:8,marginBottom:8}}>
                 {[{k:'name',ph:'Food',type:'text'},{k:'cals',ph:'Cal',type:'number'},{k:'protein',ph:'P(g)',type:'number'},{k:'carbs',ph:'C(g)',type:'number'},{k:'fat',ph:'F(g)',type:'number'},{k:'fiber',ph:'Fib(g)',type:'number'}].map(({k,ph,type}) => (
-                  <input key={k} style={inp({padding:'7px 10px',fontSize:13})} type={type} inputMode={type==='number'?'decimal':undefined} value={editForm[k]??''} placeholder={ph} onChange={e=>setEditForm(p=>({...p,[k]:e.target.value}))} />
+                  <input key={k} style={inp({padding:'7px 8px',fontSize:13,...(mobile&&k==='name'?{gridColumn:'1/-1'}:{})})} type={type} inputMode={type==='number'?'decimal':undefined} value={editForm[k]??''} placeholder={ph} onChange={e=>setEditForm(p=>({...p,[k]:e.target.value}))} />
                 ))}
               </div>
               <div style={{display:'flex',gap:8}}><button style={btn(true,true)} onClick={saveEdit}>Save</button><button style={btn(false,true)} onClick={()=>setEditIdx(null)}>Cancel</button></div>
@@ -1568,12 +1571,12 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
       {regime==='zigzag' && (
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>This Week's Zigzag Targets</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:mobile?3:8}}>
             {dayPlan.week.map((d,i)=>(
-              <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:'10px 6px'}}>
-                <div style={{fontSize:11,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:6}}>{d.name}</div>
-                <div style={{fontFamily:F.mono,fontSize:14,color:d.isFast?C.blue:d.isToday?C.accent:C.text}}>{d.isFast?'Fast':d.eat}</div>
-                <div style={{fontSize:10,color:C.textSub,marginTop:3}}>{d.isFast?'':'kcal'}</div>
+              <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:mobile?'8px 1px':'10px 6px',minWidth:0,overflow:'hidden'}}>
+                <div style={{fontSize:mobile?9.5:11,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:mobile?4:6}}>{d.name}</div>
+                <div style={{fontFamily:F.mono,fontSize:mobile?11:14,color:d.isFast?C.blue:d.isToday?C.accent:C.text}}>{d.isFast?'Fast':d.eat}</div>
+                {!mobile&&<div style={{fontSize:10,color:C.textSub,marginTop:3}}>{d.isFast?'':'kcal'}</div>}
               </div>
             ))}
           </div>
@@ -1708,7 +1711,8 @@ function ProgressPhotos() {
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
         <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>📸 Progress Photos</div>
         <button style={btn(true, true)} disabled={busy} onClick={() => fileRef.current?.click()}>{busy ? 'Uploading…' : '+ Add Photo'}</button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+        {/* no `capture` attr — Android then offers BOTH camera and gallery */}
+        <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
           onChange={e => { addPhoto(e.target.files?.[0]); e.target.value = '' }} />
       </div>
       <div style={{ fontSize:12, color:C.textSub, marginBottom:14, lineHeight:1.5 }}>
@@ -1954,11 +1958,11 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
               </div>
             </div>
             <div style={{...LBL,marginBottom:8}}>This Week</div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:mobile?3:6}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:mobile?3:6}}>
               {dayPlan.week.map((d,i) => (
-                <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:mobile?'7px 2px':'9px 4px'}}>
-                  <div style={{fontSize:10,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:4}}>{d.name}</div>
-                  <div style={{fontFamily:F.mono,fontSize:12,color:d.isFast?C.blue:d.isToday?C.accent:C.text}}>{d.isFast?'Fast':d.eat}</div>
+                <div key={i} style={{textAlign:'center',background:d.isToday?'rgba(167,139,250,0.12)':'rgba(255,255,255,0.02)',border:`1px solid ${d.isToday?C.accent:C.borderSoft}`,borderRadius:10,padding:mobile?'7px 1px':'9px 4px',minWidth:0,overflow:'hidden'}}>
+                  <div style={{fontSize:mobile?9.5:10,color:d.isToday?C.accent:C.textSub,fontWeight:d.isToday?700:400,marginBottom:4}}>{d.name}</div>
+                  <div style={{fontFamily:F.mono,fontSize:mobile?11:12,color:d.isFast?C.blue:d.isToday?C.accent:C.text}}>{d.isFast?'Fast':d.eat}</div>
                 </div>
               ))}
             </div>

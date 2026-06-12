@@ -19,7 +19,9 @@ export const GLOW   = c => `0 0 0 1px ${c}30, 0 6px 24px -8px ${c}50`
 export const card = (x = {}) => ({
   background: `linear-gradient(165deg, ${C.surface} 0%, #101013 100%)`,
   border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px',
-  boxShadow: SHADOW, ...x,
+  boxShadow: SHADOW,
+  minWidth: 0,   // grid/flex children default to min-width:auto and overflow the viewport
+  ...x,
 })
 
 export const btn = (active = false, sm = false) => ({
@@ -35,7 +37,9 @@ export const btn = (active = false, sm = false) => ({
 export const inp = (x = {}) => ({
   background: '#0c0c0f', border: `1px solid ${C.border}`, borderRadius: 12,
   padding: '11px 14px', color: C.text, fontFamily: F.body, fontSize: 14,
-  width: '100%', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s', ...x,
+  width: '100%', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s',
+  minWidth: 0,   // <input> has a large intrinsic min width that blows out grids on mobile
+  ...x,
 })
 
 export const LBL = { fontSize: 10.5, color: C.textSub, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6, display: 'block' }
