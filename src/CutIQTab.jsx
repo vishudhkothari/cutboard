@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from 'recharts'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
-  inferBodyComp, projectGoal, paceController,
+  inferBodyComp, projectGoal, paceController, suggestRefeed,
 } from './lib/cutEngine'
 
 /* shared tokens (match App.jsx monochrome-violet) */
@@ -94,6 +94,11 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
     dataDays: dataSpanDays,
     hasRate: !!tdeeEst,
   }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays])
+
+  // refeed / diet-break advisor (cut phase only — pointless in maintenance)
+  const refeed = useMemo(() => !inMaintenance ? suggestRefeed({
+    logs: allLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0,
+  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE?.base, inMaintenance])
 
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
@@ -253,6 +258,24 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
               <span>Safe max: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.safeRateKg} kg/wk</strong></span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ─── Refeed / diet-break advisor ─── */}
+      {refeed && (
+        <div style={card({ border:`1px solid ${C.gold}55`, background:`linear-gradient(165deg, #1a160d 0%, #100e0a 100%)` })}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:8 }}>
+            <span style={{ fontSize:17 }}>{refeed.kind === 'break' ? '🏖' : '🍚'}</span>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.gold }}>{refeed.headline}</div>
+          </div>
+          <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55, marginBottom:12 }}>{refeed.reason}</div>
+          <div style={{ display:'grid', gap:7 }}>
+            {refeed.protocol.map((p,i)=>(
+              <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start', fontSize:12.5, color:C.text, opacity:0.85, lineHeight:1.5 }}>
+                <span style={{ color:C.gold, flexShrink:0 }}>›</span>{p}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

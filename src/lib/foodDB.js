@@ -122,6 +122,19 @@ export function mealFromFood(food, amount) {
   }
 }
 
+/* Build a meal-log entry from a saved recipe + servings count. Carries
+   recipeId + amount so it stays smart-editable by servings. */
+export function mealFromRecipe(recipe, servings = 1) {
+  const ps = recipe.perServing
+  const r1 = x => Math.round(x * servings * 10) / 10
+  return {
+    name: `${recipe.name}${servings !== 1 ? ` ×${servings}` : ''}`,
+    cals: Math.round(ps.cals * servings),
+    protein: r1(ps.protein), carbs: r1(ps.carbs), fat: r1(ps.fat), fiber: r1(ps.fiber || 0),
+    recipeId: recipe.id, amount: +servings,
+  }
+}
+
 /* Compute macros for a given food + amount.
    amount is in the food's unit (grams, or count of pieces/scoops). */
 export function computeFoodMacros(food, amount) {

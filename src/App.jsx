@@ -18,7 +18,7 @@ import { store } from './lib/store'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
 import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST } from './lib/cutEngine'
-import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood } from './lib/foodDB'
+import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -142,8 +142,24 @@ function getDynamicStepGoal(setup, logs, tdeeData, dayPlan) {
   return { goal: base + extra, extra, reason: `+${extra.toLocaleString()} steps to offset ${surplus} extra kcal from yesterday` }
 }
 
+/* ─── STREAKS ────────────────────────────────────────────────────
+   Consecutive-day counts ending today (or yesterday if today isn't
+   logged yet — an unfinished day never breaks a streak). */
+function getStreaks(logs) {
+  const byDate = Object.fromEntries(logs.map(l => [l.date, l]))
+  const loggedDay = l => !!l && (l.weight != null || (l.meals && l.meals.length > 0) || l.fasting)
+  const protDay   = l => !!l && (l.meals || []).reduce((s, m) => s + (+m.protein || 0), 0) >= ENGINE_CONST.PROTEIN_G - 10
+  const count = pred => {
+    let d = todayStr(), n = 0
+    if (!pred(byDate[d])) d = addDaysStr(d, -1)
+    while (pred(byDate[d])) { n++; d = addDaysStr(d, -1) }
+    return n
+  }
+  return { logging: count(loggedDay), protein: count(protDay) }
+}
+
 /* ─── COACH INSIGHTS ─────────────────────────────────────────────*/
-function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepData) {
+function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepData, isToday = true, streaks = null) {
   if (!todayLog) return []
   const todayCals    = todayLog.meals?.reduce((s, m) => s + (+m.cals || 0), 0) || 0
   const todayProtein = Math.round((todayLog.meals?.reduce((s, m) => s + (+m.protein || 0), 0) || 0) * 10) / 10
@@ -155,9 +171,23 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
   } else {
     insights.push({ icon: '🎯', color: '#a78bfa', msg: `Today's target: ${macros.calTarget} kcal · ${macros.proteinG}g protein${regime === 'zigzag' ? ' (zigzag day)' : ''}.` })
   }
+  // streak recognition
+  if (streaks && streaks.logging >= 3) {
+    insights.push({ icon: '🔥', color: '#f0964d', msg: `${streaks.logging}-day logging streak${streaks.protein >= 2 ? ` — and protein target hit ${streaks.protein} days straight 💪` : ''}. Consistency is the whole game.` })
+  }
   // weekly review pointer on Sun/Mon
   if ([0, 1].includes(new Date().getDay()) && logs.filter(l => l.meals?.length || l.weight != null).length >= 7) {
     insights.push({ icon: '📒', color: '#e0b94d', msg: `Your weekly review is ready — check the top of the Progress tab.` })
+  }
+  // in-app nudges — only meaningful for the live "today" view
+  if (isToday) {
+    const hour = new Date().getHours()
+    if (hour >= 12 && todayLog.weight == null) {
+      insights.push({ icon: '⚖', color: '#e0b94d', msg: `No weigh-in yet today — the trend model is only as good as its data.` })
+    }
+    if (hour >= 21 && (!todayLog.meals || todayLog.meals.length === 0) && !todayLog.fasting && macros.calTarget > 0) {
+      insights.push({ icon: '🍽', color: '#e0b94d', msg: `No meals logged today. Log them now while you still remember — or hit the fasting button if you fasted.` })
+    }
   }
   if (stepData.extra > 0) {
     const kcal = Math.round(stepData.extra * tdeeData.curW * 0.00061)
@@ -189,7 +219,7 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
       else                   insights.push({ icon: '✅', color: '#a78bfa', msg: `Down ${wkLoss.toFixed(2)}kg this week — right on target. Stay consistent.` })
     }
   }
-  return insights.slice(0, 5)
+  return insights.slice(0, 6)
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -283,7 +313,7 @@ function AuthScreen() {
 /* ═══════════════════════════════════════════════════════════════
    ONBOARDING
 ═══════════════════════════════════════════════════════════════ */
-function Onboarding({ userEmail, onSave, existing, onCancel, onReset }) {
+function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }) {
   const [f, setF] = useState({
     name: existing?.name ?? userEmail?.split('@')[0] ?? '', age: existing?.age ?? '', height: existing?.height ?? '',
     sex: existing?.sex ?? 'male', activity: existing?.activity ?? 'mod',
@@ -360,6 +390,15 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset }) {
             }}>{existing ? '✓ Save Changes' : '🔥 Start My Cut'}</button>
             {existing && <button style={btn()} onClick={onCancel}>Cancel</button>}
           </div>
+          {existing && onExport && (
+            <div style={{ marginTop: 8, paddingTop: 16, borderTop: `1px solid ${C.borderSoft}` }}>
+              <label style={LBL}>Your Data</label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button style={{ ...btn(false), flex: 1 }} onClick={() => onExport('json')}>⬇ Full backup (JSON)</button>
+                <button style={{ ...btn(false), flex: 1 }} onClick={() => onExport('csv')}>⬇ Daily logs (CSV)</button>
+              </div>
+            </div>
+          )}
           {existing && onReset && (
             <div style={{ marginTop: 8, paddingTop: 16, borderTop: `1px solid ${C.borderSoft}` }}>
               <button style={{ ...btn(false), width: '100%', color: C.red, borderColor: `${C.red}44` }} onClick={onReset}>
@@ -377,7 +416,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset }) {
 /* ═══════════════════════════════════════════════════════════════
    HEADER
 ═══════════════════════════════════════════════════════════════ */
-function Header({ dayCount, daysLeft, cutLength = 60, phase = 'cut', latestWeight, goalWeight, onSettings, onLogout }) {
+function Header({ dayCount, daysLeft, cutLength = 60, phase = 'cut', latestWeight, goalWeight, streak = 0, onSettings, onLogout }) {
   const mobile = useIsMobile()
   const pct    = Math.min((dayCount / cutLength) * 100, 100)
   return (
@@ -396,6 +435,11 @@ function Header({ dayCount, daysLeft, cutLength = 60, phase = 'cut', latestWeigh
             <span>{phase === 'maintenance' ? 'CUT DONE ✓' : `${daysLeft}D LEFT`}</span>
           </div>
         </div>
+        {streak >= 2 && (
+          <div title={`${streak}-day logging streak`} style={{ fontFamily: F.mono, fontSize: 12, color: C.orange, flexShrink: 0, background: 'rgba(240,150,77,0.08)', padding: mobile ? '6px 9px' : '6px 11px', borderRadius: 10, border: '1px solid rgba(240,150,77,0.25)' }}>
+            🔥{streak}
+          </div>
+        )}
         {!mobile && latestWeight && (
           <div style={{ fontFamily: F.mono, fontSize: 12, color: C.textSub, flexShrink: 0, background: 'rgba(255,255,255,0.03)', padding: '6px 12px', borderRadius: 10, border: `1px solid ${C.borderSoft}` }}>
             <span style={{ color: C.text }}>{latestWeight}kg</span>
@@ -745,9 +789,9 @@ function TaskPlanner({ tasks = [], onUpdate }) {
 /* ═══════════════════════════════════════════════════════════════
    FOOD PICKER — search DB, set weight, auto-calc macros
 ═══════════════════════════════════════════════════════════════ */
-const UNIT_LABEL = { g:'grams', ml:'ml', piece:'pieces', scoop:'scoops', cup:'cups', tbsp:'tbsp' }
+const UNIT_LABEL = { g:'grams', ml:'ml', piece:'pieces', scoop:'scoops', cup:'cups', tbsp:'tbsp', serving:'servings' }
 
-function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
+function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClose }) {
   const mobile = useIsMobile()
   const [search, setSearch] = useState('')
   const [cat, setCat]       = useState('All')
@@ -761,8 +805,14 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
   const overrides = Object.fromEntries(customFoods.map(f => [f.id, f]))
   const merged = FOOD_DB.map(f => overrides[f.id] || f)
   const customOnly = customFoods.filter(f => !FOOD_DB.some(b => b.id === f.id))
-  const allFoods = [...merged, ...customOnly]
-  const cats = ['All', ...FOOD_CATS]
+  // saved recipes surface as one-tap foods, per serving
+  const recipeFoods = recipes.map(r => ({
+    id: r.id, name: r.name, cat: 'My Meals',
+    kcal: r.perServing.cals, protein: r.perServing.protein, fiber: r.perServing.fiber || 0,
+    unit: 'serving', isRecipe: true, recipe: r,
+  }))
+  const allFoods = [...recipeFoods, ...merged, ...customOnly]
+  const cats = recipes.length ? ['All', 'My Meals', ...FOOD_CATS] : ['All', ...FOOD_CATS]
   const list = allFoods.filter(f =>
     (cat==='All' || f.cat===cat) && f.name.toLowerCase().includes(search.toLowerCase())
   )
@@ -781,11 +831,15 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
     setShowCustom(true)
   }
 
-  const macros = selected && amount ? computeFoodMacros(selected, +amount) : null
+  const macros = selected && amount ? (
+    selected.isRecipe
+      ? (() => { const m = mealFromRecipe(selected.recipe, +amount); return { cals: m.cals, protein: m.protein, carbs: m.carbs, fat: m.fat, fiber: m.fiber, grams: null } })()
+      : computeFoodMacros(selected, +amount)
+  ) : null
 
   const confirmAdd = () => {
     if (!selected || !amount) return
-    onPick(mealFromFood(selected, +amount))
+    onPick(selected.isRecipe ? mealFromRecipe(selected.recipe, +amount) : mealFromFood(selected, +amount))
   }
 
   const saveCustom = () => {
@@ -848,7 +902,7 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
             <input style={inp({ fontSize:20, fontFamily:F.mono, textAlign:'center', marginBottom:8 })} type="number" value={amount} onChange={e=>setAmount(e.target.value)} autoFocus />
             {/* quick chips */}
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:18 }}>
-              {(selected.unit==='g'||selected.unit==='ml' ? [50,100,150,200,250] : [1,2,3,4]).map(q=>(
+              {(selected.isRecipe ? [0.5,1,1.5,2] : selected.unit==='g'||selected.unit==='ml' ? [50,100,150,200,250] : [1,2,3,4]).map(q=>(
                 <button key={q} style={{...btn(+amount===q,true),fontSize:12,padding:'5px 12px'}} onClick={()=>setAmount(String(q))}>{q}{selected.unit==='g'||selected.unit==='ml'?selected.unit:''}</button>
               ))}
             </div>
@@ -856,7 +910,7 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
             {macros && (
               <div style={{ background:'rgba(167,139,250,0.08)', border:`1px solid ${C.accent}33`, borderRadius:14, padding:16, marginBottom:16 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:12 }}>
-                  <span style={{ fontSize:12, color:C.textSub }}>{macros.grams}g total</span>
+                  <span style={{ fontSize:12, color:C.textSub }}>{macros.grams!=null ? `${macros.grams}g total` : `${amount} serving${+amount===1?'':'s'}`}</span>
                   <span style={{ fontFamily:F.mono, fontSize:26, fontWeight:700, color:C.accent }}>{macros.cals} <span style={{fontSize:13}}>kcal</span></span>
                 </div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
@@ -887,13 +941,13 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
                 <div key={f.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', padding:'11px 18px', borderBottom:`1px solid ${C.borderSoft}` }}
                   onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background='none'}>
                   <div onClick={()=>selectFood(f)} style={{ flex:1, cursor:'pointer' }}>
-                    <div style={{ fontSize:14, color:C.text }}>{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:6}}>★</span>}</div>
-                    <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{f.cat} · {f.protein}g P · {f.fiber||0}g fibre / 100g</div>
+                    <div style={{ fontSize:14, color:C.text }}>{f.isRecipe&&<span style={{fontSize:11,marginRight:5}}>🍲</span>}{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:6}}>★</span>}</div>
+                    <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{f.cat} · {f.protein}g P · {f.fiber||0}g fibre / {f.unit==='g'||f.unit==='ml'?`100${f.unit}`:f.unit}</div>
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                     <span onClick={()=>selectFood(f)} style={{ fontFamily:F.mono, fontSize:13, color:C.accent, cursor:'pointer' }}>{f.kcal}</span>
-                    <button onClick={(e)=>editFood(f,e)} style={{ background:'none', border:'none', color:C.textFaint, cursor:'pointer', fontSize:14, padding:'4px 2px' }}
-                      onMouseEnter={e=>e.currentTarget.style.color=C.accent} onMouseLeave={e=>e.currentTarget.style.color=C.textFaint}>✎</button>
+                    {!f.isRecipe && <button onClick={(e)=>editFood(f,e)} style={{ background:'none', border:'none', color:C.textFaint, cursor:'pointer', fontSize:14, padding:'4px 2px' }}
+                      onMouseEnter={e=>e.currentTarget.style.color=C.accent} onMouseLeave={e=>e.currentTarget.style.color=C.textFaint}>✎</button>}
                   </div>
                 </div>
               ))}
@@ -909,7 +963,132 @@ function FoodPicker({ customFoods = [], onPick, onAddCustom, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, viewDate, onChangeDate, customFoods = [], onSaveCustomFood }) {
+/* ═══════════════════════════════════════════════════════════════
+   RECIPE BUILDER — assemble a dish from DB foods, saved per-serving
+═══════════════════════════════════════════════════════════════ */
+function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
+  const [name,     setName]     = useState(recipe?.name || '')
+  const [servings, setServings] = useState(recipe?.servings || 1)
+  const [items,    setItems]    = useState(recipe?.items || [])   // [{foodId, name, unit, amount}]
+  const [search,   setSearch]   = useState('')
+
+  const overrides  = Object.fromEntries(customFoods.map(f => [f.id, f]))
+  const merged     = FOOD_DB.map(f => overrides[f.id] || f)
+  const customOnly = customFoods.filter(f => !FOOD_DB.some(b => b.id === f.id))
+  const allFoods   = [...merged, ...customOnly]
+  const foodById   = Object.fromEntries(allFoods.map(f => [f.id, f]))
+
+  const results = search.trim()
+    ? allFoods.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).slice(0, 8)
+    : []
+
+  const addItem    = f => { setItems(p => [...p, { foodId: f.id, name: f.name, unit: f.unit, amount: f.unit === 'g' || f.unit === 'ml' ? 100 : 1 }]); setSearch('') }
+  const setAmount  = (i, v) => setItems(p => p.map((x, j) => j === i ? { ...x, amount: v } : x))
+  const removeItem = i => setItems(p => p.filter((_, j) => j !== i))
+
+  const itemMacros = it => {
+    const f = foodById[it.foodId]
+    return f && +it.amount > 0 ? computeFoodMacros(f, +it.amount) : null
+  }
+  const totals = items.reduce((t, it) => {
+    const m = itemMacros(it); if (!m) return t
+    return { cals: t.cals + m.cals, protein: t.protein + m.protein, carbs: t.carbs + m.carbs, fat: t.fat + m.fat, fiber: t.fiber + m.fiber }
+  }, { cals: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 })
+  const sv  = Math.max(1, +servings || 1)
+  const ps1 = x => Math.round(x / sv * 10) / 10
+  const perServing = { cals: Math.round(totals.cals / sv), protein: ps1(totals.protein), carbs: ps1(totals.carbs), fat: ps1(totals.fat), fiber: ps1(totals.fiber) }
+  const canSave = name.trim() && items.length > 0 && totals.cals > 0
+
+  const save = () => {
+    if (!canSave) return
+    onSave({ id: recipe?.id || `recipe_${Date.now()}`, name: name.trim(), servings: sv, items: items.map(i => ({ ...i, amount: +i.amount })), perServing })
+    onClose()
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'#000b', zIndex:600, display:'flex', alignItems:'flex-end' }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:C.bg, width:'100%', maxHeight:'92vh', borderRadius:'20px 20px 0 0', display:'flex', flexDirection:'column', overflow:'hidden', border:`1px solid ${C.border}` }}>
+        <div style={{ padding:'16px 18px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:16 }}>{recipe ? 'Edit Meal' : 'Build a Meal'}</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:24, lineHeight:1 }}>×</button>
+        </div>
+        <div style={{ padding:18, overflowY:'auto', flex:1 }}>
+          <div style={{ marginBottom:14 }}><label style={LBL}>Meal name</label>
+            <input style={inp()} value={name} placeholder="e.g. Dal-rice-ghee bowl" onChange={e=>setName(e.target.value)} autoFocus={!recipe} /></div>
+
+          {/* ingredients */}
+          {items.length > 0 && (
+            <div style={{ display:'grid', gap:8, marginBottom:14 }}>
+              {items.map((it, i) => {
+                const m = itemMacros(it)
+                return (
+                  <div key={i} style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:10, padding:'8px 10px' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{it.name}</div>
+                      {m && <div style={{ fontSize:10.5, color:C.textSub, marginTop:1 }}>{m.cals} kcal · {m.protein}g P</div>}
+                    </div>
+                    <input style={inp({ width:72, textAlign:'center', fontFamily:F.mono, padding:'6px 8px', fontSize:13 })} type="number" value={it.amount}
+                      onChange={e=>setAmount(i, e.target.value)} />
+                    <span style={{ fontSize:11, color:C.textSub, width:46 }}>{it.unit==='g'||it.unit==='ml'?it.unit:UNIT_LABEL[it.unit]||it.unit}</span>
+                    <button onClick={()=>removeItem(i)} style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:17, padding:'2px 4px', lineHeight:1 }}>×</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* add ingredient */}
+          <div style={{ marginBottom:14 }}>
+            <label style={LBL}>Add ingredient</label>
+            <input style={inp()} value={search} placeholder="Search the food database…" onChange={e=>setSearch(e.target.value)} />
+            {results.length > 0 && (
+              <div style={{ border:`1px solid ${C.border}`, borderRadius:12, marginTop:6, overflow:'hidden' }}>
+                {results.map(f => (
+                  <div key={f.id} onClick={()=>addItem(f)} style={{ display:'flex', justifyContent:'space-between', padding:'10px 12px', borderBottom:`1px solid ${C.borderSoft}`, cursor:'pointer' }}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                    <span style={{ fontSize:13 }}>{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:5}}>★</span>}</span>
+                    <span style={{ fontFamily:F.mono, fontSize:12, color:C.accent }}>{f.kcal} kcal</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
+            <div><label style={LBL}>Makes (servings)</label>
+              <input style={inp({ width:90, textAlign:'center', fontFamily:F.mono })} type="number" min="1" value={servings} onChange={e=>setServings(e.target.value)} /></div>
+            <div style={{ fontSize:11, color:C.textSub, lineHeight:1.5, flex:1, paddingTop:16 }}>If this batch makes 2 servings, macros below are per serving.</div>
+          </div>
+
+          {/* per-serving totals */}
+          {items.length > 0 && (
+            <div style={{ background:'rgba(167,139,250,0.08)', border:`1px solid ${C.accent}33`, borderRadius:14, padding:14, marginBottom:16 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:10 }}>
+                <span style={{ fontSize:11, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.08em' }}>Per serving</span>
+                <span style={{ fontFamily:F.mono, fontSize:22, fontWeight:700, color:C.accent }}>{perServing.cals} <span style={{fontSize:12}}>kcal</span></span>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
+                {[['Protein',perServing.protein,C.orange],['Carbs',perServing.carbs,C.blue],['Fat',perServing.fat,C.purple],['Fibre',perServing.fiber,C.teal]].map(([l,v,c])=>(
+                  <div key={l} style={{ textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:10, padding:'8px 4px' }}>
+                    <div style={{ fontFamily:F.mono, fontSize:14, fontWeight:700, color:c }}>{v}g</div>
+                    <div style={{ fontSize:10, color:C.textSub, marginTop:2 }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display:'flex', gap:8 }}>
+            <button style={{ ...btn(canSave), flex:1, opacity:canSave?1:0.4 }} onClick={save}>{recipe ? '✓ Save Changes' : '✓ Save Meal'}</button>
+            <button style={btn(false)} onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
@@ -931,6 +1110,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
     customFoods.forEach(f => { if (!map[f.id]) map[f.id] = f })
     return map
   }, [customFoods])
+  const recipeById = useMemo(() => Object.fromEntries(recipes.map(r => [r.id, r])), [recipes])
 
   const stepData  = useMemo(() => getDynamicStepGoal(setup, allLogs, adaptiveTDEE, dayPlan), [setup, allLogs, adaptiveTDEE, dayPlan])
 
@@ -942,8 +1122,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const calTarget        = dayPlan.eatTarget
   const fastCompTarget   = dayPlan.fasting.kind === 'comp25' ? dayPlan.eatTarget : 0
 
-  const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData),
-    [setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData])
+  const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData, viewDate === todayStr(), streaks),
+    [setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData, viewDate, streaks])
 
   const r1 = n => Math.round(n * 10) / 10
   const totalCals    = Math.round(local.meals.reduce((s, m) => s + (+m.cals || 0), 0))
@@ -978,8 +1158,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const startEdit = idx => {
     const m = local.meals[idx]
     setEditIdx(idx)
-    // DB-logged meal with known food → edit by AMOUNT, macros recompute
-    const smart = m.foodId && foodById[m.foodId] && m.amount != null
+    // DB-logged meal (food OR saved recipe) → edit by AMOUNT, macros recompute
+    const smart = m.amount != null && ((m.foodId && foodById[m.foodId]) || (m.recipeId && recipeById[m.recipeId]))
     setEditForm(smart ? { smart: true, amount: String(m.amount) } : { smart: false, ...m })
   }
   const saveEdit = () => {
@@ -987,7 +1167,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
     let replacement
     if (editForm.smart) {
       if (!editForm.amount || +editForm.amount <= 0) return
-      replacement = mealFromFood(foodById[m.foodId], +editForm.amount)
+      replacement = m.recipeId
+        ? mealFromRecipe(recipeById[m.recipeId], +editForm.amount)
+        : mealFromFood(foodById[m.foodId], +editForm.amount)
     } else {
       replacement = { name: editForm.name, cals: +editForm.cals||0, protein: +editForm.protein||0, carbs: +editForm.carbs||0, fat: +editForm.fat||0, fiber: +editForm.fiber||0 }
     }
@@ -1191,6 +1373,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
         {foodPickerOpen && (
           <FoodPicker
             customFoods={customFoods}
+            recipes={recipes}
             onPick={(meal)=>{ const next={...local,meals:[...local.meals,meal]}; setLocal(next); onSave(next); onSaveMealHistory?.(meal); setFoodPickerOpen(false); setAddOpen(false) }}
             onAddCustom={onSaveCustomFood}
             onClose={()=>setFoodPickerOpen(false)}
@@ -1215,17 +1398,19 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           </div>
           {local.meals.map((m,i) => editIdx === i ? (
             editForm.smart ? (
-              // Smart edit: change the AMOUNT, macros recompute from the food DB
+              // Smart edit: change the AMOUNT, macros recompute from the food DB / recipe
               (() => {
-                const food = foodById[m.foodId]
-                const prev = editForm.amount && +editForm.amount > 0 ? computeFoodMacros(food, +editForm.amount) : null
+                const recipe = m.recipeId ? recipeById[m.recipeId] : null
+                const food   = !recipe ? foodById[m.foodId] : null
+                const amt    = editForm.amount && +editForm.amount > 0 ? +editForm.amount : null
+                const prev   = amt ? (recipe ? mealFromRecipe(recipe, amt) : computeFoodMacros(food, amt)) : null
                 return (
                   <div key={i} style={{background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,padding:'12px',border:`1px solid ${C.accent}33`}}>
-                    <div style={{fontSize:13,fontWeight:600,marginBottom:9}}>{food.name}</div>
+                    <div style={{fontSize:13,fontWeight:600,marginBottom:9}}>{recipe ? `🍲 ${recipe.name}` : food.name}</div>
                     <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
                       <input style={inp({width:110,textAlign:'center',fontFamily:F.mono,fontSize:15,padding:'8px 10px'})} type="number" autoFocus value={editForm.amount}
                         onChange={e=>setEditForm(p=>({...p,amount:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&saveEdit()} />
-                      <span style={{fontSize:12,color:C.textSub}}>{UNIT_LABEL[food.unit]||food.unit}</span>
+                      <span style={{fontSize:12,color:C.textSub}}>{recipe ? 'servings' : UNIT_LABEL[food.unit]||food.unit}</span>
                       {prev && <span style={{fontFamily:F.mono,fontSize:12.5,color:C.accent,marginLeft:'auto'}}>{prev.cals} kcal · {prev.protein}P / {prev.carbs}C / {prev.fat}F</span>}
                     </div>
                     <div style={{display:'flex',gap:8,alignItems:'center'}}>
@@ -1293,8 +1478,14 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 /* ═══════════════════════════════════════════════════════════════
    NUTRITION TAB
 ═══════════════════════════════════════════════════════════════ */
-function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup }) {
+function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = [], onSaveRecipes, customFoods = [] }) {
   const mobile = useIsMobile()
+  const [builder, setBuilder] = useState(null)   // null | {recipe: r|null}
+  const saveRecipe = r => {
+    const next = recipes.some(x => x.id === r.id) ? recipes.map(x => x.id === r.id ? r : x) : [...recipes, r]
+    onSaveRecipes?.(next)
+  }
+  const delRecipe = id => { if (!confirm('Delete this saved meal?')) return; onSaveRecipes?.(recipes.filter(r => r.id !== id)) }
   const sum = fn => Math.round((log.meals||[]).reduce((s,m)=>s+(fn(m)||0),0)*10)/10
   const todayCals=Math.round(sum(m=>+m.cals)),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat),todayFib=sum(m=>+m.fiber)
   const regime = dayPlan.regime
@@ -1307,10 +1498,17 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup }) {
   const avgCals=avg7(l=>(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0))
   const avgProt=avg7(l=>(l.meals||[]).reduce((s,m)=>s+(+m.protein||0),0))
   const calHistory=allLogs.filter(l=>l.date>=cut14).map(l=>({date:fmtDate(l.date),cals:(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)}))
+  // 14-day adherence: % of intake-logged days at/under that day's target (+75 grace)
+  const adherence=(()=>{
+    const days=allLogs.filter(l=>l.date>=cut14&&((l.meals&&l.meals.length)||l.fasting))
+    if(days.length<3)return null
+    const targetFor=l=>{const wk=dayPlan?.week?.[new Date(l.date+'T12:00:00').getDay()];if(!wk)return dayPlan.baseTarget;return wk.isFast&&l.fastingOverridden?wk.baseEat:wk.eat}
+    return Math.round(days.filter(l=>(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)<=targetFor(l)+75).length/days.length*100)
+  })()
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
-      <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
-        {[{label:"Today's Calories",val:todayCals,unit:'kcal',color:C.accent},{label:'Target',val:macros.calTarget,unit:'kcal',color:C.text},{label:'7-Day Avg Cals',val:avgCals,unit:'kcal',color:C.blue},{label:'7-Day Avg Protein',val:avgProt,unit:'g',color:C.orange}].map(({label,val,unit,color})=>(
+      <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(5,1fr)',gap:12}}>
+        {[{label:"Today's Calories",val:todayCals,unit:'kcal',color:C.accent},{label:'Target',val:macros.calTarget,unit:'kcal',color:C.text},{label:'7-Day Avg Cals',val:avgCals,unit:'kcal',color:C.blue},{label:'7-Day Avg Protein',val:avgProt,unit:'g',color:C.orange},{label:'14d Adherence',val:adherence??'—',unit:adherence!=null?'%':'',color:adherence==null?C.textSub:adherence>=80?C.teal:adherence>=60?C.gold:C.red}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
         ))}
       </div>
@@ -1339,6 +1537,35 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup }) {
           ):<div style={{padding:'60px 0',textAlign:'center',color:C.textSub}}>Log meals for a few days to see history</div>}
         </div>
       </div>
+
+      {/* ── Saved meals / recipe manager ── */}
+      <div style={card()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>🍲 My Meals</div>
+          <button style={btn(true,true)} onClick={()=>setBuilder({recipe:null})}>+ Build a Meal</button>
+        </div>
+        <div style={{fontSize:12,color:C.textSub,marginBottom:recipes.length?14:0,lineHeight:1.5}}>
+          Pre-build the dishes you eat often. They show up under <strong style={{color:C.accent}}>My Meals</strong> in the food picker — one tap to log, editable by servings.
+        </div>
+        {recipes.length>0&&(
+          <div style={{display:'grid',gap:8}}>
+            {recipes.map(r=>(
+              <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.02)',border:`1px solid ${C.borderSoft}`,borderRadius:11,padding:'10px 13px'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
+                  <div style={{fontSize:11,color:C.textSub,marginTop:2}}><span style={{color:C.accent,fontFamily:F.mono}}>{r.perServing.cals} kcal</span> · {r.perServing.protein}g P / serving · {r.items.length} ingredient{r.items.length!==1?'s':''}</div>
+                </div>
+                <button onClick={()=>setBuilder({recipe:r})} style={{background:'none',border:'none',color:C.textSub,cursor:'pointer',fontSize:14,padding:'3px 5px'}}
+                  onMouseEnter={e=>e.currentTarget.style.color=C.accent} onMouseLeave={e=>e.currentTarget.style.color=C.textSub}>✎</button>
+                <button onClick={()=>delRecipe(r.id)} style={{background:'none',border:'none',color:C.textSub,cursor:'pointer',fontSize:17,padding:'3px 5px'}}
+                  onMouseEnter={e=>e.currentTarget.style.color=C.red} onMouseLeave={e=>e.currentTarget.style.color=C.textSub}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {builder && <RecipeBuilder recipe={builder.recipe} customFoods={customFoods} onSave={saveRecipe} onClose={()=>setBuilder(null)}/>}
+
       {regime==='zigzag' && (
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>This Week's Zigzag Targets</div>
@@ -1767,6 +1994,7 @@ export default function App() {
   const [cutIntel,     setCutIntel]     = useState({ anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
   const [mealHistory,  setMealHistory]  = useState([])
   const [customFoods,  setCustomFoods]  = useState([])
+  const [recipes,      setRecipes]      = useState([])
   const [planSettings,   setPlanSettings]   = useState({ fastingDays:[], fastCompensation:false })
   const [zigzagSettings, setZigzagSettings] = useState({ on:false, schedule:1, mode:'weight' })
 
@@ -1789,6 +2017,7 @@ export default function App() {
       setCutIntel(await store.get('cut_intel') || { anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
       setMealHistory(await store.get('meal_history') || [])
       setCustomFoods(await store.getSharedFoods() || [])
+      setRecipes(await store.get('recipes') || [])
       setPlanSettings(await store.get('plan_settings') || { fastingDays:[], fastCompensation:false })
       setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
     }
@@ -1862,8 +2091,30 @@ export default function App() {
     await store.addSharedFood(food)
     setCustomFoods(prev => [...prev.filter(f => f.id !== food.id), food])
   }
+  const saveRecipes = async rs => { await store.set('recipes', rs); setRecipes(rs) }
+
+  const exportData = async kind => {
+    const dl = (content, filename, type) => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([content], { type }))
+      a.download = filename; a.click(); URL.revokeObjectURL(a.href)
+    }
+    if (kind === 'csv') {
+      const rows = [['date','weight_kg','sleep_h','steps','fasting','cals','protein_g','carbs_g','fat_g','fiber_g','meals']]
+      allLogs.forEach(l => {
+        const s = f => Math.round((l.meals || []).reduce((a, m) => a + (+m[f] || 0), 0) * 10) / 10
+        rows.push([l.date, l.weight ?? '', l.sleep ?? '', l.steps ?? '', l.fasting ? 1 : 0, Math.round(s('cals')), s('protein'), s('carbs'), s('fat'), s('fiber'), (l.meals || []).map(m => m.name).join('; ')])
+      })
+      dl(rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n'), `cutboard_logs_${todayStr()}.csv`, 'text/csv')
+    } else {
+      const [workouts, routines] = await Promise.all([store.get('workout_history'), store.get('routines')])
+      dl(JSON.stringify({ exportedAt: new Date().toISOString(), setup, logs: allLogs, recipes, mealHistory, cutIntel, planSettings, zigzagSettings, customFoods, workouts, routines }, null, 2),
+        `cutboard_backup_${todayStr()}.json`, 'application/json')
+    }
+  }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
+  const streaks      = useMemo(() => getStreaks(allLogs), [allLogs])
 
   // Midnight rollover: if the app stays open past midnight while viewing
   // "today", follow the date forward so logs land on the right day.
@@ -1887,7 +2138,7 @@ export default function App() {
   if (session===undefined) return <Spin msg='Loading…' />
   if (!session) return <AuthScreen/>
   if (!dataReady) return <Spin msg='Loading your data…' />
-  if (!setup||onboarding) return <Onboarding userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={()=>setOnboarding(false)} onReset={async()=>{
+  if (!setup||onboarding) return <Onboarding userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={()=>setOnboarding(false)} onExport={exportData} onReset={async()=>{
     if(!confirm('Delete ALL your data and start fresh? This cannot be undone.')) return
     await store.clearAll()
     location.reload()
@@ -1922,11 +2173,11 @@ export default function App() {
 
   return (
     <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #14101e 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
-      <Header dayCount={dayCount} daysLeft={daysLeft} cutLength={cutLength} phase={adaptiveTDEE.phase} latestWeight={latestWeight} goalWeight={goalWeight}
+      <Header dayCount={dayCount} daysLeft={daysLeft} cutLength={cutLength} phase={adaptiveTDEE.phase} latestWeight={latestWeight} goalWeight={goalWeight} streak={streaks.logging}
         onSettings={()=>setOnboarding(true)} onLogout={()=>supabase.auth.signOut()}/>
       <TabBar tab={tab} setTab={setTab}/>
-      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood}/>}
-      {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup}/>}
+      {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+      {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
       {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE}/>}
       {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
       {tab==='workout'   && <WorkoutTab />}

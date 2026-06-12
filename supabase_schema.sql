@@ -71,3 +71,4 @@ create policy "Users manage own progress photos"
     bucket_id = 'progress-photos'
     and auth.uid()::text = (storage.foldername(name))[1]
   );
+

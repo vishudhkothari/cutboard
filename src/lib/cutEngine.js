@@ -394,6 +394,59 @@ export function paceController({
 
 
 /* ───────────────────────────────────────────────────────────────
+   5b. REFEED / DIET-BREAK ADVISOR
+   A genuine plateau (flat trend despite adherence) 4+ weeks into a
+   cut is often adaptive: lowered NEAT, cortisol water retention,
+   leptin drop. A structured refeed (1 day at maintenance, carbs up)
+   or a full diet break (1 week at maintenance, 8+ weeks in) is the
+   evidence-based reset. Returns null when not warranted.
+─────────────────────────────────────────────────────────────── */
+export function suggestRefeed({ logs, weeksIntoCut, maintenance }) {
+  if (weeksIntoCut < 4) return null
+  const trend = trendWeight(logs)
+  if (trend.length < 10) return null
+  const span = _daySpan(trend[0].date, trend[trend.length - 1].date) + 1
+  if (span < 28) return null                       // need a month of context
+
+  // rate over the trailing ~14 days
+  const last = trend[trend.length - 1]
+  const cutoffDate = _shiftDate(last.date, -14)
+  const past = trend.filter(t => t.date <= cutoffDate)
+  if (!past.length) return null
+  const ref = past[past.length - 1]
+  const days = _daySpan(ref.date, last.date)
+  if (days < 10) return null
+  const rate = (last.trend - ref.trend) / days * 7   // kg/week
+
+  // only a TRUE plateau qualifies: not losing, but not gaining either —
+  // gaining means intake, not adaptation, and the pace coach handles that
+  if (rate <= -0.15 || rate >= 0.15) return null
+
+  if (weeksIntoCut >= 8) {
+    return {
+      kind: 'break',
+      headline: 'Stalled 2+ weeks, 8+ weeks deep — take a diet break',
+      reason: `Trend has been flat (~${Math.abs(rate).toFixed(2)} kg/wk) for two weeks after ${Math.floor(weeksIntoCut)} weeks of dieting. That pattern usually means metabolic adaptation, not failure.`,
+      protocol: [
+        `Eat at maintenance (~${Math.round(maintenance)} kcal) for ONE FULL WEEK. This is a reset, not a cheat.`,
+        'Keep protein at 130g and keep training — most of the scale jump will be water/glycogen.',
+        'After the week, resume the deficit. Loss typically restarts faster than before.',
+      ],
+    }
+  }
+  return {
+    kind: 'refeed',
+    headline: 'Genuine plateau — schedule a refeed day',
+    reason: `Trend has been flat (~${Math.abs(rate).toFixed(2)} kg/wk) for two weeks while you've been in a deficit. A planned high-carb day can reset hormones and training quality.`,
+    protocol: [
+      `Pick ONE day (ideally a hard training day): eat at maintenance (~${Math.round(maintenance)} kcal).`,
+      'Put the extra calories almost entirely into CARBS — keep protein at 130g, fat stays low.',
+      'Expect +0.5–1 kg of water next morning; it clears in 2–3 days. Back to the normal target the next day.',
+    ],
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
    6. UNIFIED TARGET RESOLVER  ★ SINGLE SOURCE OF TRUTH ★
    Every tab calls this. Given the user's regime + live model state,
    returns the canonical daily calorie target and macro split.
