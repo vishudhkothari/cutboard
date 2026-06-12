@@ -183,7 +183,8 @@ const genId   = () => `${Date.now()}_${Math.random().toString(36).slice(2,6)}`
 const fmtSec  = s  => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`
 const fmtDur  = s  => { const m=Math.floor(s/60); const h=Math.floor(m/60); return h>0?`${h}h ${m%60}m`:`${m}m` }
 const calc1RM = (w,r) => r===1 ? +w : Math.round(+w*(1+(+r)/30)*10)/10
-const todayStr= () => new Date().toISOString().slice(0,10)
+// LOCAL date — toISOString() is UTC and stamps late-night workouts on yesterday (IST)
+const todayStr= () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 const fmtDate = d  => new Date(d+'T12:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})
 
 function getPrevSets(history, exerciseId) {
@@ -251,13 +252,17 @@ function useIsMobile() {
    REST TIMER OVERLAY
 ═══════════════════════════════════════════════════════════════ */
 function RestTimer({ seconds, onDismiss }) {
-  const [rem, setRem] = useState(seconds)
+  // Wall-clock based: mobile browsers (Brave/Android especially) throttle or
+  // suspend timers when the screen locks — a tick-counting timer stalls.
+  const [endAt, setEndAt] = useState(()=>Date.now()+seconds*1000)
+  const [now,   setNow]   = useState(()=>Date.now())
   useEffect(()=>{
-    if (rem<=0){ onDismiss(); return }
-    const t=setTimeout(()=>setRem(r=>r-1),1000)
-    return ()=>clearTimeout(t)
-  },[rem])
-  const pct = ((seconds-rem)/seconds)*100
+    const t=setInterval(()=>setNow(Date.now()),500)
+    return ()=>clearInterval(t)
+  },[])
+  const rem = Math.max(0, Math.round((endAt-now)/1000))
+  useEffect(()=>{ if (rem<=0) onDismiss() },[rem])
+  const pct = Math.max(0, Math.min(100, ((seconds - rem)/seconds)*100))
   return (
     <div style={{ position:'fixed', bottom:80, right:20, zIndex:1000, background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'16px 20px', minWidth:170, boxShadow:'0 8px 32px #0008' }}>
       <div style={{ fontSize:11, color:C.textSub, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8 }}>Rest Timer</div>
@@ -266,7 +271,7 @@ function RestTimer({ seconds, onDismiss }) {
         <div style={{ height:'100%', width:`${pct}%`, background:C.accent, borderRadius:2, transition:'width 1s linear' }}/>
       </div>
       <div style={{ display:'flex', gap:6 }}>
-        <button style={{ ...btn(false,true), flex:1, fontSize:12 }} onClick={()=>setRem(r=>r+30)}>+30s</button>
+        <button style={{ ...btn(false,true), flex:1, fontSize:12 }} onClick={()=>setEndAt(e=>e+30000)}>+30s</button>
         <button style={{ ...btn(true,true),  flex:1, fontSize:12 }} onClick={onDismiss}>Skip</button>
       </div>
     </div>
@@ -412,16 +417,16 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
   const [notes,      setNotes]      = useState('')
   const [elapsed,    setElapsed]    = useState(0)
   const startTime = useRef(new Date().toISOString())
+  const startMs   = useRef(Date.now())
 
-  useEffect(()=>{ const t=setInterval(()=>setElapsed(e=>e+1),1000); return()=>clearInterval(t) },[])
+  // wall-clock elapsed — tick-counting intervals stall when the phone locks
+  useEffect(()=>{ const t=setInterval(()=>setElapsed(Math.floor((Date.now()-startMs.current)/1000)),1000); return()=>clearInterval(t) },[])
 
+  // keyed on the exercise list so exercises added mid-workout get their history
+  const exIdKey = exercises.map(e=>e.exerciseId).join(',')
   const prevSetsMap = useMemo(()=>{
     const m={}; exercises.forEach(ex=>{ m[ex.exerciseId]=getPrevSets(workoutHistory,ex.exerciseId) }); return m
-  },[])
-
-  const best1RMmap = useMemo(()=>{
-    const m={}; exercises.forEach(ex=>{ m[ex.exerciseId]=getBest1RM(workoutHistory,ex.exerciseId) }); return m
-  },[])
+  },[exIdKey, workoutHistory])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const updSet = (ei,si,k,v) => setExercises(p=>p.map((ex,i)=>i!==ei?ex:{...ex,sets:ex.sets.map((s,j)=>j!==si?s:{...s,[k]:v})}))
 
@@ -431,8 +436,12 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
     let isPR   = false
     if (now && set.weight && set.reps) {
       const rm = calc1RM(+set.weight,+set.reps)
-      if (rm > (best1RMmap[exercises[ei].exerciseId]||0)) isPR = true
-      setRestTimer({ seconds: exercises[ei].restSeconds||90 })
+      // PR = beats history AND every set already done this session
+      const histBest = getBest1RM(workoutHistory, exercises[ei].exerciseId)
+      const sessionBest = exercises[ei].sets.reduce((b,s,j)=>
+        j!==si && s.done && s.weight && s.reps ? Math.max(b, calc1RM(+s.weight,+s.reps)) : b, 0)
+      if (rm > Math.max(histBest, sessionBest)) isPR = true
+      setRestTimer({ seconds: exercises[ei].restSeconds||90, key: Date.now() })
     }
     setExercises(p=>p.map((ex,i)=>i!==ei?ex:{
       ...ex, sets:ex.sets.map((s,j)=>j!==si?s:{...s,done:now,isPR:now?isPR:false})
@@ -555,7 +564,7 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
         </div>
       </div>
 
-      {restTimer && <RestTimer seconds={restTimer.seconds} onDismiss={()=>setRestTimer(null)} />}
+      {restTimer && <RestTimer key={restTimer.key} seconds={restTimer.seconds} onDismiss={()=>setRestTimer(null)} />}
       {picker    && <ExerciseSelector onSelect={addEx} onClose={()=>setPicker(false)} />}
     </div>
   )

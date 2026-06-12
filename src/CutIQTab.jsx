@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from 'recharts'
-import { store } from './lib/store'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
   inferBodyComp, projectGoal, paceController,
@@ -27,10 +26,14 @@ function useIsMobile() {
   return m
 }
 
-const fmtD = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
+// date-only strings parse as UTC midnight in new Date() — pin to local noon
+const fmtD = d => d ? new Date(typeof d === 'string' ? d + 'T12:00:00' : d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
+const pad2 = n => String(n).padStart(2, '0')
+const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`
 const STATUS_COLOR = {
   on_track:C.teal, lever_steps:C.blue, lever_cardio:C.purple, lever_calories:C.orange,
   too_fast:C.orange, muscle_risk:C.red, too_slow:C.gold, learning:C.textSub,
+  gaining:C.red, reached:C.teal,
 }
 const STRENGTH_OPTS = [
   { id:'up',          label:'Up 💪',        desc:'Lifts climbing' },
@@ -39,27 +42,20 @@ const STRENGTH_OPTS = [
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
 ]
 
-export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSaveCutData }) {
+  // cutData = { anchor, strengthSignal, strengthWeek, cardioMin } — owned by
+  // App (single source of truth: the anchor also drives Header/Progress)
   const mobile = useIsMobile()
-  const [cutData, setCutData] = useState(null)   // { anchor, strengthSignal, strengthWeek, cardioMin }
-  const [loaded,  setLoaded]  = useState(false)
   const [editAnchor, setEditAnchor] = useState(false)
   const [anchorForm, setAnchorForm] = useState({ weight:'', bf:'' })
 
-  useEffect(()=>{
-    store.get('cut_intel').then(d=>{
-      setCutData(d || { anchor:null, strengthSignal:null, strengthWeek:null, cardioMin:0 })
-      setLoaded(true)
-    })
-  },[])
-
-  const save = async next => { await store.set('cut_intel', next); setCutData(next) }
+  const save = next => onSaveCutData?.(next)
 
   // ── derived model outputs ──────────────────────────────────
   const trend       = useMemo(()=>trendWeight(allLogs), [allLogs])
   const trendNow    = useMemo(()=>currentTrendWeight(allLogs), [allLogs])
   const tdeeEst     = useMemo(()=>estimateTDEE(allLogs), [allLogs])
-  const weeksIntoCut= setup?.startDate ? Math.max(0,(Date.now()-new Date(setup.startDate))/604800000) : 0
+  const weeksIntoCut= setup?.startDate ? Math.max(0,(Date.now()-new Date(setup.startDate+'T00:00:00'))/604800000) : 0
 
   const anchor = cutData?.anchor || (setup ? {
     date: setup.startDate, weight: setup.startWeight, bf: setup.startBF
@@ -77,9 +73,15 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
     logs:allLogs, currentBF, goalBF:setup.goalBF, currentWeight:curWeight, leanMass
   }) : null, [allLogs, currentBF, setup, curWeight, leanMass])
 
-  const daysLeft = setup?.startDate ? Math.max(1, 60 - Math.floor((Date.now()-new Date(setup.startDate))/86400000)) : 60
+  const daysLeft = setup?.startDate ? Math.max(1, 60 - Math.floor((Date.now()-new Date(setup.startDate+'T00:00:00'))/86400000)) : 60
 
-  const loggedDays = useMemo(()=> allLogs.filter(l=>l.weight!=null).length, [allLogs])
+  // 14-day learning gate is a water-clearance CLOCK — measure the calendar
+  // span of weigh-ins, not how many entries exist
+  const dataSpanDays = useMemo(()=>{
+    const w = allLogs.filter(l=>l.weight!=null)
+    if (!w.length) return 0
+    return Math.round((new Date(w[w.length-1].date+'T12:00:00') - new Date(w[0].date+'T12:00:00'))/86400000) + 1
+  }, [allLogs])
 
   const pace = useMemo(()=> setup && leanMass ? paceController({
     currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, daysLeft,
@@ -87,15 +89,14 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
     currentSteps: setup.stepGoal || 10000,
     currentCardioMin: cutData?.cardioMin || 0,
     strengthSignal: cutData?.strengthSignal,
-    dataDays: loggedDays,
+    dataDays: dataSpanDays,
     hasRate: !!tdeeEst,
-  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, loggedDays])
+  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays])
 
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
   const checkInDue = cutData?.strengthWeek !== thisWeek
 
-  if (!loaded) return <div style={{ textAlign:'center', padding:'60px 0', color:C.accent, fontFamily:F.mono }}>Loading…</div>
   if (!setup) return <div style={{ textAlign:'center', padding:'60px 0', color:C.textSub }}>Complete setup first</div>
 
   const chartData = trend.map(t => ({ date:fmtD(t.date), raw:t.raw, trend:t.trend }))
@@ -312,7 +313,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE }) {
             <div style={{ display:'flex', gap:8 }}>
               <button style={btn(true,true)} onClick={()=>{
                 if(!anchorForm.weight||!anchorForm.bf) return
-                save({ ...cutData, anchor:{ date:new Date().toISOString().slice(0,10), weight:+anchorForm.weight, bf:+anchorForm.bf } })
+                if(+anchorForm.bf < 3 || +anchorForm.bf > 70){ alert('Body fat % must be between 3 and 70.'); return }
+                if(+anchorForm.weight < 30 || +anchorForm.weight > 300){ alert('Weight must be in kilograms (30–300).'); return }
+                save({ ...cutData, anchor:{ date:localDateStr(), weight:+anchorForm.weight, bf:+anchorForm.bf } })
                 setEditAnchor(false)
               }}>Save Anchor</button>
               <button style={btn(false,true)} onClick={()=>setEditAnchor(false)}>Cancel</button>

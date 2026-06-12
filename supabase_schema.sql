@@ -47,3 +47,9 @@ drop policy if exists "Anyone authenticated can update shared foods" on shared_f
 create policy "Anyone authenticated can update shared foods"
   on shared_foods for update
   using (auth.role() = 'authenticated');
+
+-- without a delete policy a junk custom food could never be removed
+drop policy if exists "Anyone authenticated can delete shared foods" on shared_foods;
+create policy "Anyone authenticated can delete shared foods"
+  on shared_foods for delete
+  using (auth.role() = 'authenticated');

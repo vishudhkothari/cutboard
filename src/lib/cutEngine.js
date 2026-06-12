@@ -15,6 +15,14 @@ const MIN_CALS    = 1200          // physiological floor
 const SAFE_RATE   = 0.0100        // max %BW/week before muscle risk climbs
 const IDEAL_RATE  = 0.0070        // muscle-sparing sweet spot (%BW/week)
 
+/* local-date string helpers — all log keys are LOCAL 'YYYY-MM-DD' strings,
+   so date math must stay in local time (toISOString would shift the day
+   for anyone east of UTC) */
+const _pad      = n => String(n).padStart(2, '0')
+const _dateStr  = d => `${d.getFullYear()}-${_pad(d.getMonth() + 1)}-${_pad(d.getDate())}`
+const _shiftDate = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return _dateStr(d) }
+const _daySpan  = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000)
+
 /* ───────────────────────────────────────────────────────────────
    1. TREND WEIGHT  (Exponentially Weighted Moving Average)
    Smooths out water/glycogen/sodium noise. alpha ~0.10 ≈ 9-day half-life.
@@ -39,26 +47,31 @@ export function currentTrendWeight(logs) {
 
 /* ───────────────────────────────────────────────────────────────
    2. ROLLING TDEE ESTIMATE
-   TDEE ≈ avgIntake + (trendWeightChange × 7700 / days)
-   Uses a trailing window of days that have BOTH intake and weigh-ins.
-   Weights by days-with-data so missing meal-days degrade gracefully
-   instead of creating blind spots.
+   Energy balance: ΔW = (intake − TDEE) / 7700
+   ⇒ TDEE ≈ avgIntake − (trendWeightChangePerDay × 7700)
+   (losing ⇒ ΔW negative ⇒ TDEE sits ABOVE intake)
+   Uses a trailing window of CALENDAR days that have intake data.
+   A logged fasting day counts as a real 0-kcal intake day.
 ─────────────────────────────────────────────────────────────── */
 export function estimateTDEE(logs, windowDays = 18) {
   const sorted = logs
     .filter(l => l.date)
     .sort((a, b) => a.date.localeCompare(b.date))
+  if (!sorted.length) return null
   const trend = trendWeight(logs)
   const trendMap = Object.fromEntries(trend.map(t => [t.date, t.trend]))
 
-  // window = last N calendar days present in logs
-  const window = sorted.slice(-windowDays)
-  const withIntake = window.filter(l => Array.isArray(l.meals) && l.meals.length > 0)
+  // window = last N CALENDAR days (slicing entries silently stretched the
+  // window over a month when logging was sparse)
+  const cutoff = _shiftDate(sorted[sorted.length - 1].date, -(windowDays - 1))
+  const window = sorted.filter(l => l.date >= cutoff)
+  // days with intake signal: meals logged, OR a deliberate fast (0 kcal)
+  const withIntake = window.filter(l =>
+    (Array.isArray(l.meals) && l.meals.length > 0) || l.fasting)
   if (withIntake.length < 5) return null   // not enough signal yet
 
-  // average intake across days that have meals logged
   const avgIntake = withIntake.reduce((s, l) =>
-    s + l.meals.reduce((m, x) => m + (+x.cals || 0), 0), 0) / withIntake.length
+    s + (l.meals || []).reduce((m, x) => m + (+x.cals || 0), 0), 0) / withIntake.length
 
   // trend-weight delta across the window span
   const firstDate = window.find(l => trendMap[l.date] != null)?.date
@@ -67,12 +80,9 @@ export function estimateTDEE(logs, windowDays = 18) {
 
   const wStart = trendMap[firstDate]
   const wEnd   = trendMap[lastDate]
-  const spanDays = Math.max(
-    1,
-    (new Date(lastDate) - new Date(firstDate)) / 86400000
-  )
+  const spanDays = Math.max(1, _daySpan(firstDate, lastDate))
   const kgChangePerDay = (wEnd - wStart) / spanDays            // negative when losing
-  const tdee = Math.round(avgIntake + kgChangePerDay * KCAL_PER_KG)
+  const tdee = Math.round(avgIntake - kgChangePerDay * KCAL_PER_KG)
 
   return {
     tdee,
@@ -116,7 +126,7 @@ export function inferBodyComp({ logs, anchor, strengthSignal, startDate }) {
   })()
 
   const massLost = anchorTrend - trendNow            // kg lost since anchor (positive)
-  const weeksIn  = Math.max(0, (new Date() - new Date(startDate)) / 604800000)
+  const weeksIn  = Math.max(0, (new Date() - new Date(startDate + 'T00:00:00')) / 604800000)
   const ff       = fatFraction(strengthSignal, weeksIn) ?? 0.85
 
   const anchorFatMass = anchor.weight * (anchor.bf / 100)
@@ -142,19 +152,34 @@ export function inferBodyComp({ logs, anchor, strengthSignal, startDate }) {
 ─────────────────────────────────────────────────────────────── */
 export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }) {
   const trend = trendWeight(logs)
-  // Need ~14 days before projecting — a week of trend is still water-contaminated
-  // and produces wildly wrong completion dates.
-  if (trend.length < 14 || currentBF == null) return { early: true }
+  // Need ~14 CALENDAR days of trend (and enough points) before projecting —
+  // a week of trend is still water-contaminated and produces wildly wrong
+  // completion dates. Counting entries alone let sparse logs through early.
+  const trendSpan = trend.length > 1
+    ? _daySpan(trend[0].date, trend[trend.length - 1].date) + 1 : 0
+  if (trend.length < 10 || trendSpan < 14 || currentBF == null) return { early: true }
 
-  // weekly rates over trailing trend points
+  // weekly rates between trend points ~7 REAL days apart (array indices are
+  // not days — a missed weigh-in must not inflate the rate)
   const rates = []
-  for (let i = 7; i < trend.length; i++) {
-    const wk = (trend[i].trend - trend[i - 7].trend)   // kg over 7 days
-    rates.push(wk)
+  for (let i = 1; i < trend.length; i++) {
+    for (let j = i - 1; j >= 0; j--) {
+      const span = _daySpan(trend[j].date, trend[i].date)
+      if (span >= 7) {
+        if (span <= 10) rates.push({
+          date: trend[i].date,
+          rate: (trend[i].trend - trend[j].trend) / span * 7,   // kg/week
+        })
+        break
+      }
+    }
   }
   if (!rates.length) return null
 
-  const recent = rates.slice(-4)                        // last ~4 weeks
+  // rates from the trailing ~4 weeks
+  const recentCut = _shiftDate(trend[trend.length - 1].date, -27)
+  const recentArr = rates.filter(r => r.date >= recentCut).map(r => r.rate)
+  const recent = recentArr.length ? recentArr : rates.slice(-4).map(r => r.rate)
   const meanRate = recent.reduce((s, x) => s + x, 0) / recent.length   // kg/week (neg)
   const variance = recent.reduce((s, x) => s + (x - meanRate) ** 2, 0) / recent.length
   const sd = Math.sqrt(variance)
@@ -166,9 +191,15 @@ export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }
   const kgToGo     = currentWeight - goalWeight
   if (kgToGo <= 0) return { reached: true }
 
+  // meanRate is negative: −sd is the FASTER edge, +sd the SLOWER edge.
+  // If the slow edge is ~stalled the date is unbounded — cap at 2× mid.
+  const fastEdge  = meanRate - sd
+  const slowEdge  = meanRate + sd
   const weeksMid  = kgToGo / Math.abs(meanRate)
-  const weeksFast = kgToGo / Math.abs(meanRate + sd)   // faster edge
-  const weeksSlow = kgToGo / Math.abs(meanRate - sd)   // slower edge
+  const weeksFast = kgToGo / Math.abs(fastEdge)
+  const weeksSlow = slowEdge <= -0.05
+    ? Math.min(kgToGo / Math.abs(slowEdge), weeksMid * 2)
+    : weeksMid * 2
 
   const addDays = w => { const d = new Date(); d.setDate(d.getDate() + Math.round(w * 7)); return d }
   return {
@@ -201,7 +232,11 @@ export function paceController({
   const weeksLeft    = Math.max(1, daysLeft / 7)
   const requiredRate = kgToGo / weeksLeft                       // kg/week needed
   const requiredPct  = requiredRate / currentWeight             // %BW/week needed
-  const actualRate   = Math.abs(actualWeeklyRateKg || 0)        // kg/week actual loss
+  // actualWeeklyRateKg is NEGATIVE when losing. Flip so positive = losing;
+  // a NEGATIVE lossRate means the trend is going UP (never abs() this away —
+  // weight regain is the most important signal a cut coach can catch).
+  const lossRate     = -(actualWeeklyRateKg || 0)
+  const actualRate   = Math.max(0, lossRate)                    // kg/week actual loss
 
   const safeRateKg  = currentWeight * SAFE_RATE
   const idealRateKg = currentWeight * IDEAL_RATE
@@ -224,13 +259,39 @@ export function paceController({
       cardioRx: null,
       requiredRateKg: Math.round(requiredRate * 100) / 100,
       requiredPct: Math.round(requiredPct * 1000) / 10,
-      actualRateKg: hasRate ? Math.round(actualRate * 100) / 100 : null,
+      actualRateKg: hasRate ? Math.round(lossRate * 100) / 100 : null,
       safeRateKg: Math.round(safeRateKg * 100) / 100,
       idealRateKg: Math.round(idealRateKg * 100) / 100,
-      goalTooAggressive: requiredPct > SAFE_RATE,
+      goalTooAggressive: daysLeft >= 7 && requiredPct > SAFE_RATE,
       goalWeight: Math.round(goalWeight * 10) / 10,
       kgToGo: Math.round(kgToGo * 10) / 10,
       learning: true,
+    }
+  }
+
+  const stats = {
+    requiredRateKg: Math.round(requiredRate * 100) / 100,
+    requiredPct: Math.round(requiredPct * 1000) / 10,
+    actualRateKg: Math.round(lossRate * 100) / 100,
+    safeRateKg: Math.round(safeRateKg * 100) / 100,
+    idealRateKg: Math.round(idealRateKg * 100) / 100,
+    goalWeight: Math.round(goalWeight * 10) / 10,
+    kgToGo: Math.round(kgToGo * 10) / 10,
+  }
+
+  // ── GOAL REACHED: no levers to pull, shift to maintenance ──
+  if (kgToGo <= 0) {
+    return {
+      status: 'reached',
+      headline: 'Goal weight reached — shift to maintenance',
+      actions: [
+        'You\'re at (or past) your goal weight. The cut is done.',
+        'Reverse out slowly: add ~150–200 kcal/week until trend weight holds steady.',
+        'Keep protein at 130g and keep lifting — that locks the result in.',
+      ],
+      cardioRx: null,
+      goalTooAggressive: false,
+      ...stats,
     }
   }
 
@@ -238,8 +299,11 @@ export function paceController({
   // A cut is "working" if you're losing at a sustainable, muscle-sparing
   // rate (roughly ideal..safe). Whether that pace also hits an aggressive
   // calendar goal is a SEPARATE question (goalTooAggressive note below).
-  const goalTooAggressive = requiredPct > SAFE_RATE
+  // (Past the 60-day window daysLeft pins at 1 and requiredPct explodes —
+  // suppress the aggressive-goal note when under a week remains.)
+  const goalTooAggressive = daysLeft >= 7 && requiredPct > SAFE_RATE
   const losingMuscle = strengthSignal === 'down'
+  const gaining      = lossRate < -0.05            // trend rising >50g/wk
 
   // healthy band: from a gentle floor (~60% of ideal) up to the safe ceiling
   const healthyFloor = idealRateKg * 0.6
@@ -257,6 +321,14 @@ export function paceController({
       'Your lifts are falling, which signals muscle loss. Pull back, don\'t push harder.',
       'Add 100–150 kcal back (carbs around training) and hold for a week.',
       'Keep protein at 130g, prioritise sleep 7.5h+.',
+    ]
+  } else if (gaining) {
+    status = 'gaining'
+    headline = `Trend weight is rising ${Math.abs(lossRate).toFixed(2)} kg/wk`
+    actions = [
+      'Your smoothed trend is going up, not down — the deficit isn\'t real right now.',
+      'Audit logging first: untracked oils, sauces and bites are the usual culprits.',
+      'If logging is honest, trim ~150 kcal from the daily target and reassess in 7 days.',
     ]
   } else if (tooFast) {
     status = 'too_fast'
@@ -317,17 +389,7 @@ export function paceController({
     actions = ['Stay the course and keep logging.']
   }
 
-  return {
-    status, headline, actions, cardioRx,
-    requiredRateKg: Math.round(requiredRate * 100) / 100,
-    requiredPct: Math.round(requiredPct * 1000) / 10,
-    actualRateKg: Math.round(actualRate * 100) / 100,
-    safeRateKg: Math.round(safeRateKg * 100) / 100,
-    idealRateKg: Math.round(idealRateKg * 100) / 100,
-    goalTooAggressive,
-    goalWeight: Math.round(goalWeight * 10) / 10,
-    kgToGo: Math.round(kgToGo * 10) / 10,
-  }
+  return { status, headline, actions, cardioRx, goalTooAggressive, ...stats }
 }
 
 
@@ -382,11 +444,13 @@ export function zigzagWeek(target, schedule = 1, intensity = 'weight', floor = M
 }
 
 export function macrosFromCalories(calTarget, proteinG = PROTEIN_G) {
-  const proteinCal = proteinG * 4
-  const remaining  = Math.max(calTarget - proteinCal, 200)
+  // on tiny targets (25% fast compensation) cap protein at 60% of the day
+  // so the macro grams can never sum past the calorie target
+  const p = Math.min(proteinG, Math.floor(calTarget * 0.6 / 4))
+  const remaining = Math.max(calTarget - p * 4, 0)
   return {
     calTarget,
-    proteinG,
+    proteinG: p,
     carbG: Math.round(remaining * 0.5 / 4),
     fatG:  Math.round(remaining * 0.5 / 9),
   }
