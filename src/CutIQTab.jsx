@@ -1,30 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from 'recharts'
+import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
   inferBodyComp, projectGoal, paceController, suggestRefeed,
 } from './lib/cutEngine'
-
-/* shared tokens (match App.jsx monochrome-violet) */
-const C = {
-  bg:'#0a0a0c', surface:'#141417', surfaceAlt:'#1b1b20', border:'#26262d', borderSoft:'#1e1e24',
-  accent:'#a78bfa', accentDim:'#8b6df0', text:'#f4f4f6', textSub:'#85858f', textFaint:'#4d4d56',
-  red:'#f0566f', orange:'#f0964d', blue:'#6aa9f5', purple:'#a78bfa', gold:'#e0b94d', teal:'#4dd4c0'
-}
-const F = { head:"'Syne',sans-serif", mono:"'Space Mono',monospace", body:"'DM Sans',sans-serif" }
-const SHADOW = '0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -14px rgba(0,0,0,0.6)'
-const GLOW = c => `0 0 0 1px ${c}30, 0 6px 24px -8px ${c}50`
-const card = (x={}) => ({ background:`linear-gradient(165deg, ${C.surface} 0%, #101013 100%)`, border:`1px solid ${C.border}`, borderRadius:18, padding:'18px 20px', boxShadow:SHADOW, ...x })
-const btn = (a=false,sm=false) => ({ background:a?`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`:'rgba(255,255,255,0.025)', color:a?'#0a0612':C.text, border:`1px solid ${a?'transparent':C.border}`, borderRadius:12, padding:sm?'7px 14px':'11px 20px', cursor:'pointer', fontFamily:F.body, fontSize:sm?13:14, fontWeight:a?700:500, transition:'all 0.18s', boxShadow:a?GLOW(C.accent):'none' })
-const inp = (x={}) => ({ background:'#0c0c0f', border:`1px solid ${C.border}`, borderRadius:12, padding:'11px 14px', color:C.text, fontFamily:F.body, fontSize:14, width:'100%', boxSizing:'border-box', outline:'none', ...x })
-const LBL = { fontSize:10.5, color:C.textSub, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6, display:'block' }
-const TT = { contentStyle:{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:12, fontFamily:F.body, fontSize:12, color:C.text, boxShadow:SHADOW }, cursor:{stroke:C.border} }
-
-function useIsMobile() {
-  const [m,setM] = useState(()=>window.innerWidth<768)
-  useEffect(()=>{ const fn=()=>setM(window.innerWidth<768); addEventListener('resize',fn); return()=>removeEventListener('resize',fn) },[])
-  return m
-}
 
 // date-only strings parse as UTC midnight in new Date() — pin to local noon
 const fmtD = d => d ? new Date(typeof d === 'string' ? d + 'T12:00:00' : d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
@@ -290,7 +270,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
         </div>
         <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr 1fr':'repeat(4,1fr)', gap:8 }}>
           {STRENGTH_OPTS.map(o=>(
-            <button key={o.id} onClick={()=>save({ ...cutData, strengthSignal:o.id, strengthWeek:thisWeek })}
+            <button key={o.id} onClick={()=>{ buzz(12); save({ ...cutData, strengthSignal:o.id, strengthWeek:thisWeek }) }}
               style={{ ...btn(cutData?.strengthSignal===o.id,true), flexDirection:'column', display:'flex', alignItems:'center', gap:3, padding:'12px 6px', textAlign:'center' }}>
               <span style={{ fontWeight:700 }}>{o.label}</span>
               <span style={{ fontSize:10, color:cutData?.strengthSignal===o.id?'#0a0612':C.textSub }}>{o.desc}</span>
@@ -354,8 +334,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
           <div style={{ marginTop:14, background:'rgba(255,255,255,0.02)', borderRadius:12, padding:14, border:`1px solid ${C.border}` }}>
             <div style={{ ...LBL, marginBottom:10 }}>Re-anchor body fat (use your Realme reading or honest visual)</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
-              <div><label style={LBL}>Weight (kg)</label><input style={inp()} type="number" step="0.1" value={anchorForm.weight} onChange={e=>setAnchorForm(p=>({...p,weight:e.target.value}))} /></div>
-              <div><label style={LBL}>Body fat %</label><input style={inp()} type="number" step="0.1" value={anchorForm.bf} placeholder="e.g. 19" onChange={e=>setAnchorForm(p=>({...p,bf:e.target.value}))} /></div>
+              <div><label style={LBL}>Weight (kg)</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={anchorForm.weight} onChange={e=>setAnchorForm(p=>({...p,weight:e.target.value}))} /></div>
+              <div><label style={LBL}>Body fat %</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={anchorForm.bf} placeholder="e.g. 19" onChange={e=>setAnchorForm(p=>({...p,bf:e.target.value}))} /></div>
             </div>
             <div style={{ display:'flex', gap:8 }}>
               <button style={btn(true,true)} onClick={()=>{

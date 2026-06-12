@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
 import { store } from './lib/store'
 
 /* ═══════════════════════════════════════════════════════════════
@@ -212,41 +213,7 @@ function calcVolume(exercises) {
     t+(ex.sets||[]).filter(s=>s.done&&s.weight&&s.reps).reduce((s,st)=>(+st.weight)*(+st.reps)+s,0),0)
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   DESIGN TOKENS  (mirrors App.jsx)
-═══════════════════════════════════════════════════════════════ */
-const C = {
-  bg:'#0a0a0c', surface:'#141417', surfaceAlt:'#1b1b20', border:'#26262d', borderSoft:'#1e1e24',
-  accent:'#a78bfa', accentDim:'#8b6df0', accentGlow:'#7c5cf5', text:'#f4f4f6', textSub:'#85858f', textFaint:'#4d4d56',
-  red:'#f0566f', orange:'#f0964d', blue:'#6aa9f5', purple:'#a78bfa', gold:'#e0b94d', teal:'#4dd4c0'
-}
-const F = { head:"'Syne',sans-serif", mono:"'Space Mono',monospace", body:"'DM Sans',sans-serif" }
-const SHADOW = '0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -14px rgba(0,0,0,0.6)'
-const GLOW   = c => `0 0 0 1px ${c}30, 0 6px 24px -8px ${c}50`
-
-const card = (x={}) => ({ background:`linear-gradient(165deg, ${C.surface} 0%, #101013 100%)`, border:`1px solid ${C.border}`, borderRadius:18, padding:'16px 18px', boxShadow:SHADOW, ...x })
-const btn  = (active=false,sm=false) => ({
-  background:active?`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`:'rgba(255,255,255,0.025)', color:active?'#0a0612':C.text,
-  border:`1px solid ${active?'transparent':C.border}`, borderRadius:12,
-  padding:sm?'7px 14px':'11px 20px', cursor:'pointer',
-  fontFamily:F.body, fontSize:sm?13:14, fontWeight:active?700:500, transition:'all 0.18s cubic-bezier(.4,0,.2,1)', boxShadow:active?GLOW(C.accent):'none'
-})
-const inp = (x={}) => ({
-  background:'#0c0c0f', border:`1px solid ${C.border}`, borderRadius:12,
-  padding:'9px 12px', color:C.text, fontFamily:F.body, fontSize:14, outline:'none', transition:'border-color 0.15s', ...x
-})
-const LBL = { fontSize:10.5, color:C.textSub, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6, display:'block' }
-const TT  = { contentStyle:{ background:C.surfaceAlt, border:`1px solid ${C.border}`, borderRadius:11, fontFamily:F.body, fontSize:12, color:C.text, boxShadow:SHADOW }, cursor:{stroke:C.border} }
-
-function useIsMobile() {
-  const [m,setM] = useState(()=>window.innerWidth<768)
-  useEffect(()=>{
-    const fn=()=>setM(window.innerWidth<768)
-    window.addEventListener('resize',fn)
-    return ()=>window.removeEventListener('resize',fn)
-  },[])
-  return m
-}
+/* design tokens come from the shared theme (lib/theme.js) */
 
 /* ═══════════════════════════════════════════════════════════════
    REST TIMER OVERLAY
@@ -264,7 +231,7 @@ function RestTimer({ seconds, onDismiss }) {
   useEffect(()=>{ if (rem<=0) onDismiss() },[rem])
   const pct = Math.max(0, Math.min(100, ((seconds - rem)/seconds)*100))
   return (
-    <div style={{ position:'fixed', bottom:80, right:20, zIndex:1000, background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'16px 20px', minWidth:170, boxShadow:'0 8px 32px #0008' }}>
+    <div style={{ position:'fixed', bottom:'calc(86px + env(safe-area-inset-bottom, 0px))', right:16, zIndex:1000, background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'16px 20px', minWidth:170, boxShadow:'0 8px 32px #0008', animation:'fadeUp 0.2s ease' }}>
       <div style={{ fontSize:11, color:C.textSub, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8 }}>Rest Timer</div>
       <div style={{ fontFamily:F.mono, fontSize:34, fontWeight:700, color:rem<=10?C.red:C.accent, textAlign:'center', marginBottom:8 }}>{fmtSec(rem)}</div>
       <div style={{ height:4, background:C.border, borderRadius:2, marginBottom:10 }}>
@@ -375,11 +342,11 @@ function RoutineEditor({ routine, onSave, onCancel }) {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
             <div><label style={LBL}>Sets</label>
-              <input style={inp({ textAlign:'center' })} type="number" min="1" value={ex.sets} onChange={e=>updEx(i,'sets',+e.target.value)} /></div>
+              <input style={inp({ textAlign:'center' })} type="number" inputMode="decimal" min="1" value={ex.sets} onChange={e=>updEx(i,'sets',+e.target.value)} /></div>
             <div><label style={LBL}>Reps Target</label>
-              <input style={inp({ textAlign:'center' })} type="number" min="1" value={ex.repsTarget} onChange={e=>updEx(i,'repsTarget',+e.target.value)} /></div>
+              <input style={inp({ textAlign:'center' })} type="number" inputMode="decimal" min="1" value={ex.repsTarget} onChange={e=>updEx(i,'repsTarget',+e.target.value)} /></div>
             <div><label style={LBL}>Rest (sec)</label>
-              <input style={inp({ textAlign:'center' })} type="number" step="15" value={ex.restSeconds} onChange={e=>updEx(i,'restSeconds',+e.target.value)} /></div>
+              <input style={inp({ textAlign:'center' })} type="number" inputMode="decimal" step="15" value={ex.restSeconds} onChange={e=>updEx(i,'restSeconds',+e.target.value)} /></div>
           </div>
         </div>
       ))}
@@ -441,6 +408,7 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
       const sessionBest = exercises[ei].sets.reduce((b,s,j)=>
         j!==si && s.done && s.weight && s.reps ? Math.max(b, calc1RM(+s.weight,+s.reps)) : b, 0)
       if (rm > Math.max(histBest, sessionBest)) isPR = true
+      buzz(isPR ? [30, 50, 90] : 15)
       setRestTimer({ seconds: exercises[ei].restSeconds||90, key: Date.now() })
     }
     setExercises(p=>p.map((ex,i)=>i!==ei?ex:{
@@ -529,10 +497,10 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
                       {ps?.weight&&ps?.reps ? `${ps.weight}×${ps.reps}` : '—'}
                     </div>
                     <input style={{ ...inp({ textAlign:'center', padding:'7px 4px', fontSize:14, fontFamily:F.mono }), borderColor:set.done?`${C.accent}55`:C.border }}
-                      type="number" step="0.5" value={set.weight} placeholder="kg"
+                      type="number" inputMode="decimal" step="0.5" value={set.weight} placeholder="kg"
                       onChange={e=>updSet(ei,si,'weight',e.target.value)} />
                     <input style={{ ...inp({ textAlign:'center', padding:'7px 4px', fontSize:14, fontFamily:F.mono }), borderColor:set.done?`${C.accent}55`:C.border }}
-                      type="number" value={set.reps} placeholder={String(ex.repsTarget||8)}
+                      type="number" inputMode="decimal" value={set.reps} placeholder={String(ex.repsTarget||8)}
                       onChange={e=>updSet(ei,si,'reps',e.target.value)} />
                     <button onClick={()=>toggleDone(ei,si)} style={{ width:34, height:34, borderRadius:8, border:`2px solid ${set.done?C.accent:C.border}`, background:set.done?C.accent:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s', padding:0 }}>
                       {set.isPR
@@ -739,6 +707,7 @@ export default function WorkoutTab() {
   const finishWorkout = async log => {
     const updated=[log,...history]
     await saveHistory(updated)
+    buzz([20, 60, 30])
     setActiveWorkout(null); setSubTab('history')
   }
 
