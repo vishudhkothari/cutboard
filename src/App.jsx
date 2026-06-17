@@ -8,7 +8,7 @@ import { supabase } from './lib/supabase'
 import { store } from './lib/store'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
-import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST } from './lib/cutEngine'
+import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 
 /* ═══════════════════════════════════════════════════════════════
@@ -38,7 +38,7 @@ function calcBMR(w, h, age, sex = 'male', bfPct = null) {
 }
 
 /* ─── TRUE ADAPTIVE TDEE ─────────────────────────────────────────
-   After 14 days of real data, blends the formula TDEE with the
+   After ~1 week of real data, blends the formula TDEE with the
    measured one from estimateTDEE() (energy balance:
    TDEE = avg_intake − ΔtrendWeight × 7700 / days).
 ──────────────────────────────────────────────────────────────── */
@@ -69,12 +69,13 @@ function getAdaptiveTDEE(setup, logs) {
   // value to ±15% of the formula so a noisy regression can't swing the
   // target into famine territory.
   let base = formulaTDEE, isDataDriven = false
-  // 14-day gate is a WATER-CLEARANCE clock — measure calendar days since the
-  // first log, not how many entries exist (sparse logs aren't faster physiology)
+  // LEARN_DAYS gate is a WATER-CLEARANCE clock — measure calendar days since
+  // the first log, not how many entries exist (sparse logs aren't faster
+  // physiology). The ±15% clamp + BMR floor keep an early, noisier estimate safe.
   const datedLogs = logs.filter(l => l.weight != null || (l.meals && l.meals.length) || l.fasting)
   const daysLogged = datedLogs.length
   const spanDays = datedLogs.length ? daysBetween(datedLogs[0].date, todayStr()) + 1 : 0
-  if (spanDays >= 14 && daysLogged >= 8) {
+  if (spanDays >= LEARN_DAYS && daysLogged >= 5) {
     const est = estimateTDEE(logs)
     if (est && est.tdee > 0) {
       const lo = formulaTDEE * 0.85, hi = formulaTDEE * 1.15
@@ -2015,11 +2016,11 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         )}
         {adaptiveTDEE.activeCut && (
           <div style={{marginTop:10,background:'rgba(77,212,192,0.08)',border:`1px solid ${C.teal}33`,borderRadius:12,padding:'11px 14px',fontSize:11.5,color:C.textSub,lineHeight:1.55}}>
-            🚶 <strong style={{color:C.teal}}>Active Cut</strong> — your incline walk funds {adaptiveTDEE.cardioBurn} kcal of the deficit, so you eat more than a starve-it cut. {adaptiveTDEE.isDataDriven ? 'Now data-driven: your real loss rate already reflects the walking.' : 'First 2 weeks: the walk is credited from a formula; after that your real data takes over.'}
+            🚶 <strong style={{color:C.teal}}>Active Cut</strong> — your incline walk funds {adaptiveTDEE.cardioBurn} kcal of the deficit, so you eat more than a starve-it cut. {adaptiveTDEE.isDataDriven ? 'Now data-driven: your real loss rate already reflects the walking.' : 'First week: the walk is credited from a formula; after that your real data takes over.'}
           </div>
         )}
         <div style={{marginTop:12,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
-          💪 Protein locked at <strong style={{color:C.orange}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after 2 weeks of logging'}
+          💪 Protein locked at <strong style={{color:C.orange}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after ~1 week of logging'}
         </div>
       </div>
 

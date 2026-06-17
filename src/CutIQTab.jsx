@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
-  inferBodyComp, projectGoal, paceController, suggestRefeed,
+  inferBodyComp, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
 } from './lib/cutEngine'
 
 // date-only strings parse as UTC midnight in new Date() — pin to local noon
@@ -111,7 +111,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
                 Building your projection
               </div>
               <div style={{ fontSize:12.5, color:C.textSub, marginTop:8, lineHeight:1.5 }}>
-                Early weight changes are mostly water and glycogen. I need about 2 weeks of trend data before projecting a reliable goal date — projecting now would be misleading.
+                Early weight changes are mostly water and glycogen. I need about a week of trend data before projecting a goal date — sooner than that would be guessing.
               </div>
             </div>
             <div style={{ display:'grid', gap:8 }}>
@@ -161,7 +161,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
           </div>
         ) : (
           <div style={{ textAlign:'center', padding:'14px 0', color:C.textSub, fontSize:13 }}>
-            Log weight daily for ~2 weeks to unlock your projection.
+            Log weight daily for ~1 week to unlock your projection.
           </div>
         )}
       </div>
@@ -355,9 +355,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
       {tdeeEst && (
         <div style={card()}>
           <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}>Live TDEE Estimate</div>
-          {tdeeEst.spanDays < 14 ? (
+          {tdeeEst.spanDays < LEARN_DAYS ? (
             <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55 }}>
-              Still learning — a data-driven TDEE needs about 2 weeks of logging before it's trustworthy. Until then, your targets use the proven formula estimate (BMR × activity), so they stay stable. <span style={{ color:C.textFaint }}>({tdeeEst.dataPoints} days logged so far.)</span>
+              Still learning — a data-driven TDEE needs about a week of logging before it's trustworthy. Until then, your targets use the proven formula estimate (BMR × activity), so they stay stable. <span style={{ color:C.textFaint }}>({tdeeEst.dataPoints} days logged so far.)</span>
             </div>
           ) : (<>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>

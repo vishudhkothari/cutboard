@@ -14,6 +14,10 @@ const KCAL_PER_KG = 7700          // energy in 1kg of body mass (mixed)
 const MIN_CALS    = 1200          // physiological floor
 const SAFE_RATE   = 0.0100        // max %BW/week before muscle risk climbs
 const IDEAL_RATE  = 0.0070        // muscle-sparing sweet spot (%BW/week)
+// How many days of data before Cut IQ starts JUDGING (projection, pace,
+// live TDEE). Shorter = faster feedback but noisier (water/glycogen).
+// Single source so every Cut IQ surface stays in sync.
+export const LEARN_DAYS = 7
 
 /* local-date string helpers — all log keys are LOCAL 'YYYY-MM-DD' strings,
    so date math must stay in local time (toISOString would shift the day
@@ -152,21 +156,24 @@ export function inferBodyComp({ logs, anchor, strengthSignal, startDate }) {
 ─────────────────────────────────────────────────────────────── */
 export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }) {
   const trend = trendWeight(logs)
-  // Need ~14 CALENDAR days of trend (and enough points) before projecting —
-  // a week of trend is still water-contaminated and produces wildly wrong
-  // completion dates. Counting entries alone let sparse logs through early.
+  // Need ~LEARN_DAYS of trend (and a few points) before projecting. Shorter
+  // windows are water-contaminated and noisier — the trade-off for earlier
+  // feedback. Counting entries alone let sparse logs through too early.
   const trendSpan = trend.length > 1
     ? _daySpan(trend[0].date, trend[trend.length - 1].date) + 1 : 0
-  if (trend.length < 10 || trendSpan < 14 || currentBF == null) return { early: true }
+  if (trend.length < 4 || trendSpan < LEARN_DAYS || currentBF == null) return { early: true }
 
-  // weekly rates between trend points ~7 REAL days apart (array indices are
-  // not days — a missed weigh-in must not inflate the rate)
+  // weekly rates between trend points ~RATE_MIN+ REAL days apart (array
+  // indices are not days — a missed weigh-in must not inflate the rate).
+  // The minimum delta scales with the window so a 7-day gate can still form
+  // a rate, but never below ~4 days (too noisy to annualise).
+  const RATE_MIN = Math.max(4, Math.min(7, LEARN_DAYS - 2))
   const rates = []
   for (let i = 1; i < trend.length; i++) {
     for (let j = i - 1; j >= 0; j--) {
       const span = _daySpan(trend[j].date, trend[i].date)
-      if (span >= 7) {
-        if (span <= 10) rates.push({
+      if (span >= RATE_MIN) {
+        if (span <= RATE_MIN + 5) rates.push({
           date: trend[i].date,
           rate: (trend[i].trend - trend[j].trend) / span * 7,   // kg/week
         })
@@ -242,10 +249,9 @@ export function paceController({
   const idealRateKg = currentWeight * IDEAL_RATE
 
   // ── COLD START: don't recommend anything until we've actually learned ──
-  // Needs ~14 logged days AND a real measured rate before judging pace.
-  // 14 days matches the TDEE water-clearance window — early trend weight is
-  // dominated by glycogen/water, so judging "stalled" before then is wrong.
-  const LEARN_DAYS = 14
+  // Needs ~LEARN_DAYS logged days AND a real measured rate before judging
+  // pace — early trend weight is dominated by glycogen/water, so judging
+  // "stalled" before then is unreliable (shorter window = faster but noisier).
   if (!hasRate || dataDays < LEARN_DAYS) {
     const daysToGo = Math.max(0, LEARN_DAYS - dataDays)
     return {
@@ -253,8 +259,8 @@ export function paceController({
       headline: dataDays === 0 ? 'Just getting started' : `Learning your body — ${daysToGo} more day${daysToGo === 1 ? '' : 's'} of data`,
       actions: [
         'Log your weight daily and your meals — that\'s all for now.',
-        'I won\'t judge your pace until I\'ve learned your real loss rate (about 2 weeks).',
-        'Early weight swings are mostly water and glycogen, so they can\'t be trusted yet.',
+        'I won\'t judge your pace until I\'ve learned your real loss rate (about a week).',
+        'Early weight swings are mostly water and glycogen, so trust them less at first.',
       ],
       cardioRx: null,
       requiredRateKg: Math.round(requiredRate * 100) / 100,
