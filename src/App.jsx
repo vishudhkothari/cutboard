@@ -42,8 +42,20 @@ function calcBMR(w, h, age, sex = 'male', bfPct = null) {
    measured one from estimateTDEE() (energy balance:
    TDEE = avg_intake − ΔtrendWeight × 7700 / days).
 ──────────────────────────────────────────────────────────────── */
+// Deficit presets. Active Cut is the "energy flux" path: a bigger TOTAL
+// deficit that's partly PAID FOR by deliberate cardio (incline walking),
+// so you eat MORE than a standard cut while losing faster.
+const STD_DEFICIT    = 600
+const ACTIVE_DEFICIT = 700
+// Net (above-rest) incline-walk burn ≈ 0.08 kcal per kg per minute
+// (~4.5 METs above rest, conservative so we never over-credit and stall).
+const CARDIO_KCAL_PER_KG_MIN = 0.08
+export function inclineWalkBurn(minutes, weightKg) {
+  return Math.round((+minutes || 0) * (+weightKg || 0) * CARDIO_KCAL_PER_KG_MIN)
+}
+
 function getAdaptiveTDEE(setup, logs) {
-  if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut' }
+  if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut', activeCut: false, cardioBurn: 0, cardioMin: 0, foodDeficit: 600, effMaint: 2400 }
   const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
   const curW  = wLogs.at(-1)?.weight ?? setup.startWeight
   const mult  = ACTIVITY.find(a => a.id === setup.activity)?.mult ?? 1.45
@@ -77,20 +89,36 @@ function getAdaptiveTDEE(setup, logs) {
   const dayN   = setup.startDate ? daysBetween(setup.startDate, todayStr()) + 1 : 1
   const phase  = dayN > cutLen ? 'maintenance' : 'cut'
 
+  // ── ACTIVE CUT (energy-flux path, per-user) ──
+  // Deliberate incline walking is credited into your maintenance so you EAT
+  // MORE for moving more. Critically, we credit it ONLY in the formula phase:
+  // once the engine is data-driven, your measured TDEE already reflects the
+  // cardio (it shows up as faster real weight loss), so adding it again would
+  // double-count. effMaint is the cardio-inclusive maintenance the target/
+  // deficit are figured against; base stays your baseline maintenance display.
+  const activeCut  = !!setup.activeCut
+  const cardioMin  = activeCut ? (setup.cardioMin ?? 35) : 0
+  const cardioBurn = activeCut ? inclineWalkBurn(cardioMin, curW) : 0
+  const cardioCredit = (activeCut && !isDataDriven) ? cardioBurn : 0
+  const effMaint   = base + cardioCredit
+  const stdDeficit = activeCut ? ACTIVE_DEFICIT : STD_DEFICIT
+  const foodDeficit = Math.max(0, stdDeficit - cardioBurn)   // portion from eating less
+  const extra = { activeCut, cardioBurn, cardioMin, foodDeficit, effMaint }
+
   // ── Target = maintenance − deficit, floored at BMR (never below resting) ──
   if (setup.manualCalTarget) {
     const t = Math.max(bmr, +setup.manualCalTarget)
-    return { target: t, base, adj: 0, curW, deficit: base - t, isDataDriven, isManual: true, bmr, phase }
+    return { target: t, base, adj: 0, curW, deficit: effMaint - t, isDataDriven, isManual: true, bmr, phase, ...extra }
   }
   if (phase === 'maintenance') {
     // reverse-diet ramp: +150 kcal each week after the cut ends, from the
     // cut target up to true maintenance (reaches it in ~4 weeks)
     const weeksOver = Math.ceil((dayN - cutLen) / 7)
     const target = Math.max(bmr, Math.min(base, Math.round(base - 600 + 150 * weeksOver)))
-    return { target, base, adj: 0, curW, deficit: base - target, isDataDriven, bmr, phase, weeksOver }
+    return { target, base, adj: 0, curW, deficit: base - target, isDataDriven, bmr, phase, weeksOver, ...extra }
   }
-  const target = Math.max(bmr, Math.round(base - 600))
-  return { target, base, adj: 0, curW, deficit: base - target, isDataDriven, bmr, phase }
+  const target = Math.max(bmr, Math.round(effMaint - stdDeficit))
+  return { target, base, adj: 0, curW, deficit: effMaint - target, isDataDriven, bmr, phase, ...extra }
 }
 
 /* ─── ZIGZAG CALORIE CYCLING ─────────────────────────────────────
@@ -178,6 +206,15 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
     }
     if (hour >= 21 && (!todayLog.meals || todayLog.meals.length === 0) && !todayLog.fasting && macros.calTarget > 0) {
       insights.push({ icon: '🍽', color: '#e0b94d', msg: `No meals logged today. Log them now while you still remember — or hit the fasting button if you fasted.` })
+    }
+    // Active Cut: the eat target already assumes today's walk — nudge to actually do it
+    if (tdeeData.activeCut && tdeeData.cardioMin > 0) {
+      const done = todayLog.inclineMin || 0
+      if (done >= tdeeData.cardioMin) {
+        insights.push({ icon: '🚶', color: '#4dd4c0', msg: `Incline walk done — that's ${tdeeData.cardioBurn} kcal of deficit earned through movement, not hunger. This is the sustainable way.` })
+      } else if (hour >= 17) {
+        insights.push({ icon: '🚶', color: '#f0964d', msg: `Incline walk not logged yet (${done}/${tdeeData.cardioMin} min). Your calories today assume you do it — skipping it quietly erases the deficit.` })
+      }
     }
   }
   if (stepData.extra > 0) {
@@ -279,6 +316,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
     startDate: existing?.startDate ?? todayStr(), cutLength: existing?.cutLength ?? 60, stepGoal: existing?.stepGoal ?? 10000,
     carbCycling: existing?.carbCycling ?? false, trainingDays: existing?.trainingDays ?? [1,3,5],
     manualCalTarget: existing?.manualCalTarget ?? '',
+    activeCut: existing?.activeCut ?? false, cardioMin: existing?.cardioMin ?? 35,
   })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const toggleDay = d => set('trainingDays', f.trainingDays.includes(d) ? f.trainingDays.filter(x => x !== d) : [...f.trainingDays, d])
@@ -312,6 +350,35 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
             </div>
           )}
           <div style={{ maxWidth: 240 }}><label style={LBL}>Base Daily Step Goal</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.stepGoal} placeholder="10000" onChange={e => set('stepGoal', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Extra steps added automatically when you overeat</div></div>
+          {/* ── Active Cut: eat more, move more (per-account) ── */}
+          <div style={card({ background: f.activeCut ? '#0c1410' : '#0c0c0f', borderColor: f.activeCut ? `${C.teal}44` : C.border })}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>🚶 Active Cut <span style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>energy-flux mode</span></div>
+                <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.55 }}>
+                  Drive the deficit with <strong style={{ color: C.text }}>movement</strong> instead of starving. You eat <strong style={{ color: C.teal }}>more</strong> and add daily incline walking — better for adherence, NEAT and holding muscle. Your walk is credited into your calorie budget. Only affects <strong>your</strong> account.
+                </div>
+              </div>
+              <button onClick={() => set('activeCut', !f.activeCut)} aria-label="toggle active cut"
+                style={{ flexShrink: 0, width: 50, height: 28, borderRadius: 16, border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+                  background: f.activeCut ? `linear-gradient(135deg, ${C.teal}, #3aa897)` : '#2a2a31' }}>
+                <span style={{ position: 'absolute', top: 3, left: f.activeCut ? 25 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+              </button>
+            </div>
+            {f.activeCut && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.borderSoft}` }}>
+                <label style={LBL}>Daily incline-walk target</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[20, 30, 35, 45, 60].map(m => (
+                    <button key={m} style={{ ...btn(f.cardioMin === m, true) }} onClick={() => set('cardioMin', m)}>{m} min</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11.5, color: C.textSub, marginTop: 10, lineHeight: 1.5 }}>
+                  ~{inclineWalkBurn(f.cardioMin || 35, f.startWeight || 72)} kcal/day at incline (≈5.5 METs). Aggressive total deficit of {ACTIVE_DEFICIT} kcal/day — the more you walk, the more you eat. Log your walk on the Today tab.
+                </div>
+              </div>
+            )}
+          </div>
           <div style={card({ background: '#0c0c0f' })}>
             <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Diet Regime</div>
             <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>Your daily target is driven by the <strong style={{ color: C.accent }}>Cut IQ</strong> engine. Choose <strong>Steady</strong> (same target daily) or <strong>Zigzag</strong> (varied across the week, same weekly deficit) anytime in the <strong style={{ color: C.accent }}>Schedule</strong> tab. Protein stays locked at 130g.</div>
@@ -1264,7 +1331,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
       <div style={card()}>
         <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:18 }}>Today's Vitals</div>
         <div style={{ display:'grid', gap:14 }}>
-          {[{key:'weight',icon:'⚖',label:'Weight',unit:'kg',step:'0.1',ph:'73.5'},{key:'sleep',icon:'😴',label:'Sleep',unit:'hrs',step:'0.5',ph:'7.5'},{key:'steps',icon:'👟',label:'Steps',unit:'',step:'100',ph:`${stepData.goal.toLocaleString()}`}].map(({key,icon,label,unit,step,ph}) => (
+          {[{key:'weight',icon:'⚖',label:'Weight',unit:'kg',step:'0.1',ph:'73.5'},{key:'sleep',icon:'😴',label:'Sleep',unit:'hrs',step:'0.5',ph:'7.5'},{key:'steps',icon:'👟',label:'Steps',unit:'',step:'100',ph:`${stepData.goal.toLocaleString()}`},
+            ...(adaptiveTDEE.activeCut ? [{key:'inclineMin',icon:'🚶',label:'Incline walk',unit:'min',step:'5',ph:`${adaptiveTDEE.cardioMin}`}] : [])].map(({key,icon,label,unit,step,ph}) => (
             <div key={key} style={{display:'flex',alignItems:'center',gap:10}}>
               <span style={{fontSize:18,width:26}}>{icon}</span>
               <span style={{color:C.textSub,fontSize:13,flex:1}}>{label}</span>
@@ -1273,6 +1341,29 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             </div>
           ))}
         </div>
+
+        {/* Active Cut — movement banked toward today's deficit */}
+        {adaptiveTDEE.activeCut && (() => {
+          const tgtMin = adaptiveTDEE.cardioMin
+          const doneMin = local.inclineMin || 0
+          const doneBurn = inclineWalkBurn(doneMin, adaptiveTDEE.curW)
+          const tgtBurn  = adaptiveTDEE.cardioBurn
+          const pct = tgtMin > 0 ? Math.min(doneMin / tgtMin * 100, 100) : 0
+          return (
+            <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                <span style={{fontSize:12,color:C.textSub}}>🚶 Incline walk · movement banked</span>
+                <span style={{fontFamily:F.mono,fontSize:14,color:doneMin>=tgtMin?C.teal:C.purple}}>{doneBurn} / {tgtBurn} kcal</span>
+              </div>
+              <div style={{height:4,background:C.border,borderRadius:2}}><div style={{height:'100%',width:`${pct}%`,background:doneMin>=tgtMin?C.teal:C.purple,borderRadius:2,transition:'width 0.4s'}} /></div>
+              <div style={{fontSize:11,color:C.textSub,marginTop:5,lineHeight:1.5}}>
+                {doneMin>=tgtMin
+                  ? `✓ Target hit — your walk is paying ${doneBurn} kcal of today's deficit so you can eat more.`
+                  : `${doneMin}/${tgtMin} min. Your target eats already assume this walk — skip it and the deficit shrinks.`}
+              </div>
+            </div>
+          )
+        })()}
         {/* Step goal */}
         <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
@@ -1888,8 +1979,20 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
               <span style={{color:C.textSub}}>Maintenance TDEE</span>
               <span style={{fontFamily:F.mono,color:C.text}}>{adaptiveTDEE.base} kcal</span>
             </div>
+            {adaptiveTDEE.activeCut && (
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
+                <span style={{color:C.textSub}}>🚶 Incline walk ({adaptiveTDEE.cardioMin} min){adaptiveTDEE.isDataDriven?' (in your data)':''}</span>
+                <span style={{fontFamily:F.mono,color:C.teal}}>+{adaptiveTDEE.cardioBurn} kcal</span>
+              </div>
+            )}
+            {adaptiveTDEE.activeCut && (
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
+                <span style={{color:C.textSub}}>Deficit from food</span>
+                <span style={{fontFamily:F.mono,color:C.red}}>−{adaptiveTDEE.foodDeficit} kcal</span>
+              </div>
+            )}
             <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
-              <span style={{color:C.textSub}}>{zigzagOn ? 'Avg Daily Deficit' : 'Daily Deficit'}</span>
+              <span style={{color:C.textSub}}>{adaptiveTDEE.activeCut ? 'Total Daily Deficit' : zigzagOn ? 'Avg Daily Deficit' : 'Daily Deficit'}</span>
               <span style={{fontFamily:F.mono,color:C.red}}>−{adaptiveTDEE.deficit} kcal</span>
             </div>
             {zigzagOn && !isFastingToday && (
@@ -1909,6 +2012,11 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         )}
         {zigzagOn && !isFastingToday && (
           <div style={{fontSize:11,color:C.textFaint,marginBottom:4}}>〰 Zigzag — target varies by day, week averages to {adaptiveTDEE.target} kcal</div>
+        )}
+        {adaptiveTDEE.activeCut && (
+          <div style={{marginTop:10,background:'rgba(77,212,192,0.08)',border:`1px solid ${C.teal}33`,borderRadius:12,padding:'11px 14px',fontSize:11.5,color:C.textSub,lineHeight:1.55}}>
+            🚶 <strong style={{color:C.teal}}>Active Cut</strong> — your incline walk funds {adaptiveTDEE.cardioBurn} kcal of the deficit, so you eat more than a starve-it cut. {adaptiveTDEE.isDataDriven ? 'Now data-driven: your real loss rate already reflects the walking.' : 'First 2 weeks: the walk is credited from a formula; after that your real data takes over.'}
+          </div>
         )}
         <div style={{marginTop:12,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
           💪 Protein locked at <strong style={{color:C.orange}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after 2 weeks of logging'}
@@ -2026,7 +2134,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const emptyLog = (date = todayStr()) => ({ date, weight:null, sleep:null, sleepQuality:null, steps:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
+  const emptyLog = (date = todayStr()) => ({ date, weight:null, sleep:null, sleepQuality:null, steps:null, inclineMin:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
 
   const loadData = useCallback(async () => {
     setDataReady(false)
@@ -2182,7 +2290,8 @@ export default function App() {
   // ★ THE SINGLE SOURCE OF TRUTH — computed once, passed read-only everywhere ★
   const dayPlan = buildDayPlan({
     baseTarget:   adaptiveTDEE.target,
-    maintenance:  adaptiveTDEE.base,
+    // cardio-inclusive maintenance so the displayed deficit = the TOTAL deficit
+    maintenance:  adaptiveTDEE.effMaint ?? adaptiveTDEE.base,
     floor:        adaptiveTDEE.bmr,
     regime:       zigzagSettings?.on ? 'zigzag' : 'steady',
     zigzag:       { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
