@@ -1,9 +1,10 @@
 import { supabase } from './supabase'
+import { DEMO, demoStore } from './demo'
 
 // Drop-in replacement for the window.storage API used in the artifact.
 // Keys are scoped per user automatically via Supabase RLS policies.
 
-export const store = {
+const realStore = {
   async get(key) {
     try {
       const { data, error } = await supabase
@@ -160,3 +161,6 @@ export const store = {
     }
   },
 }
+
+// Demo builds (VITE_DEMO=1) swap in an in-memory seeded store; production is untouched.
+export const store = DEMO ? demoStore : realStore

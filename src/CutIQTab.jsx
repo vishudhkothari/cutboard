@@ -17,7 +17,7 @@ const STATUS_COLOR = {
   gaining:C.red, reached:C.teal,
 }
 const STRENGTH_OPTS = [
-  { id:'up',          label:'Up 💪',        desc:'Lifts climbing' },
+  { id:'up',          label:'Up',           desc:'Lifts climbing' },
   { id:'same',        label:'Holding',       desc:'Same as last week' },
   { id:'slight_down', label:'Slight dip',    desc:'A little weaker' },
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
@@ -246,7 +246,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
       {refeed && (
         <div style={card({ border:`1px solid ${C.gold}55`, background:`linear-gradient(165deg, #1a160d 0%, #100e0a 100%)` })}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:8 }}>
-            <span style={{ fontSize:17 }}>{refeed.kind === 'break' ? '🏖' : '🍚'}</span>
+            <Icon name={refeed.kind === 'break' ? 'flag' : 'beaker'} size={16} color={C.gold} style={{marginTop:1}} />
             <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.gold }}>{refeed.headline}</div>
           </div>
           <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55, marginBottom:12 }}>{refeed.reason}</div>

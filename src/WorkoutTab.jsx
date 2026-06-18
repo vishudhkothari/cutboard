@@ -735,7 +735,7 @@ export default function WorkoutTab() {
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
         <button style={{ ...btn(false), padding:'16px 0', display:'flex', flexDirection:'column', alignItems:'center', gap:6, background:C.surface }}
           onClick={()=>setActiveWorkout({ routineId:null, routineName:'Quick Workout', exercises:[] })}>
-          <span style={{ fontSize:24 }}>⚡</span>
+          <Icon name="dumbbell" size={22} color={C.accent} />
           <span style={{ fontSize:13, fontWeight:600 }}>Quick Start</span>
           <span style={{ fontSize:11, color:C.textSub }}>Empty workout</span>
         </button>
@@ -767,7 +767,7 @@ export default function WorkoutTab() {
       {subTab==='routines' && (<>
         {routines.length===0 ? (
           <div style={{ textAlign:'center', padding:'52px 20px', color:C.textSub }}>
-            <div style={{ fontSize:44, marginBottom:14 }}>🏋️</div>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:14 }}><Icon name="dumbbell" size={40} color={C.textFaint} /></div>
             <div style={{ fontSize:15, color:C.text, marginBottom:8 }}>No routines yet</div>
             <div style={{ fontSize:13 }}>Create a routine above to start tracking</div>
           </div>
@@ -811,7 +811,7 @@ export default function WorkoutTab() {
       {subTab==='history' && (<>
         {history.length===0 ? (
           <div style={{ textAlign:'center', padding:'52px 20px', color:C.textSub }}>
-            <div style={{ fontSize:44, marginBottom:14 }}>📋</div>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:14 }}><Icon name="clipboard" size={40} color={C.textFaint} /></div>
             <div style={{ fontSize:15, color:C.text, marginBottom:8 }}>No workouts logged yet</div>
             <div style={{ fontSize:13 }}>Finish a workout to see your history here</div>
           </div>
@@ -839,8 +839,8 @@ export default function WorkoutTab() {
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:14, fontSize:12, color:C.textSub }}>
-                    <span>📦 {vol.toLocaleString()} kg</span>
-                    <span>🏋️ {w.exercises.length} exercises</span>
+                    <span>{vol.toLocaleString()} kg volume</span>
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Icon name="dumbbell" size={13} color={C.textSub} /> {w.exercises.length} exercises</span>
                   </div>
                 </button>
               )

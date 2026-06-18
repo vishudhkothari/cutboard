@@ -7,6 +7,7 @@ import {
 } from 'recharts'
 import { supabase } from './lib/supabase'
 import { store } from './lib/store'
+import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
 import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
@@ -186,49 +187,49 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
   const todayProtein = Math.round((todayLog.meals?.reduce((s, m) => s + (+m.protein || 0), 0) || 0) * 10) / 10
   const insights     = []
   if (tdeeData.phase === 'maintenance') {
-    insights.push({ icon: '🏁', color: '#4dd4c0', msg: `Cut complete — maintenance mode. Target is ramping +150 kcal/week toward your true maintenance (${tdeeData.base} kcal). Today: ${macros.calTarget} kcal.` })
+    insights.push({ color: C.good, msg: `Cut complete — maintenance mode. Target is ramping +150 kcal/week toward your true maintenance (${tdeeData.base} kcal). Today: ${macros.calTarget} kcal.` })
   } else if (macros.calTarget === 0) {
-    insights.push({ icon: '🚫', color: '#6aa9f5', msg: `Fasting day — 0 kcal target. Stay hydrated; electrolytes help if you feel flat.` })
+    insights.push({ color: C.info, msg: `Fasting day — 0 kcal target. Stay hydrated; electrolytes help if you feel flat.` })
   } else {
-    insights.push({ icon: '🎯', color: '#a78bfa', msg: `Today's target: ${macros.calTarget} kcal · ${macros.proteinG}g protein${regime === 'zigzag' ? ' (zigzag day)' : ''}.` })
+    insights.push({ color: C.accent, msg: `Today's target: ${macros.calTarget} kcal · ${macros.proteinG}g protein${regime === 'zigzag' ? ' (zigzag day)' : ''}.` })
   }
   // streak recognition
   if (streaks && streaks.logging >= 3) {
-    insights.push({ icon: '🔥', color: '#f0964d', msg: `${streaks.logging}-day logging streak${streaks.protein >= 2 ? ` — and protein target hit ${streaks.protein} days straight 💪` : ''}. Consistency is the whole game.` })
+    insights.push({ color: C.orange, msg: `${streaks.logging}-day logging streak${streaks.protein >= 2 ? ` — and protein target hit ${streaks.protein} days straight` : ''}. Consistency is the whole game.` })
   }
   // weekly review pointer on Sun/Mon
   if ([0, 1].includes(new Date().getDay()) && logs.filter(l => l.meals?.length || l.weight != null).length >= 7) {
-    insights.push({ icon: '📒', color: '#e0b94d', msg: `Your weekly review is ready — check the top of the Progress tab.` })
+    insights.push({ color: C.gold, msg: `Your weekly review is ready — check the top of the Progress tab.` })
   }
   // in-app nudges — only meaningful for the live "today" view
   if (isToday) {
     const hour = new Date().getHours()
     if (hour >= 12 && todayLog.weight == null) {
-      insights.push({ icon: '⚖', color: '#e0b94d', msg: `No weigh-in yet today — the trend model is only as good as its data.` })
+      insights.push({ color: C.gold, msg: `No weigh-in yet today — the trend model is only as good as its data.` })
     }
     if (hour >= 21 && (!todayLog.meals || todayLog.meals.length === 0) && !todayLog.fasting && macros.calTarget > 0) {
-      insights.push({ icon: '🍽', color: '#e0b94d', msg: `No meals logged today. Log them now while you still remember — or hit the fasting button if you fasted.` })
+      insights.push({ color: C.gold, msg: `No meals logged today. Log them now while you still remember — or hit the fasting button if you fasted.` })
     }
     // Active Cut: the eat target already assumes today's walk — nudge to actually do it
     if (tdeeData.activeCut && tdeeData.cardioMin > 0) {
       const done = todayLog.inclineMin || 0
       if (done >= tdeeData.cardioMin) {
-        insights.push({ icon: '🚶', color: '#4dd4c0', msg: `Incline walk done — that's ${tdeeData.cardioBurn} kcal of deficit earned through movement, not hunger. This is the sustainable way.` })
+        insights.push({ color: C.good, msg: `Incline walk done — that's ${tdeeData.cardioBurn} kcal of deficit earned through movement, not hunger. This is the sustainable way.` })
       } else if (hour >= 17) {
-        insights.push({ icon: '🚶', color: '#f0964d', msg: `Incline walk not logged yet (${done}/${tdeeData.cardioMin} min). Your calories today assume you do it — skipping it quietly erases the deficit.` })
+        insights.push({ color: C.orange, msg: `Incline walk not logged yet (${done}/${tdeeData.cardioMin} min). Your calories today assume you do it — skipping it quietly erases the deficit.` })
       }
     }
   }
   if (stepData.extra > 0) {
     const kcal = Math.round(stepData.extra * tdeeData.curW * 0.00061)
-    insights.push({ icon: '👟', color: '#f0964d', msg: `You ate ~${kcal} kcal over target yesterday. Walk ${stepData.extra.toLocaleString()} extra steps today to stay in deficit.` })
+    insights.push({ color: C.orange, msg: `You ate ~${kcal} kcal over target yesterday. Walk ${stepData.extra.toLocaleString()} extra steps today to stay in deficit.` })
   }
   if (macros.calTarget > 0 && todayCals > macros.calTarget * 0.4) {
     const short = Math.round((macros.proteinG - todayProtein) * 10) / 10
-    if (short > 20) insights.push({ icon: '⚠️', color: '#f0566f', msg: `Protein is ${short}g short of today's ${macros.proteinG}g target. Add a protein source to your next meal.` })
+    if (short > 20) insights.push({ color: C.bad, msg: `Protein is ${short}g short of today's ${macros.proteinG}g target. Add a protein source to your next meal.` })
   }
   if (todayLog.sleep > 0 && todayLog.sleep < 6.5) {
-    insights.push({ icon: '😴', color: '#f0566f', msg: `Only ${todayLog.sleep}h sleep. Low sleep raises cortisol and hunger, blunting fat loss. Aim for 7–8h tonight.` })
+    insights.push({ color: C.bad, msg: `Only ${todayLog.sleep}h sleep. Low sleep raises cortisol and hunger, blunting fat loss. Aim for 7–8h tonight.` })
   }
   // Weekly pace verdict — gated to 14 calendar days (water-clearance rule,
   // same as every Cut IQ surface) and computed over REAL weeks, not the last
@@ -243,10 +244,10 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
       const rAvg = r7.reduce((s, x) => s + x) / r7.length
       const pAvg = p7.reduce((s, x) => s + x) / p7.length
       const wkLoss = pAvg - rAvg
-      if (wkLoss < -0.15)    insights.push({ icon: '📈', color: '#f0566f', msg: `Weight is up ${Math.abs(wkLoss).toFixed(2)}kg vs last week. Check the Cut IQ tab — something needs tightening.` })
-      else if (wkLoss < 0.2) insights.push({ icon: '📉', color: '#f0964d', msg: `Only ${wkLoss.toFixed(2)}kg lost this week. Check the Cut IQ tab — it'll tell you which lever to pull.` })
-      else if (wkLoss > 1.2) insights.push({ icon: '⚡', color: '#6aa9f5', msg: `Losing ${wkLoss.toFixed(1)}kg/wk — faster than ideal. Cut IQ may suggest easing the deficit to protect muscle.` })
-      else                   insights.push({ icon: '✅', color: '#a78bfa', msg: `Down ${wkLoss.toFixed(2)}kg this week — right on target. Stay consistent.` })
+      if (wkLoss < -0.15)    insights.push({ color: C.bad, msg: `Weight is up ${Math.abs(wkLoss).toFixed(2)}kg vs last week. Check the Cut IQ tab — something needs tightening.` })
+      else if (wkLoss < 0.2) insights.push({ color: C.orange, msg: `Only ${wkLoss.toFixed(2)}kg lost this week. Check the Cut IQ tab — it'll tell you which lever to pull.` })
+      else if (wkLoss > 1.2) insights.push({ color: C.info, msg: `Losing ${wkLoss.toFixed(1)}kg/wk — faster than ideal. Cut IQ may suggest easing the deficit to protect muscle.` })
+      else                   insights.push({ color: C.accent, msg: `Down ${wkLoss.toFixed(2)}kg this week — right on target. Stay consistent.` })
     }
   }
   return insights.slice(0, 6)
@@ -356,7 +357,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
           <div style={card({ background: f.activeCut ? '#0c1410' : '#0c0c0f', borderColor: f.activeCut ? `${C.teal}44` : C.border })}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>🚶 Active Cut <span style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>energy-flux mode</span></div>
+                <div style={{ display:'inline-flex', alignItems:'center', gap:7, fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}><Icon name="compass" size={16} color={C.teal} /> Active Cut <span style={{ fontSize: 11, color: C.teal, fontWeight: 600 }}>energy-flux mode</span></div>
                 <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.55 }}>
                   Drive the deficit with <strong style={{ color: C.text }}>movement</strong> instead of starving. You eat <strong style={{ color: C.teal }}>more</strong> and add daily incline walking — better for adherence, NEAT and holding muscle. Your walk is credited into your calorie budget. Only affects <strong>your</strong> account.
                 </div>
@@ -414,7 +415,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
               if (+f.goalBF >= +f.startBF)              { alert('Goal body fat % must be LOWER than your starting body fat % — this is a cutting app.'); return }
               if (!f.cutLength || f.cutLength < 14 || f.cutLength > 365) { alert('Cut length must be between 14 and 365 days.'); return }
               onSave(f)
-            }}>{existing ? '✓ Save Changes' : '🔥 Start My Cut'}</button>
+            }}>{existing ? 'Save Changes' : 'Start My Cut'}</button>
             {existing && <button style={btn()} onClick={onCancel}>Cancel</button>}
           </div>
           {existing && onExport && (
@@ -428,8 +429,8 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
           )}
           {existing && onReset && (
             <div style={{ marginTop: 8, paddingTop: 16, borderTop: `1px solid ${C.borderSoft}` }}>
-              <button style={{ ...btn(false), width: '100%', color: C.red, borderColor: `${C.red}44` }} onClick={onReset}>
-                🗑 Reset all data & start fresh
+              <button style={{ ...btn(false), width: '100%', color: C.red, borderColor: `${C.red}44`, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8 }} onClick={onReset}>
+                <Icon name="ban" size={15} color={C.red} /> Reset all data & start fresh
               </button>
               <div style={{ fontSize: 11, color: C.textFaint, marginTop: 8, textAlign: 'center' }}>Wipes all logs, workouts, and settings. Cannot be undone.</div>
             </div>
@@ -451,14 +452,14 @@ function Header({ dayCount, daysLeft, cutLength = 60, phase = 'cut', latestWeigh
       <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 12 : 18, padding: mobile ? '12px 16px' : '13px 22px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <div style={{ width: 9, height: 9, borderRadius: '50%', background: C.accent, boxShadow: `0 0 10px ${C.accent}` }} />
-          <div style={{ fontFamily: F.head, fontWeight: 800, fontSize: mobile ? 17 : 19, color: C.text, letterSpacing: '-0.02em' }}>CUTBOARD</div>
+          <div style={{ fontFamily: F.head, fontWeight: 800, fontSize: mobile ? 15 : 19, color: C.text, letterSpacing: '-0.02em' }}>CUTBOARD</div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ height: 5, background: C.borderSoft, borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: `linear-gradient(90deg, ${C.accentDim}, ${C.accent})`, borderRadius: 3, boxShadow: `0 0 8px ${C.accent}66`, transition: 'width 0.6s' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 5, fontSize: 10, color: C.textSub, fontFamily: F.mono, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{phase === 'maintenance' ? (mobile ? `D${dayCount} · MAINT` : `DAY ${dayCount} · MAINTENANCE`) : (mobile ? `D${dayCount}/${cutLength}` : `DAY ${dayCount} / ${cutLength}`)}</span>
+            <span>{phase === 'maintenance' ? (mobile ? `DAY ${dayCount} · MAINT` : `DAY ${dayCount} · MAINTENANCE`) : `DAY ${dayCount} / ${cutLength}`}</span>
             <span>{phase === 'maintenance' ? (mobile ? 'DONE ✓' : 'CUT DONE ✓') : (mobile ? `${daysLeft}D` : `${daysLeft}D LEFT`)}</span>
           </div>
         </div>
@@ -555,9 +556,9 @@ function TabBar({ tab, setTab }) {
    TASK PLANNER
 ═══════════════════════════════════════════════════════════════ */
 const PRIORITY_META = {
-  high:   { color: '#ff5a78', label: 'High',   dot: '🔴' },
-  medium: { color: '#ff944d', label: 'Medium',  dot: '🟡' },
-  low:    { color: '#5cb4ff', label: 'Low',     dot: '🔵' },
+  high:   { color: C.red,   label: 'High'   },
+  medium: { color: C.orange, label: 'Medium' },
+  low:    { color: C.blue,  label: 'Low'    },
 }
 
 /* Premium circular calorie ring — sweeps in from 0 on mount */
@@ -976,7 +977,7 @@ function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClo
                 <div key={f.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', padding:'11px 18px', borderBottom:`1px solid ${C.borderSoft}` }}
                   onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background='none'}>
                   <div onClick={()=>selectFood(f)} style={{ flex:1, cursor:'pointer' }}>
-                    <div style={{ fontSize:14, color:C.text }}>{f.isRecipe&&<span style={{fontSize:11,marginRight:5}}>🍲</span>}{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:6}}>★</span>}</div>
+                    <div style={{ display:'flex', alignItems:'center', fontSize:14, color:C.text }}>{f.isRecipe&&<Icon name="apple" size={12} color={C.accent} style={{marginRight:5}} />}{f.name}{f.custom&&<span style={{fontSize:10,color:C.accent,marginLeft:6}}>★</span>}</div>
                     <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{f.cat} · {f.protein}g P · {f.fiber||0}g fibre / {f.unit==='g'||f.unit==='ml'?`100${f.unit}`:f.unit}</div>
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1364,7 +1365,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           return (
             <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                <span style={{fontSize:12,color:C.textSub}}>🚶 Incline walk · movement banked</span>
+                <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,color:C.textSub}}><Icon name="compass" size={13} color={C.textSub} /> Incline walk · movement banked</span>
                 <span style={{fontFamily:F.mono,fontSize:14,color:doneMin>=tgtMin?C.teal:C.purple}}>{doneBurn} / {tgtBurn} kcal</span>
               </div>
               <div style={{height:4,background:C.border,borderRadius:2}}><div style={{height:'100%',width:`${pct}%`,background:doneMin>=tgtMin?C.teal:C.purple,borderRadius:2,transition:'width 0.4s'}} /></div>
@@ -1442,7 +1443,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
               </div>
             )}
             <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12}}>
-              <button style={{...btn(true,true),flex:'0 0 auto'}} onClick={()=>setFoodPickerOpen(true)}>📖 From Food Database</button>
+              <button style={{...btn(true,true),flex:'0 0 auto',display:'inline-flex',alignItems:'center',gap:7}} onClick={()=>setFoodPickerOpen(true)}><Icon name="apple" size={14} /> From Food Database</button>
               <span style={{fontSize:11,color:C.textFaint}}>or enter manually below</span>
             </div>
             <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(3,minmax(0,1fr))':'2fr 1fr 1fr 1fr 1fr 1fr',gap:10,marginBottom:12}}>
@@ -1490,7 +1491,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
                 const prev   = amt ? (recipe ? mealFromRecipe(recipe, amt) : computeFoodMacros(food, amt)) : null
                 return (
                   <div key={i} style={{background:'rgba(255,255,255,0.02)',borderRadius:8,marginBottom:6,padding:'12px',border:`1px solid ${C.accent}33`}}>
-                    <div style={{fontSize:13,fontWeight:600,marginBottom:9}}>{recipe ? `🍲 ${recipe.name}` : food.name}</div>
+                    <div style={{fontSize:13,fontWeight:600,marginBottom:9}}>{recipe ? recipe.name : food.name}</div>
                     <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
                       <input style={inp({width:110,textAlign:'center',fontFamily:F.mono,fontSize:15,padding:'8px 10px'})} type="number" inputMode="decimal" autoFocus value={editForm.amount}
                         onChange={e=>setEditForm(p=>({...p,amount:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&saveEdit()} />
@@ -1546,14 +1547,6 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             </div>
           )}
         </>)}
-      </div>
-
-      {/* Daily Planner */}
-      <div style={{...card(),gridColumn:'1/-1'}}>
-        <TaskPlanner
-          tasks={local.tasks || []}
-          onUpdate={tasks => upd('tasks', tasks)}
-        />
       </div>
 
       {/* FAB — fastest path to logging a meal (mobile, today only) */}
@@ -1993,7 +1986,7 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
             </div>
             {adaptiveTDEE.activeCut && (
               <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${C.borderSoft}`,fontSize:13}}>
-                <span style={{color:C.textSub}}>🚶 Incline walk ({adaptiveTDEE.cardioMin} min){adaptiveTDEE.isDataDriven?' (in your data)':''}</span>
+                <span style={{display:'inline-flex',alignItems:'center',gap:6,color:C.textSub}}><Icon name="compass" size={13} color={C.textSub} /> Incline walk ({adaptiveTDEE.cardioMin} min){adaptiveTDEE.isDataDriven?' (in your data)':''}</span>
                 <span style={{fontFamily:F.mono,color:C.teal}}>+{adaptiveTDEE.cardioBurn} kcal</span>
               </div>
             )}
@@ -2020,18 +2013,18 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
           <span style={{fontFamily:F.mono,color:isFastingToday?C.blue:C.accent,fontSize:24}}>{todayTarget} kcal</span>
         </div>
         {isFastingToday && (
-          <div style={{fontSize:11,color:C.blue,marginBottom:4}}>🚫 Fasting day — {planSettings?.fastCompensation ? '25% compensation' : 'full fast'}</div>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:C.blue,marginBottom:4}}><Icon name="ban" size={12} color={C.blue} /> Fasting day — {planSettings?.fastCompensation ? '25% compensation' : 'full fast'}</div>
         )}
         {zigzagOn && !isFastingToday && (
-          <div style={{fontSize:11,color:C.textFaint,marginBottom:4}}>〰 Zigzag — target varies by day, week averages to {adaptiveTDEE.target} kcal</div>
+          <div style={{fontSize:11,color:C.textFaint,marginBottom:4}}>Zigzag — target varies by day, week averages to {adaptiveTDEE.target} kcal</div>
         )}
         {adaptiveTDEE.activeCut && (
           <div style={{marginTop:10,background:'rgba(77,212,192,0.08)',border:`1px solid ${C.teal}33`,borderRadius:12,padding:'11px 14px',fontSize:11.5,color:C.textSub,lineHeight:1.55}}>
-            🚶 <strong style={{color:C.teal}}>Active Cut</strong> — your incline walk funds {adaptiveTDEE.cardioBurn} kcal of the deficit, so you eat more than a starve-it cut. {adaptiveTDEE.isDataDriven ? 'Now data-driven: your real loss rate already reflects the walking.' : 'First week: the walk is credited from a formula; after that your real data takes over.'}
+            <strong style={{color:C.teal}}>Active Cut</strong> — your incline walk funds {adaptiveTDEE.cardioBurn} kcal of the deficit, so you eat more than a starve-it cut. {adaptiveTDEE.isDataDriven ? 'Now data-driven: your real loss rate already reflects the walking.' : 'First week: the walk is credited from a formula; after that your real data takes over.'}
           </div>
         )}
         <div style={{marginTop:12,display:'flex',alignItems:'center',gap:8,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
-          <Icon name="dumbbell" size={15} color={C.protein} /> <span>Protein locked at <strong style={{color:C.protein}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? '📊 Calibrated from your real data' : '⏳ Becomes data-driven after ~1 week of logging'}</span>
+          <Icon name="dumbbell" size={15} color={C.protein} /> <span>Protein locked at <strong style={{color:C.protein}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? 'Calibrated from your real data' : 'Becomes data-driven after ~1 week of logging'}</span>
         </div>
       </div>
 
@@ -2045,11 +2038,11 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:14}}>
           <button style={{...btn(!zigzagOn),textAlign:'left',padding:'14px 16px',display:'block',height:'auto'}} onClick={()=>{ setZigzagOn(false); onSaveZigzag?.({on:false,schedule:zigzagSched,mode:zigzagMode}) }}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>⚖️ Steady</div>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>Steady{!zigzagOn ? ' ✓' : ''}</div>
             <div style={{fontSize:12,color:!zigzagOn?'#0a0612':C.textSub}}>Same target every day. Simplest, works great.</div>
           </button>
           <button style={{...btn(zigzagOn),textAlign:'left',padding:'14px 16px',display:'block',height:'auto'}} onClick={()=>{ setZigzagOn(true); onSaveZigzag?.({on:true,schedule:zigzagSched,mode:zigzagMode}) }}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>〰️ Zigzag</div>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>Zigzag{zigzagOn ? ' ✓' : ''}</div>
             <div style={{fontSize:12,color:zigzagOn?'#0a0612':C.textSub}}>Vary daily, same weekly deficit. Better adherence.</div>
           </button>
         </div>
@@ -2141,6 +2134,7 @@ export default function App() {
   const [zigzagSettings, setZigzagSettings] = useState({ on:false, schedule:1, mode:'weight' })
 
   useEffect(() => {
+    if (DEMO) { setSession(demoSession); return }   // skip auth in demo builds
     supabase.auth.getSession().then(({data:{session}}) => setSession(session))
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s) => setSession(s))
     return () => subscription.unsubscribe()
