@@ -134,28 +134,23 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
             <div style={{ fontSize:13, color:C.textSub, marginTop:6 }}>Not enough downward movement to project. Check the coach panel below.</div>
           </div>
         ) : projection ? (
-          <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr':'1.2fr 1fr', gap:18 }}>
-            <div>
-              <div style={LBL}>Projected to hit {setup.goalBF}% body fat</div>
-              <div style={{ fontFamily:F.head, fontWeight:800, fontSize:mobile?26:30, color:C.accent, lineHeight:1.1 }}>
-                {fmtD(projection.dateMid)}
-              </div>
-              <div style={{ fontSize:12, color:C.textSub, marginTop:6 }}>
-                Range: {fmtD(projection.dateFast)} – {fmtD(projection.dateSlow)}
-              </div>
-              <div style={{ fontSize:12, color:C.textFaint, marginTop:4 }}>
-                ~{projection.weeksMid} weeks · {projection.kgToGo} kg to goal weight ({projection.goalWeight} kg)
-              </div>
+          <div>
+            <div style={LBL}>Projected to hit {setup.goalBF}% body fat</div>
+            <div style={{ fontFamily:F.head, fontWeight:800, fontSize:mobile?28:30, color:C.accent, lineHeight:1.1, marginBottom:4 }}>
+              {fmtD(projection.dateMid)} <span style={{ fontSize:15, color:C.textSub, fontWeight:600 }}>· in {projection.weeksMid} weeks</span>
             </div>
-            <div style={{ display:'grid', gap:8 }}>
+            <div style={{ fontSize:11.5, color:C.textFaint, marginBottom:16 }}>
+              Range {fmtD(projection.dateFast)} – {fmtD(projection.dateSlow)} · goal {projection.goalWeight} kg
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:9 }}>
               {[
-                { label:'Current (trend)', val:`${curWeight?.toFixed(1)} kg`, color:C.text },
-                { label:'Est. body fat',   val:`${currentBF?.toFixed(1)}%`,   color:C.orange },
-                { label:'Losing',          val:`${Math.abs(projection.meanRateKg)} kg/wk`, color:C.teal },
+                { label:'Current BF', val:`${currentBF?.toFixed(1)}%`,           color:C.orange },
+                { label:'kg / week',  val:`${Math.abs(projection.meanRateKg)}`,  color:C.teal },
+                { label:'kg to goal', val:`${projection.kgToGo}`,                color:C.accent },
               ].map(s=>(
-                <div key={s.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(255,255,255,0.02)', borderRadius:11, padding:'9px 13px' }}>
-                  <span style={{ fontSize:12, color:C.textSub }}>{s.label}</span>
-                  <span style={{ fontFamily:F.mono, fontSize:15, color:s.color, fontWeight:700 }}>{s.val}</span>
+                <div key={s.label} style={{ textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:12, padding:'11px 6px' }}>
+                  <div style={{ fontFamily:F.mono, fontSize:17, fontWeight:700, color:s.color }}>{s.val}</div>
+                  <div style={{ fontSize:9.5, color:C.textSub, marginTop:4 }}>{s.label}</div>
                 </div>
               ))}
             </div>

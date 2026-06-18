@@ -188,6 +188,10 @@ const calc1RM = (w,r) => r===1 ? +w : Math.round(+w*(1+(+r)/30)*10)/10
 // LOCAL date — toISOString() is UTC and stamps late-night workouts on yesterday (IST)
 const todayStr= () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 const fmtDate = d  => new Date(d+'T12:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})
+const relDays = d => {
+  const days = Math.round((new Date(todayStr()+'T12:00:00') - new Date(d+'T12:00:00'))/86400000)
+  return days<=0 ? 'today' : days===1 ? 'yesterday' : `${days} days ago`
+}
 
 function getPrevSets(history, exerciseId) {
   const sorted = [...history].sort((a,b)=>b.date.localeCompare(a.date))
@@ -687,7 +691,6 @@ export default function WorkoutTab() {
   const [view,           setView]           = useState('home')
   const [editingRoutine, setEditingRoutine] = useState(null)
   const [selectedLog,    setSelectedLog]    = useState(null)
-  const [subTab,         setSubTab]         = useState('routines')
   const [showProgress,   setShowProgress]   = useState(false)
   const [loaded,         setLoaded]         = useState(false)
 
@@ -709,7 +712,7 @@ export default function WorkoutTab() {
     const updated=[log,...history]
     await saveHistory(updated)
     buzz([20, 60, 30])
-    setActiveWorkout(null); setSubTab('history')
+    setActiveWorkout(null)
   }
 
   const deleteRoutine = async id => { if(!confirm('Delete this routine?')) return; await saveRoutines(routines.filter(r=>r.id!==id)) }
@@ -729,124 +732,113 @@ export default function WorkoutTab() {
   )
 
   return (
-    <div style={{ padding:mobile?'12px':'20px', maxWidth:700, margin:'0 auto' }}>
+    <div style={{ padding:mobile?'12px':'20px', maxWidth:700, margin:'0 auto', display:'grid', gap:14 }}>
 
-      {/* Quick start + new routine */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
-        <button style={{ ...btn(false), padding:'16px 0', display:'flex', flexDirection:'column', alignItems:'center', gap:6, background:C.surface }}
-          onClick={()=>setActiveWorkout({ routineId:null, routineName:'Quick Workout', exercises:[] })}>
-          <Icon name="dumbbell" size={22} color={C.accent} />
-          <span style={{ fontSize:13, fontWeight:600 }}>Quick Start</span>
-          <span style={{ fontSize:11, color:C.textSub }}>Empty workout</span>
-        </button>
-        <button style={{ ...btn(true), padding:'16px 0', display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}
-          onClick={()=>{ setEditingRoutine(null); setView('edit') }}>
-          <span style={{ fontSize:24 }}>+</span>
-          <span style={{ fontSize:13, fontWeight:600 }}>New Routine</span>
-          <span style={{ fontSize:11 }}>Create template</span>
+      {/* Title + Progress */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ fontFamily:F.head, fontWeight:700, fontSize:20 }}>Workout</div>
+        <button onClick={()=>setShowProgress(true)}
+          style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.04)', border:`1px solid ${C.border}`, color:C.textSub, borderRadius:11, padding:'7px 12px', fontSize:12.5, fontWeight:600, fontFamily:F.body, cursor:'pointer' }}>
+          <Icon name="chart" size={14} color={C.textSub} /> Progress
         </button>
       </div>
 
-      {/* Sub-tab bar */}
-      <div style={{ display:'flex', gap:4, marginBottom:16, background:C.surface, borderRadius:10, padding:4 }}>
-        {[
-          { id:'routines', label:'Routines'  },
-          { id:'history',  label:'History'   },
-          { id:'progress', label:'Progress'  },
-        ].map(t=>(
-          <button key={t.id} onClick={()=>t.id==='progress'?setShowProgress(true):setSubTab(t.id)}
-            style={{ flex:1, padding:'8px 0', borderRadius:7, border:'none', cursor:'pointer', fontFamily:F.body, fontSize:13, fontWeight:500, transition:'all 0.15s',
-              background:subTab===t.id&&t.id!=='progress'?C.bg:'transparent',
-              color:subTab===t.id&&t.id!=='progress'?C.text:C.textSub }}>
-            {t.label}
-          </button>
-        ))}
+      {/* Start a Workout banner */}
+      <button onClick={()=>setActiveWorkout({ routineId:null, routineName:'Quick Workout', exercises:[] })}
+        style={{ display:'flex', alignItems:'center', gap:13, width:'100%', textAlign:'left', cursor:'pointer',
+          background:`linear-gradient(135deg, ${C.accent}, ${C.accentDim})`, border:'none', borderRadius:18, padding:'18px 20px',
+          color:'#150a26', boxShadow:`0 14px 34px -16px ${C.accent}b3`, fontFamily:F.body }}>
+        <Icon name="dumbbell" size={26} color="#150a26" strokeWidth={2} />
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:F.head, fontWeight:800, fontSize:17 }}>Start a Workout</div>
+          <div style={{ fontSize:12, opacity:0.8, marginTop:2 }}>Pick a routine below, or log a quick session</div>
+        </div>
+        <Icon name="chevronRight" size={20} color="#150a26" strokeWidth={2.2} />
+      </button>
+
+      {/* Your Routines */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', margin:'4px 2px -4px' }}>
+        <span style={{ ...LBL, marginBottom:0 }}>Your Routines</span>
+        <button onClick={()=>{ setEditingRoutine(null); setView('edit') }}
+          style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'none', color:C.accent, fontSize:12.5, fontWeight:600, fontFamily:F.body, cursor:'pointer' }}>
+          <Icon name="plus" size={14} color={C.accent} /> New
+        </button>
       </div>
 
-      {/* ── Routines list ── */}
-      {subTab==='routines' && (<>
-        {routines.length===0 ? (
-          <div style={{ textAlign:'center', padding:'52px 20px', color:C.textSub }}>
-            <div style={{ display:'flex', justifyContent:'center', marginBottom:14 }}><Icon name="dumbbell" size={40} color={C.textFaint} /></div>
-            <div style={{ fontSize:15, color:C.text, marginBottom:8 }}>No routines yet</div>
-            <div style={{ fontSize:13 }}>Create a routine above to start tracking</div>
-          </div>
-        ) : (
-          <div style={{ display:'grid', gap:10 }}>
-            {routines.map(r=>{
-              const lastDone = history.find(w=>w.routineId===r.id)
-              return (
-                <div key={r.id} style={card()}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
-                    <div>
-                      <div style={{ fontFamily:F.head, fontWeight:700, fontSize:16 }}>{r.name}</div>
-                      <div style={{ fontSize:12, color:C.textSub, marginTop:3 }}>
-                        {r.exercises.length} exercise{r.exercises.length!==1?'s':''} &nbsp;·&nbsp;
-                        {lastDone?`Last: ${fmtDate(lastDone.date)}`:'Never done'}
-                      </div>
-                    </div>
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button style={btn(false,true)} onClick={()=>{ setEditingRoutine(r); setView('edit') }}>✎</button>
-                      <button style={{ ...btn(false,true), color:C.red }} onClick={()=>deleteRoutine(r.id)}>×</button>
-                    </div>
-                  </div>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
-                    {r.exercises.map((ex,i)=>(
-                      <span key={i} style={{ padding:'3px 9px', background:(CAT_COLORS[ex.cat]||C.textSub)+'18', color:CAT_COLORS[ex.cat]||C.textSub, borderRadius:20, fontSize:11, fontWeight:500 }}>
-                        {ex.name}
-                      </span>
-                    ))}
-                  </div>
-                  <button style={{ ...btn(true), width:'100%', padding:'11px 0', fontSize:14 }} onClick={()=>startWorkout(r)}>
-                    ▶ Start Workout
-                  </button>
+      {routines.length===0 ? (
+        <div style={{ textAlign:'center', padding:'40px 20px', color:C.textSub }}>
+          <div style={{ display:'flex', justifyContent:'center', marginBottom:14 }}><Icon name="dumbbell" size={40} color={C.textFaint} /></div>
+          <div style={{ fontSize:15, color:C.text, marginBottom:8 }}>No routines yet</div>
+          <div style={{ fontSize:13 }}>Tap “New” to create your first routine</div>
+        </div>
+      ) : routines.map(r=>{
+        const lastDone = history.find(w=>w.routineId===r.id) || history.find(w=>w.routineName===r.name)
+        const shown = r.exercises.slice(0,3)
+        const extra = r.exercises.length - shown.length
+        return (
+          <div key={r.id} style={card({ padding:'16px 18px' })}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12, gap:10 }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontFamily:F.head, fontWeight:700, fontSize:16 }}>{r.name}</div>
+                <div style={{ fontSize:11.5, color:C.textSub, marginTop:3 }}>
+                  {r.exercises.length} exercise{r.exercises.length!==1?'s':''} · {lastDone?`last done ${relDays(lastDone.date)}`:'never done'}
                 </div>
-              )
-            })}
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                <button title="Edit" onClick={()=>{ setEditingRoutine(r); setView('edit') }}
+                  style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', padding:4, display:'inline-flex' }}
+                  onMouseEnter={e=>e.currentTarget.style.color=C.accent} onMouseLeave={e=>e.currentTarget.style.color=C.textSub}><Icon name="edit" size={15} /></button>
+                <button title="Delete" onClick={()=>deleteRoutine(r.id)}
+                  style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', padding:'2px 6px', fontSize:18, lineHeight:1 }}
+                  onMouseEnter={e=>e.currentTarget.style.color=C.red} onMouseLeave={e=>e.currentTarget.style.color=C.textSub}>×</button>
+                <button onClick={()=>startWorkout(r)}
+                  style={{ background:'rgba(167,139,250,0.12)', border:`1px solid ${C.accent}55`, color:C.accent, borderRadius:10, padding:'7px 14px', fontSize:12.5, fontWeight:700, fontFamily:F.body, cursor:'pointer' }}>Start</button>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {shown.map((ex,i)=>(
+                <span key={i} style={{ fontSize:10.5, color:C.textSub, background:'rgba(255,255,255,0.03)', border:`1px solid ${C.borderSoft}`, borderRadius:7, padding:'4px 9px' }}>{ex.name}</span>
+              ))}
+              {extra>0 && <span style={{ fontSize:10.5, color:C.textSub, background:'rgba(255,255,255,0.03)', border:`1px solid ${C.borderSoft}`, borderRadius:7, padding:'4px 9px' }}>+{extra} more</span>}
+            </div>
           </div>
-        )}
-      </>)}
+        )
+      })}
 
-      {/* ── History list ── */}
-      {subTab==='history' && (<>
-        {history.length===0 ? (
-          <div style={{ textAlign:'center', padding:'52px 20px', color:C.textSub }}>
-            <div style={{ display:'flex', justifyContent:'center', marginBottom:14 }}><Icon name="clipboard" size={40} color={C.textFaint} /></div>
-            <div style={{ fontSize:15, color:C.text, marginBottom:8 }}>No workouts logged yet</div>
-            <div style={{ fontSize:13 }}>Finish a workout to see your history here</div>
-          </div>
-        ) : (
-          <div style={{ display:'grid', gap:10 }}>
-            {history.slice(0,50).map(w=>{
-              const vol   = calcVolume(w.exercises)
-              const sets  = w.exercises.reduce((s,ex)=>s+(ex.sets||[]).length,0)
-              const hasPR = w.exercises.some(ex=>(ex.sets||[]).some(s=>s.isPR))
-              return (
-                <button key={w.id} onClick={()=>{ setSelectedLog(w); setView('detail') }}
-                  style={{ ...card(), textAlign:'left', cursor:'pointer', transition:'border-color 0.15s', width:'100%', fontFamily:F.body }}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
-                    <div>
-                      <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>
-                        {w.routineName}{hasPR&&<span style={{ display:'inline-flex', marginLeft:6, verticalAlign:'middle' }}><Icon name="trophy" size={14} color={C.gold} /></span>}
-                      </div>
-                      <div style={{ fontSize:12, color:C.textSub, marginTop:2 }}>{fmtDate(w.date)}</div>
-                    </div>
-                    <div style={{ textAlign:'right' }}>
-                      <div style={{ fontFamily:F.mono, fontSize:13, color:C.accent }}>{fmtDur(w.duration||0)}</div>
-                      <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{sets} sets</div>
-                    </div>
+      {/* Recent */}
+      {history.length>0 && (<>
+        <div style={{ ...LBL, marginBottom:0, margin:'4px 2px -4px' }}>Recent</div>
+        {history.slice(0,3).map(w=>{
+          const vol   = calcVolume(w.exercises)
+          const sets  = w.exercises.reduce((s,ex)=>s+(ex.sets||[]).length,0)
+          const hasPR = w.exercises.some(ex=>(ex.sets||[]).some(s=>s.isPR))
+          return (
+            <button key={w.id} onClick={()=>{ setSelectedLog(w); setView('detail') }}
+              style={{ ...card({ padding:'16px 18px' }), textAlign:'left', cursor:'pointer', transition:'border-color 0.15s', width:'100%', fontFamily:F.body }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontFamily:F.head, fontWeight:700, fontSize:14.5 }}>{w.routineName}</span>
+                  {hasPR && <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontFamily:F.mono, fontSize:10, color:C.gold, background:'rgba(214,164,92,0.1)', border:`1px solid ${C.gold}4d`, padding:'2px 8px', borderRadius:20, fontWeight:700 }}><Icon name="trophy" size={11} color={C.gold} /> PR</span>}
+                </div>
+                <span style={{ fontFamily:F.mono, fontSize:11, color:C.textSub }}>{fmtDate(w.date)}</span>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:9 }}>
+                {[
+                  { v:vol.toLocaleString(), l:'kg volume', c:C.accent },
+                  { v:sets, l:'sets', c:C.blue },
+                  { v:fmtDur(w.duration||0), l:'duration', c:C.teal },
+                ].map((s,i)=>(
+                  <div key={i} style={{ textAlign:'center', background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'10px 4px' }}>
+                    <div style={{ fontFamily:F.mono, fontSize:15, fontWeight:700, color:s.c }}>{s.v}</div>
+                    <div style={{ fontSize:9.5, color:C.textSub, marginTop:4 }}>{s.l}</div>
                   </div>
-                  <div style={{ display:'flex', gap:14, fontSize:12, color:C.textSub }}>
-                    <span>{vol.toLocaleString()} kg volume</span>
-                    <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Icon name="dumbbell" size={13} color={C.textSub} /> {w.exercises.length} exercises</span>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        )}
+                ))}
+              </div>
+            </button>
+          )
+        })}
       </>)}
 
       {showProgress && <ProgressCharts history={history} onClose={()=>setShowProgress(false)} />}

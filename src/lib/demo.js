@@ -100,7 +100,7 @@ const ROUTINES = [
   ] },
 ]
 
-const set = (weight, reps, isPR = false) => ({ weight, reps, isPR })
+const set = (weight, reps, isPR = false) => ({ weight, reps, isPR, done: true })
 const WORKOUTS = [
   { id: 'w1', routineName: 'Push Day', date: daysAgo(2), endTime: new Date().toISOString(), duration: 52 * 60,
     exercises: [

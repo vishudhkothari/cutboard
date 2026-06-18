@@ -571,7 +571,9 @@ function CalorieRing({ consumed, target, size = 168 }) {
   const pct    = mounted ? (target > 0 ? Math.min(consumed / target, 1) : 0) : 0
   const over   = consumed > target
   const remaining = target - consumed
-  const ringColor = over ? C.red : pct >= 0.8 ? C.orange : C.accent
+  // Design spec: ring stays accent purple all the way to target; only turns red
+  // once you actually go OVER (no intermediate orange "approaching" state).
+  const ringColor = over ? C.red : C.accent
   return (
     <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
       <svg width={size} height={size} style={{ transform:'rotate(-90deg)' }}>
@@ -1292,9 +1294,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             )}
           </div>
         ) : (
-          <div style={{ display:'flex', alignItems:'center', gap: mobile ? 16 : 28, flexDirection: mobile ? 'column' : 'row' }}>
-            <CalorieRing consumed={totalCals} target={calTarget} size={mobile ? 150 : 172} />
-            <div style={{ flex:1, width: mobile ? '100%' : 'auto', display:'grid', gap:13 }}>
+          <div style={{ display:'flex', alignItems:'center', gap: mobile ? 18 : 28 }}>
+            <CalorieRing consumed={totalCals} target={calTarget} size={mobile ? 138 : 168} />
+            <div style={{ flex:1, minWidth:0, display:'grid', gap:13 }}>
               {[
                 { label:'Protein', color:C.protein, cur:totalProtein, tgt:effectiveMacros.proteinG },
                 { label:'Carbs',   color:C.carbs,   cur:totalCarbs,   tgt:effectiveMacros.carbG },
@@ -1326,9 +1328,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
         </div>
         <div style={{ display: 'grid', gap: 9 }}>
           {(coachOpen ? insights : insights.slice(0, 2)).map((ins, i) => (
-            <div key={i} style={{ display:'flex', gap:12, alignItems:'flex-start', background:'rgba(255,255,255,0.02)', borderRadius:12, padding:'12px 14px', borderLeft:`3px solid ${ins.color}` }}>
-              <span style={{ width:7, height:7, borderRadius:'50%', background:ins.color, flexShrink:0, marginTop:6 }} />
-              <span style={{ fontSize:12.5, color:C.text, lineHeight:1.55, opacity:0.85 }}>{ins.msg}</span>
+            <div key={i} style={{ display:'flex', gap:11, alignItems:'flex-start', background:`${ins.color}14`, borderRadius:12, padding:'12px 13px' }}>
+              <span style={{ width:7, height:7, borderRadius:'50%', background:ins.color, flexShrink:0, marginTop:5 }} />
+              <span style={{ fontSize:13, color:C.text, lineHeight:1.5 }}>{ins.msg}</span>
             </div>
           ))}
           {insights.length > 2 && (
@@ -1601,15 +1603,26 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
     const days=allLogs.filter(l=>l.date>=cut14&&((l.meals&&l.meals.length)||l.fasting))
     if(days.length<3)return null
     const targetFor=l=>{const wk=dayPlan?.week?.[new Date(l.date+'T12:00:00').getDay()];if(!wk)return dayPlan.baseTarget;return wk.isFast&&l.fastingOverridden?wk.baseEat:wk.eat}
-    return Math.round(days.filter(l=>(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)<=targetFor(l)+75).length/days.length*100)
+    const hit=days.filter(l=>(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)<=targetFor(l)+75).length
+    return {pct:Math.round(hit/days.length*100),hit,total:days.length}
   })()
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
-      <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(5,1fr)',gap:12}}>
-        {[{label:"Today's Calories",val:todayCals,unit:'kcal',color:C.accent},{label:'Target',val:macros.calTarget,unit:'kcal',color:C.text},{label:'7-Day Avg Cals',val:avgCals,unit:'kcal',color:C.blue},{label:'7-Day Avg Protein',val:avgProt,unit:'g',color:C.protein},{label:'14d Adherence',val:adherence??'—',unit:adherence!=null?'%':'',color:adherence==null?C.textSub:adherence>=80?C.teal:adherence>=60?C.gold:C.red}].map(({label,val,unit,color})=>(
-          <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12}}>
+        {[{label:'Today · kcal',val:todayCals,unit:'',color:C.accent},{label:'Target · kcal',val:macros.calTarget,unit:'',color:C.text},{label:'7-day avg · kcal',val:avgCals,unit:'',color:C.blue},{label:'7-day protein',val:avgProt,unit:'g',color:C.protein}].map(({label,val,unit,color})=>(
+          <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:26,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}>{unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:7,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
         ))}
       </div>
+      {adherence!=null && (()=>{const c=adherence.pct>=80?C.teal:adherence.pct>=60?C.gold:C.red;return(
+        <div style={card({padding:'16px 18px'})}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:11}}>
+            <span style={{...LBL,marginBottom:0}}>14-day adherence</span>
+            <span style={{fontFamily:F.mono,fontSize:22,fontWeight:700,color:c}}>{adherence.pct}%</span>
+          </div>
+          <div style={{height:7,background:C.borderSoft,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${adherence.pct}%`,background:c,borderRadius:4}} /></div>
+          <div style={{fontSize:12,color:C.textSub,marginTop:9,lineHeight:1.4}}>{adherence.hit} of {adherence.total} logged days at or under target.{adherence.pct>=80?' Strong consistency.':''}</div>
+        </div>
+      )})()}
       <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 2fr',gap:16}}>
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:18}}>Today's Macros</div>
@@ -2290,7 +2303,8 @@ export default function App() {
   const currentBF    = bodyComp?.bf ?? cutAnchor.bf
   const cutLength    = setup.cutLength || 60
   const dayCount     = daysBetween(setup.startDate, todayStr()) + 1
-  const daysLeft     = Math.max(0, cutLength - dayCount + 1)
+  // days remaining so that dayCount + daysLeft === cutLength (matches the design)
+  const daysLeft     = Math.max(0, cutLength - dayCount)
 
   // ★ THE SINGLE SOURCE OF TRUTH — computed once, passed read-only everywhere ★
   const dayPlan = buildDayPlan({
