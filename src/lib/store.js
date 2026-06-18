@@ -46,6 +46,22 @@ export const store = {
     }
   },
 
+  // Fetch every value whose key matches a prefix in ONE round-trip.
+  // Replaces the list()+N×get() pattern that fired a query per log day.
+  async getByPrefix(prefix) {
+    try {
+      const { data, error } = await supabase
+        .from('user_data')
+        .select('value')
+        .like('key', `${prefix}%`)
+      if (error) throw error
+      return (data ?? []).map(r => r.value).filter(Boolean)
+    } catch (e) {
+      console.error('store.getByPrefix error', e)
+      return []
+    }
+  },
+
   async clearAll() {
     try {
       const { data: { user } } = await supabase.auth.getUser()

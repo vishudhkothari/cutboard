@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
+import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, RADIUS, BAR, useIsMobile, buzz } from './lib/theme'
 import { Icon } from './lib/icons'
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
@@ -580,11 +580,11 @@ function CalorieRing({ consumed, target, size = 168 }) {
           style={{ transition:'stroke-dashoffset 0.6s cubic-bezier(.4,0,.2,1), stroke 0.3s', filter:`drop-shadow(0 0 6px ${ringColor}66)` }} />
       </svg>
       <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-        <div style={{ fontFamily:F.mono, fontSize:34, fontWeight:700, color:over?C.red:C.text, lineHeight:1 }}>{consumed}</div>
-        <div style={{ fontSize:10.5, color:C.textSub, textTransform:'uppercase', letterSpacing:'0.1em', marginTop:4 }}>of {target} kcal</div>
-        <div style={{ fontSize:12, color:over?C.red:C.accent, marginTop:6, fontWeight:600 }}>
+        <div style={{ fontSize:11, color:over?C.red:C.accent, fontWeight:600, marginBottom:1 }}>
           {over ? `+${Math.abs(remaining)} over` : `${remaining} left`}
         </div>
+        <div style={{ fontFamily:F.mono, fontSize:size>=160?38:34, fontWeight:700, color:over?C.red:C.text, lineHeight:1.05, letterSpacing:'-0.02em' }}>{consumed}</div>
+        <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>of {target} kcal</div>
       </div>
     </div>
   )
@@ -1269,7 +1269,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
       </div>
 
       {/* Calorie Hero — ring + macro stats */}
-      <div style={{ ...card({ padding: mobile ? '20px 18px' : '22px 24px' }), gridColumn: '1/-1' }}>
+      <div style={{ ...card({ padding: mobile ? '20px 18px' : '22px 24px', background:'linear-gradient(165deg,#17131f 0%,#0f0d14 100%)', border:`1px solid #2a2433`, borderRadius:RADIUS.hero, boxShadow:`0 1px 2px rgba(0,0,0,0.5), 0 16px 40px -18px ${C.accentGlow}59` }), gridColumn: '1/-1' }}>
         {isFasting ? (
           <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:18, padding:'14px 0', flexWrap:'wrap' }}>
             <Icon name="ban" size={44} color={C.blue} />
@@ -1293,18 +1293,19 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
         ) : (
           <div style={{ display:'flex', alignItems:'center', gap: mobile ? 16 : 28, flexDirection: mobile ? 'column' : 'row' }}>
             <CalorieRing consumed={totalCals} target={calTarget} size={mobile ? 150 : 172} />
-            <div style={{ flex:1, width: mobile ? '100%' : 'auto', display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+            <div style={{ flex:1, width: mobile ? '100%' : 'auto', display:'grid', gap:13 }}>
               {[
-                { val:`${totalProtein}`, sub:`/ ${effectiveMacros.proteinG}g`, label:'Protein', color:C.protein, cur:totalProtein, tgt:effectiveMacros.proteinG },
-                { val:`${totalCarbs}`,   sub:`/ ${effectiveMacros.carbG}g`,   label:'Carbs',   color:C.carbs,   cur:totalCarbs,   tgt:effectiveMacros.carbG },
-                { val:`${totalFat}`,     sub:`/ ${effectiveMacros.fatG}g`,    label:'Fat',     color:C.fat,     cur:totalFat,     tgt:effectiveMacros.fatG },
-              ].map(({val,sub,label,color,cur,tgt}) => (
-                <div key={label} style={{ background:'rgba(255,255,255,0.02)', borderRadius:13, padding:'14px 10px', border:`1px solid ${C.borderSoft}`, textAlign:'center' }}>
-                  <div style={{ fontFamily:F.mono, fontSize:20, fontWeight:700, color, lineHeight:1 }}>{val}<span style={{ fontSize:11, color:C.textSub }}>g</span></div>
-                  <div style={{ fontSize:10, color:C.textFaint, marginTop:3 }}>{sub}</div>
-                  <div style={{ fontSize:10.5, color:C.textSub, marginTop:6, textTransform:'uppercase', letterSpacing:'0.07em' }}>{label}</div>
-                  <div style={{ height:3, background:C.borderSoft, borderRadius:2, marginTop:7, overflow:'hidden' }}>
-                    <div style={{ height:'100%', width:`${Math.min((cur/tgt)*100,100)}%`, background:color, borderRadius:2, transition:'width 0.4s' }} />
+                { label:'Protein', color:C.protein, cur:totalProtein, tgt:effectiveMacros.proteinG },
+                { label:'Carbs',   color:C.carbs,   cur:totalCarbs,   tgt:effectiveMacros.carbG },
+                { label:'Fat',     color:C.fat,     cur:totalFat,     tgt:effectiveMacros.fatG },
+              ].map(({label,color,cur,tgt}) => (
+                <div key={label}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:5 }}>
+                    <span style={{ fontSize:12, color:C.textSub }}>{label}</span>
+                    <span style={{ fontFamily:F.mono, fontSize:13, color }}>{cur}<span style={{ color:C.textFaint }}>/{tgt}g</span></span>
+                  </div>
+                  <div style={{ height:BAR.h, background:BAR.track, borderRadius:3, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${tgt>0?Math.min((cur/tgt)*100,100):0}%`, background:color, borderRadius:3, transition:'width 0.4s' }} />
                   </div>
                 </div>
               ))}
@@ -2147,14 +2148,15 @@ export default function App() {
 
   const emptyLog = (date = todayStr()) => ({ date, weight:null, sleep:null, sleepQuality:null, steps:null, inclineMin:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
 
+  // single round-trip: pull every day's log at once, newest-sortable
+  const loadLogs = async () => (await store.getByPrefix('log:')).sort((a,b)=>a.date.localeCompare(b.date))
+
   const loadData = useCallback(async () => {
     setDataReady(false)
     const s = await store.get('setup'); setSetup(s)
     if (s) {
       const td   = await store.get(`log:${todayStr()}`); setTodayLog(td || emptyLog())
-      const keys = await store.list('log:')
-      const logs = (await Promise.all(keys.map(k=>store.get(k)))).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date))
-      setAllLogs(logs)
+      setAllLogs(await loadLogs())
       setCutIntel(await store.get('cut_intel') || { anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
       setMealHistory(await store.get('meal_history') || [])
       setCustomFoods(await store.getSharedFoods() || [])
@@ -2182,9 +2184,7 @@ export default function App() {
     // Re-run loadData so adaptive TDEE picks up any changed settings
     // (e.g. activity level, startBF for Katch-McArdle)
     else {
-      const keys = await store.list('log:')
-      const logs = (await Promise.all(keys.map(k=>store.get(k)))).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date))
-      setAllLogs(logs)
+      setAllLogs(await loadLogs())
     }
   }
   // Navigate to a specific day (won't go past today)

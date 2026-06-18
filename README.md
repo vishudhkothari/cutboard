@@ -70,9 +70,11 @@ npm run dev
 
 ## Features
 
-- **Today tab** — weight, sleep, steps, deep work, full meal log with macros, fasting day toggle
-- **Nutrition tab** — macro breakdown, 7-day averages, 14-day calorie history chart
-- **Progress tab** — weight trend, sleep, steps, deep work charts with target lines
-- **InBody tab** — log body composition scans, track BF% and muscle mass over time
+- **Today tab** — calorie ring + macro bars, adaptive coach, weight/sleep/steps vitals, full meal log, fasting-day toggle
+- **Nutrition tab** — macro breakdown, 7-day averages, 14-day calorie history chart, reusable "My Meals" recipes
+- **Progress tab** — weekly review, weight trend, sleep & steps charts, progress photos
+- **Cut IQ tab** — body-fat projection, pace controller, body-composition tracking, live TDEE estimate
+- **Schedule tab** — calorie strategy (steady / zigzag), intensity, weekly target spread
+- **Workout tab** — routines, live session logging, PRs, volume history
 - **Adaptive TDEE** — recalculates your calorie target weekly based on actual weight loss rate
-- **Separate accounts** — you and Adarsh each sign in with your own email, completely isolated data
+- **Separate accounts** — each user signs in with their own email, completely isolated data (Supabase RLS)
