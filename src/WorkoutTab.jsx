@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
+import { Icon } from './lib/icons'
 import { store } from './lib/store'
 
 /* ═══════════════════════════════════════════════════════════════
@@ -443,7 +444,7 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
             <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>{workout.routineName||'Quick Workout'}</div>
             <div style={{ fontFamily:F.mono, fontSize:11, color:C.textSub, marginTop:2 }}>
               {fmtDur(elapsed)} &nbsp;·&nbsp; {doneCount}/{totalSets} sets &nbsp;·&nbsp; {volume.toLocaleString()} kg
-              {hasPR&&<span style={{ marginLeft:8, color:C.gold }}>🏆 PR!</span>}
+              {hasPR&&<span style={{ display:'inline-flex', alignItems:'center', gap:4, marginLeft:8, color:C.gold }}><Icon name="trophy" size={12} color={C.gold} /> PR!</span>}
             </div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
@@ -504,7 +505,7 @@ function ActiveWorkout({ workout, workoutHistory, onFinish, onCancel }) {
                       onChange={e=>updSet(ei,si,'reps',e.target.value)} />
                     <button onClick={()=>toggleDone(ei,si)} style={{ width:34, height:34, borderRadius:8, border:`2px solid ${set.done?C.accent:C.border}`, background:set.done?C.accent:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s', padding:0 }}>
                       {set.isPR
-                        ? <span style={{ fontSize:14 }}>🏆</span>
+                        ? <Icon name="trophy" size={15} color="#000" />
                         : set.done
                           ? <span style={{ color:'#000', fontWeight:800, fontSize:14 }}>✓</span>
                           : <span style={{ color:C.textSub, fontSize:12 }}>✓</span>}
@@ -551,8 +552,8 @@ function WorkoutDetail({ workout, onBack, onDelete }) {
       <div style={{ display:'flex', gap:10, marginBottom:20, alignItems:'center' }}>
         <button onClick={onBack} style={{ background:'none', border:'none', color:C.textSub, cursor:'pointer', fontSize:22, padding:'4px 8px', lineHeight:1 }}>←</button>
         <div style={{ flex:1 }}>
-          <div style={{ fontFamily:F.head, fontWeight:800, fontSize:20 }}>
-            {workout.routineName} {hasPR&&'🏆'}
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:800, fontSize:20 }}>
+            {workout.routineName} {hasPR&&<Icon name="trophy" size={18} color={C.gold} />}
           </div>
           <div style={{ fontSize:12, color:C.textSub, marginTop:2 }}>{fmtDate(workout.date)}</div>
         </div>
@@ -589,7 +590,7 @@ function WorkoutDetail({ workout, onBack, onDelete }) {
               <div style={{ textAlign:'center', fontFamily:F.mono, fontSize:13 }}>{s.reps||'—'}</div>
               <div style={{ textAlign:'center', fontFamily:F.mono, fontSize:12, color:s.isPR?C.gold:C.textSub }}>
                 {s.weight&&s.reps ? calc1RM(+s.weight,+s.reps) : '—'}
-                {s.isPR&&<span style={{ marginLeft:4 }}>🏆</span>}
+                {s.isPR&&<span style={{ display:'inline-flex', marginLeft:4, verticalAlign:'middle' }}><Icon name="trophy" size={12} color={C.gold} /></span>}
               </div>
             </div>
           ))}
@@ -828,7 +829,7 @@ export default function WorkoutTab() {
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                     <div>
                       <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>
-                        {w.routineName}{hasPR&&<span style={{ marginLeft:6 }}>🏆</span>}
+                        {w.routineName}{hasPR&&<span style={{ display:'inline-flex', marginLeft:6, verticalAlign:'middle' }}><Icon name="trophy" size={14} color={C.gold} /></span>}
                       </div>
                       <div style={{ fontSize:12, color:C.textSub, marginTop:2 }}>{fmtDate(w.date)}</div>
                     </div>

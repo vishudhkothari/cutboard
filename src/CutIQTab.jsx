@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Area, ComposedChart } from 'recharts'
 import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
+import { Icon } from './lib/icons'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
   inferBodyComp, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
@@ -94,13 +95,13 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
       {/* ─── HERO: Projection ─── */}
       <div style={card({ background:`linear-gradient(165deg, #16111f 0%, #0d0b13 100%)`, border:`1px solid ${C.accent}33` })}>
         <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:16 }}>
-          <span style={{ fontSize:18 }}>🎯</span>
+          <Icon name="target" size={17} color={C.accent} style={{marginTop:1}} />
           <div style={{ fontFamily:F.head, fontWeight:800, fontSize:17 }}>Cut Intelligence</div>
         </div>
 
         {projection?.reached ? (
           <div style={{ textAlign:'center', padding:'20px 0' }}>
-            <div style={{ fontSize:40, marginBottom:8 }}>🏆</div>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:8 }}><Icon name="trophy" size={40} color={C.gold} /></div>
             <div style={{ fontFamily:F.head, fontWeight:800, fontSize:22, color:C.teal }}>Goal reached!</div>
           </div>
         ) : projection?.early ? (
@@ -170,7 +171,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
       {inMaintenance && (
         <div style={card({ borderLeft:`3px solid ${C.teal}` })}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10 }}>
-            <span style={{ fontSize:17 }}>🏁</span>
+            <Icon name="flag" size={16} color={C.teal} style={{marginTop:1}} />
             <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.teal }}>Cut complete — maintenance mode</div>
           </div>
           <div style={{ display:'grid', gap:7 }}>
@@ -192,7 +193,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
       {!inMaintenance && pace && (
         <div style={card({ borderLeft:`3px solid ${STATUS_COLOR[pace.status]||C.accent}` })}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:6 }}>
-            <span style={{ fontSize:17 }}>🧭</span>
+            <Icon name="compass" size={16} color={STATUS_COLOR[pace.status]||C.accent} style={{marginTop:1}} />
             <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:STATUS_COLOR[pace.status]||C.accent }}>{pace.headline}</div>
           </div>
 
@@ -215,7 +216,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
           {/* Zone 2 cardio prescription */}
           {pace.cardioRx && (
             <div style={{ marginTop:12, background:'rgba(167,139,250,0.08)', border:`1px solid ${C.purple}33`, borderRadius:12, padding:'13px 15px' }}>
-              <div style={{ fontFamily:F.head, fontWeight:700, fontSize:13, color:C.purple, marginBottom:8 }}>🚴 Zone 2 Prescription</div>
+              <div style={{ display:'inline-flex', alignItems:'center', gap:7, fontFamily:F.head, fontWeight:700, fontSize:13, color:C.purple, marginBottom:8 }}><Icon name="compass" size={14} color={C.purple} /> Zone 2 Prescription</div>
               {[
                 ['Dose', `${pace.cardioRx.sessions} (${pace.cardioRx.weeklyMin} min/week)`],
                 ['Intensity', pace.cardioRx.intensity],
@@ -354,7 +355,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
       {/* ─── Live TDEE estimate ─── */}
       {tdeeEst && (
         <div style={card()}>
-          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}>Live TDEE Estimate</div>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}><Icon name="beaker" size={16} color={C.accent} /> Live TDEE Estimate</div>
           {tdeeEst.spanDays < LEARN_DAYS ? (
             <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55 }}>
               Still learning — a data-driven TDEE needs about a week of logging before it's trustworthy. Until then, your targets use the proven formula estimate (BMR × activity), so they stay stable. <span style={{ color:C.textFaint }}>({tdeeEst.dataPoints} days logged so far.)</span>
