@@ -1317,8 +1317,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
         )}
       </div>
 
-      {/* Coach Panel */}
-      <div style={{ ...card(), gridColumn: '1/-1' }}>
+      {/* Coach Panel — pairs beside Vitals on desktop (full-width on mobile) */}
+      <div style={card()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <Icon name="sparkle" size={17} color={C.accent} />
           <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15 }}>Coach</div>
@@ -1917,47 +1917,31 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
           </ResponsiveContainer>
         ):<div style={{padding:'70px 0',textAlign:'center',color:C.textSub}}>Log your weight each day in the Today tab</div>}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 1fr',gap:16}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:mobile?10:16}}>
         <div style={card()}>
-          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>Sleep (hrs)</div>
+          <div style={{fontSize:12,color:C.textSub,fontWeight:600,marginBottom:10}}>Sleep</div>
           {sleepData.length>1?(
-            <ResponsiveContainer width="100%" height={170}>
-              <AreaChart data={sleepData} margin={{top:5,right:5,bottom:5,left:-20}}>
-                <defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="10%" stopColor={C.blue} stopOpacity={0.2}/><stop offset="95%" stopColor={C.blue} stopOpacity={0}/></linearGradient></defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
-                <XAxis dataKey="date" tick={{fill:C.textSub,fontSize:10}} tickLine={false} axisLine={false}/>
-                <YAxis domain={[4,10]} tick={{fill:C.textSub,fontSize:10}} tickLine={false} axisLine={false}/>
-                <Tooltip {...TT}/><ReferenceLine y={7} stroke={C.blue} strokeDasharray="4 4" opacity={0.5}/>
-                <Area type="monotone" dataKey="sleep" stroke={C.blue} fill="url(#sg)" strokeWidth={2} dot={{fill:C.blue,r:2,strokeWidth:0}} name="Sleep (hrs)"/>
+            <ResponsiveContainer width="100%" height={92}>
+              <AreaChart data={sleepData} margin={{top:4,right:2,bottom:0,left:2}}>
+                <defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.blue} stopOpacity={0.3}/><stop offset="100%" stopColor={C.blue} stopOpacity={0}/></linearGradient></defs>
+                <XAxis dataKey="date" hide/><YAxis domain={[4,10]} hide/>
+                <Tooltip {...TT}/>
+                <Area type="monotone" dataKey="sleep" stroke={C.blue} fill="url(#sg)" strokeWidth={2} dot={false} name="Sleep (hrs)"/>
               </AreaChart>
             </ResponsiveContainer>
-          ):<div style={{padding:'50px 0',textAlign:'center',color:C.textSub,fontSize:13}}>Log sleep in Today tab</div>}
+          ):<div style={{padding:'30px 0',textAlign:'center',color:C.textSub,fontSize:12}}>Log sleep</div>}
         </div>
         <div style={card()}>
-          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>Daily Steps</div>
+          <div style={{fontSize:12,color:C.textSub,fontWeight:600,marginBottom:10}}>Steps</div>
           {stepsData.length>1?(
-            <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={stepsData} margin={{top:5,right:5,bottom:5,left:-20}}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
-                <XAxis dataKey="date" tick={{fill:C.textSub,fontSize:10}} tickLine={false} axisLine={false}/>
-                <YAxis tick={{fill:C.textSub,fontSize:10}} tickLine={false} axisLine={false}/>
-                <Tooltip {...TT}/><ReferenceLine y={setup.stepGoal||10000} stroke={C.purple} strokeDasharray="4 4"/>
-                <Bar dataKey="steps" fill={C.purple} opacity={0.85} radius={[3,3,0,0]} name="Steps"/>
+            <ResponsiveContainer width="100%" height={92}>
+              <BarChart data={stepsData} margin={{top:4,right:2,bottom:0,left:2}}>
+                <XAxis dataKey="date" hide/><YAxis hide/>
+                <Tooltip {...TT}/>
+                <Bar dataKey="steps" fill={C.teal} opacity={0.85} radius={[2,2,0,0]} name="Steps"/>
               </BarChart>
             </ResponsiveContainer>
-          ):<div style={{padding:'50px 0',textAlign:'center',color:C.textSub,fontSize:13}}>Log steps in Today tab</div>}
-        </div>
-      </div>
-      <div style={card()}>
-        <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:16}}>7-Day Averages</div>
-        <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr':'repeat(2,1fr)',gap:16,textAlign:'center'}}>
-          {[{val:avgSleep,target:7,unit:'hrs',label:'Avg Sleep',color:C.blue},{val:avgSteps?Math.round(avgSteps/1000*10)/10:null,target:(setup.stepGoal||10000)/1000,unit:'k steps',label:'Avg Steps',color:C.purple}].map(({val,target,unit,label,color})=>(
-            <div key={label}>
-              <div style={{fontFamily:F.mono,fontSize:26,color}}>{val??'—'}{val!=null?` ${unit}`:''}</div>
-              <div style={{fontSize:12,color:C.textSub,marginTop:4}}>{label}</div>
-              {val!=null&&<div style={{fontSize:11,marginTop:6,color:val>=target?C.accent:C.orange}}>{val>=target?'✓ On track':`Target: ${target} ${unit}`}</div>}
-            </div>
-          ))}
+          ):<div style={{padding:'30px 0',textAlign:'center',color:C.textSub,fontSize:12}}>Log steps</div>}
         </div>
       </div>
       <ProgressPhotos/>
