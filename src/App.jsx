@@ -56,7 +56,7 @@ export function inclineWalkBurn(minutes, weightKg) {
   return Math.round((+minutes || 0) * (+weightKg || 0) * CARDIO_KCAL_PER_KG_MIN)
 }
 
-function getAdaptiveTDEE(setup, logs) {
+function getAdaptiveTDEE(setup, logs, planSettings = {}) {
   if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut', activeCut: false, cardioBurn: 0, cardioMin: 0, foodDeficit: 600, effMaint: 2400 }
   const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
   const curW  = wLogs.at(-1)?.weight ?? setup.startWeight
@@ -78,7 +78,15 @@ function getAdaptiveTDEE(setup, logs) {
   const daysLogged = datedLogs.length
   const spanDays = datedLogs.length ? daysBetween(datedLogs[0].date, todayStr()) + 1 : 0
   if (spanDays >= LEARN_DAYS && daysLogged >= 5) {
-    const est = estimateTDEE(logs)
+    // feed scheduled/manual fasts into the regression at their real intake
+    // (0 for a full fast, ~25% of target for compensation days)
+    const fastComp   = !!planSettings.fastCompensation
+    const approxTgt  = Math.max(bmr, formulaTDEE - (setup.activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
+    const est = estimateTDEE(logs, {
+      fastingDays: planSettings.fastingDays || [],
+      fastComp,
+      fastKcal: fastComp ? Math.round(approxTgt * 0.25) : 0,
+    })
     if (est && est.tdee > 0) {
       const lo = formulaTDEE * 0.85, hi = formulaTDEE * 1.15
       const clamped = Math.min(hi, Math.max(lo, est.tdee))   // never >15% off formula
@@ -2245,7 +2253,7 @@ export default function App() {
     }
   }
 
-  const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs), [setup, allLogs])
+  const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings), [setup, allLogs, planSettings])
   const streaks      = useMemo(() => getStreaks(allLogs), [allLogs])
 
   // Midnight rollover: if the app stays open past midnight while viewing
@@ -2318,7 +2326,7 @@ export default function App() {
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
         {tab==='workout'   && <WorkoutTab />}
-        {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} cutData={cutIntel} onSaveCutData={saveCutIntel}/>}
+        {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel}/>}
       </div>
     </div>
   )

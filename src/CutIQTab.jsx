@@ -23,7 +23,7 @@ const STRENGTH_OPTS = [
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
 ]
 
-export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSaveCutData }) {
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, cutData, onSaveCutData }) {
   // cutData = { anchor, strengthSignal, strengthWeek, cardioMin } — owned by
   // App (single source of truth: the anchor also drives Header/Progress)
   const mobile = useIsMobile()
@@ -35,7 +35,11 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, onSave
   // ── derived model outputs ──────────────────────────────────
   const trend       = useMemo(()=>trendWeight(allLogs), [allLogs])
   const trendNow    = useMemo(()=>currentTrendWeight(allLogs), [allLogs])
-  const tdeeEst     = useMemo(()=>estimateTDEE(allLogs), [allLogs])
+  const tdeeEst     = useMemo(()=>estimateTDEE(allLogs, {
+    fastingDays: planSettings?.fastingDays || [],
+    fastComp: !!planSettings?.fastCompensation,
+    fastKcal: planSettings?.fastCompensation ? Math.round((adaptiveTDEE?.target || 0) * 0.25) : 0,
+  }), [allLogs, planSettings, adaptiveTDEE])
   const weeksIntoCut= setup?.startDate ? Math.max(0,(Date.now()-new Date(setup.startDate+'T00:00:00'))/604800000) : 0
 
   const anchor = cutData?.anchor || (setup ? {

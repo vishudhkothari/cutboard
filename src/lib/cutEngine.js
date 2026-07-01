@@ -55,9 +55,16 @@ export function currentTrendWeight(logs) {
    ⇒ TDEE ≈ avgIntake − (trendWeightChangePerDay × 7700)
    (losing ⇒ ΔW negative ⇒ TDEE sits ABOVE intake)
    Uses a trailing window of CALENDAR days that have intake data.
-   A logged fasting day counts as a real 0-kcal intake day.
+
+   Fasting days are REAL low/zero-intake days and must feed the regression.
+   A day counts as fasting if it was MANUALLY fasted (l.fasting) OR it lands
+   on a scheduled fasting weekday and wasn't overridden. Scheduled fasts never
+   persist l.fasting=true, so treating only manual fasts as intake days dropped
+   the lowest-intake days from avgIntake and overestimated TDEE.
+
+   opts: { windowDays, fastingDays:[dow], fastComp:bool, fastKcal:number }
 ─────────────────────────────────────────────────────────────── */
-export function estimateTDEE(logs, windowDays = 18) {
+export function estimateTDEE(logs, { windowDays = 18, fastingDays = [], fastComp = false, fastKcal = 0 } = {}) {
   const sorted = logs
     .filter(l => l.date)
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -69,13 +76,21 @@ export function estimateTDEE(logs, windowDays = 18) {
   // window over a month when logging was sparse)
   const cutoff = _shiftDate(sorted[sorted.length - 1].date, -(windowDays - 1))
   const window = sorted.filter(l => l.date >= cutoff)
-  // days with intake signal: meals logged, OR a deliberate fast (0 kcal)
+
+  const _dow = d => new Date(d + 'T12:00:00').getDay()
+  const isFastDay = l => !!l.fasting || (fastingDays.includes(_dow(l.date)) && !l.fastingOverridden)
+  // per-day intake: a fast day ate ~0 (full) or ~25% (compensation); every
+  // other day is the sum of its logged meals
+  const dayIntake = l => isFastDay(l)
+    ? (fastComp ? fastKcal : 0)
+    : (l.meals || []).reduce((m, x) => m + (+x.cals || 0), 0)
+
+  // days with intake signal: meals logged, OR a (manual/scheduled) fast
   const withIntake = window.filter(l =>
-    (Array.isArray(l.meals) && l.meals.length > 0) || l.fasting)
+    (Array.isArray(l.meals) && l.meals.length > 0) || isFastDay(l))
   if (withIntake.length < 5) return null   // not enough signal yet
 
-  const avgIntake = withIntake.reduce((s, l) =>
-    s + (l.meals || []).reduce((m, x) => m + (+x.cals || 0), 0), 0) / withIntake.length
+  const avgIntake = withIntake.reduce((s, l) => s + dayIntake(l), 0) / withIntake.length
 
   // trend-weight delta across the window span
   const firstDate = window.find(l => trendMap[l.date] != null)?.date
