@@ -59,7 +59,11 @@ export function inclineWalkBurn(minutes, weightKg) {
 function getAdaptiveTDEE(setup, logs, planSettings = {}) {
   if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut', activeCut: false, cardioBurn: 0, cardioMin: 0, foodDeficit: 600, effMaint: 2400 }
   const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
-  const curW  = wLogs.at(-1)?.weight ?? setup.startWeight
+  // use the SMOOTHED trend weight, not the raw last weigh-in: a fasting day (or
+  // any water/glycogen swing) makes the latest scale reading jump, which would
+  // wobble BMR → maintenance → today's target. Trend absorbs that. Falls back
+  // to the raw reading, then the start weight, before any logs exist.
+  const curW  = currentTrendWeight(logs) ?? wLogs.at(-1)?.weight ?? setup.startWeight
   const mult  = ACTIVITY.find(a => a.id === setup.activity)?.mult ?? 1.45
   const bmr   = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex, setup.startBF))
   const formulaTDEE = Math.round(bmr * mult)
@@ -2201,16 +2205,40 @@ export default function App() {
   // persist a stale value). changeViewDate reads allLogs first, so an
   // unflushed write is never lost by navigating away.
   const logSaveTimers = useRef({})
+  const pendingLogs   = useRef({})   // date -> latest unsaved log payload
   const saveTodayLog = log => {
     const date = log.date || viewDate
     setTodayLog(log)
     setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?log:l); return [...prev,log].sort((a,b)=>a.date.localeCompare(b.date)) })
+    pendingLogs.current[date] = log
     clearTimeout(logSaveTimers.current[date])
     logSaveTimers.current[date] = setTimeout(() => {
       delete logSaveTimers.current[date]
+      delete pendingLogs.current[date]
       store.set(`log:${date}`, log)
     }, 600)
   }
+  // Flush any debounced writes when the tab is hidden/closed or App unmounts —
+  // otherwise a weigh-in entered <600ms before backgrounding the PWA is lost.
+  useEffect(() => {
+    const flush = () => {
+      for (const date of Object.keys(pendingLogs.current)) {
+        clearTimeout(logSaveTimers.current[date])
+        delete logSaveTimers.current[date]
+        const log = pendingLogs.current[date]
+        delete pendingLogs.current[date]
+        store.set(`log:${date}`, log)
+      }
+    }
+    const onVis = () => { if (document.visibilityState === 'hidden') flush() }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVis)
+      flush()
+    }
+  }, [])
   const saveCutIntel = async ci => { await store.set('cut_intel', ci); setCutIntel(ci) }
   const saveMealToHistory = async (meal) => {
     const key=meal.name.trim().toLowerCase()
