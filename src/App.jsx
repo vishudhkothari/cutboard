@@ -13,7 +13,7 @@ import CutIQTab from './CutIQTab'
 import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
-import { addMicros } from './lib/nutrientEngine'
+import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -1607,6 +1607,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = [], onSaveRecipes, customFoods = [] }) {
   const mobile = useIsMobile()
   const [builder, setBuilder] = useState(null)   // null | {recipe: r|null}
+  const [profileMeal, setProfileMeal] = useState(null)
   const saveRecipe = r => {
     const next = recipes.some(x => x.id === r.id) ? recipes.map(x => x.id === r.id ? r : x) : [...recipes, r]
     onSaveRecipes?.(next)
@@ -1681,6 +1682,25 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
           <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>{g.suggestions.slice(0,3).map(s=><span key={s.food.id} style={{fontSize:11,color:C.textSub,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:'5px 8px'}}>{s.food.name} · {s.serving}{s.food.unit} / +{s.nutrition.micros[g.id].toFixed(1)} {g.unit}</span>)}</div>
         </div>)}</div>
       </div>}
+      <div style={card()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>Food micronutrient profiles</div>
+          <span style={{fontFamily:F.mono,fontSize:11,color:C.textSub}}>{dayNutrition.mealsWithData} mapped</span>
+        </div>
+        <div style={{fontSize:12,color:C.textSub,lineHeight:1.45,marginBottom:12}}>Complete tracked-food profiles, scaled to the quantity you logged today.</div>
+        {dayNutrition.meals.length ? <div style={{display:'grid',gap:8}}>{dayNutrition.meals.map((meal,i)=>{
+          const open = profileMeal === i
+          return <div key={`${meal.name}-${i}`} style={{border:`1px solid ${open?C.accent:C.borderSoft}`,borderRadius:11,overflow:'hidden'}}>
+            <button onClick={()=>setProfileMeal(open?null:i)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,width:'100%',padding:'11px 12px',background:'rgba(255,255,255,0.02)',border:'none',color:C.text,fontFamily:F.body,cursor:'pointer',textAlign:'left'}}>
+              <span style={{fontSize:12.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{meal.name}</span>
+              <span style={{fontFamily:F.mono,fontSize:11,color:meal.micros?C.teal:C.textFaint,flexShrink:0}}>{meal.micros?'View profile':'Not mapped'} {open?'−':'+'}</span>
+            </button>
+            {open && <div style={{padding:'10px 12px',borderTop:`1px solid ${C.borderSoft}`}}>
+              {meal.micros ? <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr':'repeat(3,1fr)',gap:6}}>{NUTRIENTS.map(n=><div key={n.id} style={{display:'flex',justifyContent:'space-between',gap:6,background:'rgba(255,255,255,0.02)',borderRadius:7,padding:'6px 7px',fontSize:10.5}}><span style={{color:C.textSub}}>{n.label}</span><span style={{fontFamily:F.mono,color:C.text}}>{meal.micros[n.id] != null ? `${meal.micros[n.id]} ${n.unit}` : '—'}</span></div>)}</div> : <div style={{fontSize:12,color:C.textSub}}>This was entered manually or uses a food without a micronutrient profile. Edit it using the food database to track its full profile.</div>}
+            </div>}
+          </div>
+        })}</div> : <div style={{fontSize:12,color:C.textSub}}>No foods tracked today.</div>}
+      </div>
       <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 2fr',gap:16}}>
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:18}}>Today's Macros</div>

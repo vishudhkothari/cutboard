@@ -24,7 +24,13 @@ export function getDayMicronutrients(log, { foods = [], recipes = [], setup } = 
   const meals = (log?.meals || []).map(m => getLoggedMealNutrition(m, foodMap, recipeMap))
   const aggregate = aggregateMealNutrition(meals)
   const targets = getNutrientTargets(setup)
-  return { ...aggregate, comparison: compareMicros(aggregate.micros, targets), mealsWithData: meals.filter(m => m?.micros).length, totalMeals: meals.length }
+  return {
+    ...aggregate,
+    comparison: compareMicros(aggregate.micros, targets),
+    meals,
+    mealsWithData: meals.filter(m => m?.micros).length,
+    totalMeals: meals.length,
+  }
 }
 
 export function rankFoodSuggestions(gap, foods = [], { remainingCalories = Infinity, remainingFat = Infinity } = {}) {
