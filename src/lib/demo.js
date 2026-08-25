@@ -27,7 +27,7 @@ const TODAY_W = 73.5
 const TODAY_MEALS = [
   { name: 'Dal-rice-ghee bowl',     cals: 520, protein: 18, carbs: 78, fat: 14, fiber: 9 },
   { name: 'Whey + banana shake',    cals: 280, protein: 31, carbs: 30, fat: 4,  fiber: 3 },
-  { name: 'Chicken breast 200g',    cals: 330, protein: 40, carbs: 0,  fat: 7,  fiber: 0 },
+  { name: 'Soya chunks + tofu',     cals: 330, protein: 40, carbs: 18, fat: 7,  fiber: 4 },
   { name: 'Greek yogurt + berries', cals: 290, protein: 7,  carbs: 22, fat: 17, fiber: 10 },
 ]
 
@@ -82,7 +82,7 @@ const RECIPES = [
 const MEAL_HISTORY = [
   { name: 'Dal-rice-ghee bowl',     cals: 520, protein: 18, carbs: 78, fat: 14, fiber: 9,  count: 7, lastUsed: daysAgo(0) },
   { name: 'Whey + banana shake',    cals: 280, protein: 31, carbs: 30, fat: 4,  fiber: 3,  count: 6, lastUsed: daysAgo(0) },
-  { name: 'Chicken breast 200g',    cals: 330, protein: 40, carbs: 0,  fat: 7,  fiber: 0,  count: 5, lastUsed: daysAgo(1) },
+  { name: 'Soya chunks + tofu',     cals: 330, protein: 40, carbs: 18, fat: 7,  fiber: 4,  count: 5, lastUsed: daysAgo(1) },
   { name: 'Greek yogurt + berries', cals: 290, protein: 7,  carbs: 22, fat: 17, fiber: 10, count: 4, lastUsed: daysAgo(1) },
 ]
 

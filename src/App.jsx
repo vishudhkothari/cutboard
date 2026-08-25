@@ -12,6 +12,8 @@ import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
 import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
+import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
+import { addMicros } from './lib/nutrientEngine'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -849,7 +851,7 @@ function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClo
   const [amount, setAmount] = useState('')
   const [showCustom, setShowCustom] = useState(false)
   const [editingId, setEditingId] = useState(null)  // id of food being edited (null = new)
-  const [cf, setCf] = useState({ name:'', kcal:'', protein:'', carbs:'', fat:'', fiber:'', unit:'g' })
+  const [cf, setCf] = useState({ name:'', kcal:'', protein:'', carbs:'', fat:'', fiber:'', micros:'', unit:'g' })
 
   // custom foods override built-ins with the same id
   const overrides = Object.fromEntries(customFoods.map(f => [f.id, f]))
@@ -877,7 +879,7 @@ function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClo
   const editFood = (f, e) => {
     e.stopPropagation()
     setEditingId(f.id)
-    setCf({ name:f.name, kcal:String(f.kcal), protein:String(f.protein), carbs:String(f.carbs), fat:String(f.fat), fiber:String(f.fiber||0), unit:f.unit })
+    setCf({ name:f.name, kcal:String(f.kcal), protein:String(f.protein), carbs:String(f.carbs), fat:String(f.fat), fiber:String(f.fiber||0), micros:f.micros ? JSON.stringify(f.micros) : '', unit:f.unit })
     setShowCustom(true)
   }
 
@@ -895,15 +897,20 @@ function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClo
   const saveCustom = () => {
     if (!cf.name || !cf.kcal) return
     const orig = editingId ? allFoods.find(f => f.id === editingId) : null
+    let micros = undefined
+    if (cf.micros.trim()) {
+      try { micros = JSON.parse(cf.micros); if (!micros || typeof micros !== 'object' || Array.isArray(micros)) throw new Error('invalid') }
+      catch { alert('Micronutrients must be valid JSON, e.g. {"zinc_mg": 2.1}'); return }
+    }
     const food = {
       id: editingId || `custom_${Date.now()}`,
       name: cf.name.trim(),
       cat: orig?.cat || 'Custom',
       kcal:+cf.kcal, protein:+cf.protein||0, carbs:+cf.carbs||0, fat:+cf.fat||0, fiber:+cf.fiber||0,
-      unit:cf.unit, ...(orig?.perUnit ? { perUnit: orig.perUnit } : {}), custom:true
+      unit:cf.unit, ...(orig?.perUnit ? { perUnit: orig.perUnit } : {}), ...(micros ? { micros } : {}), custom:true
     }
     onAddCustom?.(food)
-    setShowCustom(false); setEditingId(null); setCf({ name:'', kcal:'', protein:'', carbs:'', fat:'', fiber:'', unit:'g' })
+    setShowCustom(false); setEditingId(null); setCf({ name:'', kcal:'', protein:'', carbs:'', fat:'', fiber:'', micros:'', unit:'g' })
     selectFood(food)
   }
 
@@ -934,6 +941,11 @@ function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClo
               {[{k:'kcal',l:`Calories per ${cf.unit==='g'||cf.unit==='ml'?'100'+cf.unit:cf.unit}`},{k:'protein',l:'Protein (g)'},{k:'carbs',l:'Carbs (g)'},{k:'fat',l:'Fat (g)'},{k:'fiber',l:'Fibre (g)'}].map(({k,l})=>(
                 <div key={k}><label style={LBL}>{l}</label><input style={inp()} type="number" inputMode="decimal" value={cf[k]} onChange={e=>setCf(p=>({...p,[k]:e.target.value}))} /></div>
               ))}
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <label style={LBL}>Micronutrients JSON (optional, per 100g/unit)</label>
+              <textarea style={inp({ minHeight:72, fontFamily:F.mono, fontSize:12 })} value={cf.micros} placeholder='{"zinc_mg": 2.1, "iron_mg": 4.2}' onChange={e=>setCf(p=>({...p,micros:e.target.value}))} />
+              <div style={{fontSize:10.5,color:C.textFaint,marginTop:5,lineHeight:1.4}}>Use the nutrient IDs shown in the nutrient coach. Blank means micronutrient data is unknown.</div>
             </div>
             <div style={{ display:'flex', gap:8 }}>
               <button style={btn(true,true)} onClick={saveCustom}>{editingId ? 'Save Changes' : 'Save to Database'}</button>
@@ -1042,11 +1054,11 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   }
   const totals = items.reduce((t, it) => {
     const m = itemMacros(it); if (!m) return t
-    return { cals: t.cals + m.cals, protein: t.protein + m.protein, carbs: t.carbs + m.carbs, fat: t.fat + m.fat, fiber: t.fiber + m.fiber }
-  }, { cals: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 })
+    return { cals: t.cals + m.cals, protein: t.protein + m.protein, carbs: t.carbs + m.carbs, fat: t.fat + m.fat, fiber: t.fiber + m.fiber, micros: addMicros(t.micros, m.micros) }
+  }, { cals: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, micros: {} })
   const sv  = Math.max(1, +servings || 1)
   const ps1 = x => Math.round(x / sv * 10) / 10
-  const perServing = { cals: Math.round(totals.cals / sv), protein: ps1(totals.protein), carbs: ps1(totals.carbs), fat: ps1(totals.fat), fiber: ps1(totals.fiber) }
+  const perServing = { cals: Math.round(totals.cals / sv), protein: ps1(totals.protein), carbs: ps1(totals.carbs), fat: ps1(totals.fat), fiber: ps1(totals.fiber), micros: Object.fromEntries(Object.entries(totals.micros).map(([k,v]) => [k, ps1(v)])) }
   const canSave = name.trim() && items.length > 0 && totals.cals > 0
 
   const save = () => {
@@ -1203,7 +1215,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }
   const quickAdd = (meal) => {
     const m = { name: meal.name, cals: +meal.cals, protein: +meal.protein||0, carbs: +meal.carbs||0, fat: +meal.fat||0, fiber: +meal.fiber||0,
-      ...(meal.foodId ? { foodId: meal.foodId, amount: meal.amount } : {}) }
+      ...(meal.foodId ? { foodId: meal.foodId, amount: meal.amount } : {}),
+      ...(meal.recipeId ? { recipeId: meal.recipeId, amount: meal.amount } : {}),
+      ...(meal.micros ? { micros: meal.micros } : {}) }
     const next = { ...local, meals: [...local.meals, m] }
     setLocal(next); onSave(next); onSaveMealHistory?.(m); buzz(12)
   }
@@ -1602,6 +1616,13 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
   const todayCals=Math.round(sum(m=>+m.cals)),todayP=sum(m=>+m.protein),todayC=sum(m=>+m.carbs),todayF=sum(m=>+m.fat),todayFib=sum(m=>+m.fiber)
   const regime = dayPlan.regime
   const macros = { calTarget: dayPlan.eatTarget, proteinG: dayPlan.proteinG, carbG: dayPlan.carbG, fatG: dayPlan.fatG, fiberG: dayPlan.fiberG }
+  const nutritionFoods = useMemo(() => {
+    const map = Object.fromEntries(FOOD_DB.map(f => [f.id, f]))
+    customFoods.forEach(f => { map[f.id] = f })
+    return Object.values(map)
+  }, [customFoods])
+  const dayNutrition = useMemo(() => getDayMicronutrients(log, { foods:nutritionFoods, recipes, setup }), [log, nutritionFoods, recipes, setup])
+  const nutrientCoach = useMemo(() => getNutritionCoach(dayNutrition, nutritionFoods, { remainingCalories:Math.max(0, macros.calTarget - todayCals), remainingFat:Math.max(0, macros.fatG - todayF) }), [dayNutrition, nutritionFoods, macros.calTarget, macros.fatG, todayCals, todayF])
   // real calendar windows; only days with intake signal (meals or a logged
   // fast) count toward averages — weight-only days would drag them to 0
   const cut7=addDaysStr(todayStr(),-6), cut14=addDaysStr(todayStr(),-13)
@@ -1635,6 +1656,31 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
           <div style={{fontSize:12,color:C.textSub,marginTop:9,lineHeight:1.4}}>{adherence.hit} of {adherence.total} logged days at or under target.{adherence.pct>=80?' Strong consistency.':''}</div>
         </div>
       )})()}
+      <div style={card({border:`1px solid ${C.teal}33`})}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+          <div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>Micronutrients</div>
+          <span style={{fontFamily:F.mono,fontSize:11,color:C.textSub}}>{dayNutrition.mealsWithData}/{dayNutrition.totalMeals} meals mapped</span>
+        </div>
+        <div style={{fontSize:12,color:C.textSub,lineHeight:1.45,marginBottom:14}}>Logged-food coverage only. This is an intake estimate, not a deficiency diagnosis.</div>
+        <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'repeat(2,1fr)',gap:'10px 18px'}}>
+          {dayNutrition.comparison.filter(n=>n.status!=='unknown').slice(0,12).map(n=>{
+            const color=n.status==='low'||n.status==='very_low'?C.orange:n.status==='high'?C.gold:C.teal
+            return <div key={n.id}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:11.5,marginBottom:5}}><span style={{color:C.textSub}}>{n.label}</span><span style={{fontFamily:F.mono,color}}>{n.percentage}%</span></div>
+              <div style={{height:5,background:C.borderSoft,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(n.percentage||0,100)}%`,background:color,borderRadius:3}} /></div>
+            </div>
+          })}
+        </div>
+        {!dayNutrition.comparison.some(n=>n.status!=='unknown') && <div style={{fontSize:12,color:C.textSub}}>Add foods from the database to start tracking micronutrients.</div>}
+      </div>
+      {nutrientCoach.length>0 && <div style={card({border:`1px solid ${C.orange}44`})}>
+        <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:5}}>Improve today</div>
+        <div style={{fontSize:12,color:C.textSub,lineHeight:1.45,marginBottom:12}}>These are food-log gaps. Choose an option that fits your remaining calories and macros.</div>
+        <div style={{display:'grid',gap:12}}>{nutrientCoach.map(g=><div key={g.id} style={{background:'rgba(255,255,255,0.02)',borderRadius:11,padding:'10px 12px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:7}}><strong style={{color:C.orange}}>{g.label}</strong><span style={{fontFamily:F.mono,color:C.textSub}}>{g.percentage}% of target</span></div>
+          <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>{g.suggestions.slice(0,3).map(s=><span key={s.food.id} style={{fontSize:11,color:C.textSub,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:'5px 8px'}}>{s.food.name} · {s.serving}{s.food.unit} / +{s.nutrition.micros[g.id].toFixed(1)} {g.unit}</span>)}</div>
+        </div>)}</div>
+      </div>}
       <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'1fr 2fr',gap:16}}>
         <div style={card()}>
           <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:18}}>Today's Macros</div>
@@ -2354,7 +2400,7 @@ export default function App() {
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
         {tab==='workout'   && <WorkoutTab />}
-        {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel}/>}
+        {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel} todayLog={todayLog} recipes={recipes} customFoods={customFoods}/>}
       </div>
     </div>
   )

@@ -24,6 +24,9 @@ export default [
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',   // Vite's automatic JSX runtime
       'react/prop-types': 'off',           // app doesn't use prop-types
+      // Existing UI copy intentionally contains ordinary apostrophes and
+      // quotation marks in JSX text; these are not runtime safety issues.
+      'react/no-unescaped-entities': 'off',
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },

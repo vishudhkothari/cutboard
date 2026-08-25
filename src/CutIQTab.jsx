@@ -6,6 +6,8 @@ import {
   trendWeight, currentTrendWeight, estimateTDEE,
   inferBodyComp, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
 } from './lib/cutEngine'
+import { FOOD_DB } from './lib/foodDB'
+import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 
 // date-only strings parse as UTC midnight in new Date() — pin to local noon
 const fmtD = d => d ? new Date(typeof d === 'string' ? d + 'T12:00:00' : d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
@@ -23,7 +25,7 @@ const STRENGTH_OPTS = [
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
 ]
 
-export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, cutData, onSaveCutData }) {
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, cutData, onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
   // cutData = { anchor, strengthSignal, strengthWeek, cardioMin } — owned by
   // App (single source of truth: the anchor also drives Header/Progress)
   const mobile = useIsMobile()
@@ -88,6 +90,13 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
   const checkInDue = cutData?.strengthWeek !== thisWeek
+  const nutritionFoods = useMemo(() => {
+    const map = Object.fromEntries(FOOD_DB.map(f => [f.id, f]))
+    customFoods.forEach(f => { map[f.id] = f })
+    return Object.values(map)
+  }, [customFoods])
+  const dayNutrition = useMemo(() => getDayMicronutrients(todayLog, { foods:nutritionFoods, recipes, setup }), [todayLog, nutritionFoods, recipes, setup])
+  const nutritionCoach = useMemo(() => getNutritionCoach(dayNutrition, nutritionFoods), [dayNutrition, nutritionFoods])
 
   if (!setup) return <div style={{ textAlign:'center', padding:'60px 0', color:C.textSub }}>Complete setup first</div>
 
@@ -164,6 +173,23 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
             Log weight daily for ~1 week to unlock your projection.
           </div>
         )}
+      </div>
+
+      {/* Nutrition quality is a supporting signal for the cut, not a medical diagnosis. */}
+      <div style={card({ borderLeft:`3px solid ${nutritionCoach.length ? C.orange : C.teal}` })}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+          <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>Nutrition sufficiency</div>
+          <span style={{ fontFamily:F.mono, fontSize:11, color:C.textSub }}>{dayNutrition.mealsWithData}/{dayNutrition.totalMeals} meals mapped</span>
+        </div>
+        <div style={{ fontSize:12, color:C.textSub, lineHeight:1.5, marginBottom:10 }}>
+          Cut IQ uses your logged food data to spot recurring gaps. Low intake is not the same as a clinical deficiency.
+        </div>
+        {nutritionCoach.length ? nutritionCoach.slice(0,3).map(g=>(
+          <div key={g.id} style={{ display:'flex', justifyContent:'space-between', gap:10, padding:'8px 0', borderTop:`1px solid ${C.borderSoft}`, fontSize:12 }}>
+            <span style={{ color:C.orange }}>{g.label} · {g.percentage}%</span>
+            <span style={{ color:C.textSub, textAlign:'right' }}>{g.suggestions[0]?.food.name || 'Add a mapped food'}</span>
+          </div>
+        )) : <div style={{ fontSize:12, color:C.teal }}>No tracked micronutrient gaps in today’s mapped foods.</div>}
       </div>
 
       {/* ─── COACH: maintenance mode after the cut window ─── */}
