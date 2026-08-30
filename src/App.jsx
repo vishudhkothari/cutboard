@@ -14,7 +14,7 @@ import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, esti
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
-import { estimateRFM, BODY_MEASUREMENTS, isSunday } from './lib/bodyFat'
+import { estimateRFM, BODY_MEASUREMENTS, isSunday, normalizeMeasurements } from './lib/bodyFat'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -1963,8 +1963,8 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
   const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
   const latestSunday = [...logs].filter(l => l.measurements && isSunday(l.date)).at(-1)
   const sundayLog = logs.find(l => l.date === sundayDate) || latestSunday
-  const [measurementForm, setMeasurementForm] = useState(() => sundayLog?.measurements || {})
-  useEffect(() => setMeasurementForm(sundayLog?.measurements || {}), [sundayLog?.date, sundayLog?.measurements])
+  const [measurementForm, setMeasurementForm] = useState(() => normalizeMeasurements(sundayLog?.measurements || {}))
+  useEffect(() => setMeasurementForm(normalizeMeasurements(sundayLog?.measurements || {})), [sundayLog?.date, sundayLog?.measurements])
   const latestWeight=logs.filter(l=>l.weight!=null).at(-1)?.weight??setup.startWeight
   // modeled BF from the Cut IQ engine (same number the Cut IQ tab shows)
   const latestBF=currentBF??setup.startBF
@@ -1976,7 +1976,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
   const weightData=logs.filter(l=>l.weight!=null).map(l=>({date:fmtDate(l.date),weight:l.weight,goal:+goalWeight.toFixed(1)}))
   const sleepData=logs.filter(l=>l.sleep!=null).map(l=>({date:fmtDate(l.date),sleep:l.sleep}))
   const stepsData=logs.filter(l=>l.steps!=null).map(l=>({date:fmtDate(l.date),steps:l.steps}))
-  const measuredBF = estimateRFM({ heightCm: setup.height, waistCm: measurementForm.waistCm, sex: setup.sex })
+  const measuredBF = estimateRFM({ heightCm: setup.height, waistIn: measurementForm.waistIn, sex: setup.sex })
   const updateMeasurement = (key, value) => {
     const nextMeasurements = { ...measurementForm, [key]: value === '' ? null : +value }
     setMeasurementForm(nextMeasurements)
@@ -2037,7 +2037,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
       </div>
       <div style={card({ borderLeft:`3px solid ${C.orange}` })}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:8}}>
-          <div><div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>Sunday body measurements</div><div style={{fontSize:11.5,color:C.textSub,marginTop:5,lineHeight:1.45}}>Measure relaxed, at the same time every Sunday. Units: cm.</div></div>
+          <div><div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>Sunday body measurements</div><div style={{fontSize:11.5,color:C.textSub,marginTop:5,lineHeight:1.45}}>Measure relaxed, at the same time every Sunday. Units: inches.</div></div>
           <span style={{fontFamily:F.mono,fontSize:11,color:C.textFaint,whiteSpace:'nowrap'}}>{fmtDate(sundayDate)}</span>
         </div>
         <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr':'repeat(3,1fr)',gap:10,marginTop:12}}>
