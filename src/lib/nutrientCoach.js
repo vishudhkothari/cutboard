@@ -1,15 +1,26 @@
-import { aggregateMealNutrition, compareMicros } from './nutrientEngine'
+import { addMicros, aggregateMealNutrition, compareMicros } from './nutrientEngine'
 import { computeFoodNutrition } from './foodDB'
 import { getNutrientTargets } from './nutrientTargets'
 
 const round = n => Math.round((+n || 0) * 10) / 10
 
 export function getLoggedMealNutrition(meal, foodMap = {}, recipeMap = {}) {
-  if (meal?.micros) return meal
   if (meal?.foodId && foodMap[meal.foodId] && meal.amount != null) {
     const computed = computeFoodNutrition(foodMap[meal.foodId], +meal.amount)
     return { ...meal, micros: computed.micros }
   }
+  if (meal?.recipeId && recipeMap[meal.recipeId]?.items?.length) {
+    const recipe = recipeMap[meal.recipeId]
+    const totals = recipe.items.reduce((sum, item) => {
+      const food = foodMap[item.foodId]
+      if (!food || item.amount == null) return sum
+      return addMicros(sum, computeFoodNutrition(food, +item.amount).micros)
+    }, {})
+    const factor = +meal.amount || 1
+    const servings = Math.max(1, +recipe.servings || 1)
+    return { ...meal, micros: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, round(v * factor / servings)])) }
+  }
+  if (meal?.micros) return meal
   if (meal?.recipeId && recipeMap[meal.recipeId]?.perServing?.micros) {
     const ps = recipeMap[meal.recipeId].perServing
     const factor = +meal.amount || 1

@@ -10,6 +10,7 @@
    perUnit: grams in one piece/scoop/etc (for non-gram units)
 ═══════════════════════════════════════════════════════════════ */
 import { scaleMicros } from './nutrientEngine'
+import vitaminProfiles from './vitaminProfiles.json'
 
 /* Priority vegetarian profiles per 100g edible/raw basis. Values are kept in
    the same shape as the food record so the database can be expanded without
@@ -164,7 +165,10 @@ const FOOD_DB_RAW = [
 
 export const FOOD_DB = FOOD_DB_RAW.map(food => ({
   ...food,
-  ...(MICRO_PROFILES[food.id] ? { micros: MICRO_PROFILES[food.id], microSource: 'reference-profile' } : {}),
+  ...(MICRO_PROFILES[food.id] || vitaminProfiles[food.id] ? {
+    micros: { ...(MICRO_PROFILES[food.id] || {}), ...(vitaminProfiles[food.id] || {}) },
+    microSource: 'reference-profile'
+  } : {}),
 }))
 
 export const FOOD_CATS = ['Dal','Grain','Bread','Protein','Veg','Fat','Fruit','Misc']

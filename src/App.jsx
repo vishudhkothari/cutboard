@@ -945,7 +945,7 @@ function FoodPicker({ customFoods = [], recipes = [], onPick, onAddCustom, onClo
             </div>
             <div style={{ marginBottom:16 }}>
               <label style={LBL}>Micronutrients JSON (optional, per 100g/unit)</label>
-              <textarea style={inp({ minHeight:72, fontFamily:F.mono, fontSize:12 })} value={cf.micros} placeholder='{"zinc_mg": 2.1, "iron_mg": 4.2}' onChange={e=>setCf(p=>({...p,micros:e.target.value}))} />
+              <textarea style={inp({ minHeight:72, fontFamily:F.mono, fontSize:12 })} value={cf.micros} placeholder='{"zinc_mg": 2.1, "iron_mg": 4.2, "pantothenic_acid_mg": 1.1, "biotin_ug": 10}' onChange={e=>setCf(p=>({...p,micros:e.target.value}))} />
               <div style={{fontSize:10.5,color:C.textFaint,marginTop:5,lineHeight:1.4}}>Use the nutrient IDs shown in the nutrient coach. Blank means micronutrient data is unknown.</div>
             </div>
             <div style={{ display:'flex', gap:8 }}>
@@ -1665,7 +1665,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
         </div>
         <div style={{fontSize:12,color:C.textSub,lineHeight:1.45,marginBottom:14}}>Logged-food coverage only. This is an intake estimate, not a deficiency diagnosis.</div>
         <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'repeat(2,1fr)',gap:'10px 18px'}}>
-          {dayNutrition.comparison.filter(n=>n.status!=='unknown').slice(0,12).map(n=>{
+          {dayNutrition.comparison.map(n=>{
             const color=n.status==='low'||n.status==='very_low'?C.orange:n.status==='high'?C.gold:C.teal
             return <div key={n.id}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:11.5,marginBottom:5}}><span style={{color:C.textSub}}>{n.label}</span><span style={{fontFamily:F.mono,color}}>{n.consumed == null ? '—' : `${n.consumed} ${n.unit}`}<span style={{color:C.textFaint}}> / {n.target == null ? '—' : `${n.target} ${n.unit}`} · {n.percentage == null ? '—' : `${n.percentage}%`}</span></span></div>
@@ -1673,7 +1673,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
             </div>
           })}
         </div>
-        {!dayNutrition.comparison.some(n=>n.status!=='unknown') && <div style={{fontSize:12,color:C.textSub}}>Add foods from the database to start tracking micronutrients.</div>}
+        {!dayNutrition.comparison.some(n=>n.status!=='unknown') && <div style={{fontSize:12,color:C.textSub}}>All nutrient values are currently unknown. Add a mapped food profile to start tracking them.</div>}
       </div>
       {nutrientCoach.length>0 && <div style={card({border:`1px solid ${C.orange}44`})}>
         <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:5}}>Improve today</div>

@@ -25,8 +25,10 @@ export const NUTRIENTS = [
   { id:'thiamin_mg',    label:'Thiamin (B1)',unit:'mg', group:'Vitamins' },
   { id:'riboflavin_mg', label:'Riboflavin (B2)', unit:'mg', group:'Vitamins' },
   { id:'niacin_mg',     label:'Niacin (B3)', unit:'mg', group:'Vitamins' },
+  { id:'pantothenic_acid_mg', label:'Pantothenic acid (B5)', unit:'mg', group:'Vitamins' },
   { id:'vitamin_b6_mg', label:'Vitamin B6',  unit:'mg', group:'Vitamins' },
-  { id:'folate_ug',     label:'Folate',      unit:'µg', group:'Vitamins' },
+  { id:'biotin_ug',     label:'Biotin (B7)', unit:'µg', group:'Vitamins' },
+  { id:'folate_ug',     label:'Folate (B9)', unit:'µg', group:'Vitamins' },
   { id:'vitamin_b12_ug',label:'Vitamin B12', unit:'µg', group:'Vitamins' },
   { id:'choline_mg',    label:'Choline',     unit:'mg', group:'Other' },
 ]
