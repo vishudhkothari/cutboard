@@ -14,6 +14,7 @@ import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, esti
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
+import { estimateRFM, BODY_MEASUREMENTS, isSunday } from './lib/bodyFat'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -1667,7 +1668,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
           {dayNutrition.comparison.filter(n=>n.status!=='unknown').slice(0,12).map(n=>{
             const color=n.status==='low'||n.status==='very_low'?C.orange:n.status==='high'?C.gold:C.teal
             return <div key={n.id}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:11.5,marginBottom:5}}><span style={{color:C.textSub}}>{n.label}</span><span style={{fontFamily:F.mono,color}}>{n.percentage}%</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:11.5,marginBottom:5}}><span style={{color:C.textSub}}>{n.label}</span><span style={{fontFamily:F.mono,color}}>{n.consumed == null ? '—' : `${n.consumed} ${n.unit}`}<span style={{color:C.textFaint}}> / {n.target == null ? '—' : `${n.target} ${n.unit}`} · {n.percentage == null ? '—' : `${n.percentage}%`}</span></span></div>
               <div style={{height:5,background:C.borderSoft,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(n.percentage||0,100)}%`,background:color,borderRadius:3}} /></div>
             </div>
           })}
@@ -1957,8 +1958,13 @@ function ProgressPhotos() {
 /* ═══════════════════════════════════════════════════════════════
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
-function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE }) {
+function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE, onSaveLog }) {
   const mobile = useIsMobile()
+  const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
+  const latestSunday = [...logs].filter(l => l.measurements && isSunday(l.date)).at(-1)
+  const sundayLog = logs.find(l => l.date === sundayDate) || latestSunday
+  const [measurementForm, setMeasurementForm] = useState(() => sundayLog?.measurements || {})
+  useEffect(() => setMeasurementForm(sundayLog?.measurements || {}), [sundayLog?.date, sundayLog?.measurements])
   const latestWeight=logs.filter(l=>l.weight!=null).at(-1)?.weight??setup.startWeight
   // modeled BF from the Cut IQ engine (same number the Cut IQ tab shows)
   const latestBF=currentBF??setup.startBF
@@ -1970,6 +1976,13 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
   const weightData=logs.filter(l=>l.weight!=null).map(l=>({date:fmtDate(l.date),weight:l.weight,goal:+goalWeight.toFixed(1)}))
   const sleepData=logs.filter(l=>l.sleep!=null).map(l=>({date:fmtDate(l.date),sleep:l.sleep}))
   const stepsData=logs.filter(l=>l.steps!=null).map(l=>({date:fmtDate(l.date),steps:l.steps}))
+  const measuredBF = estimateRFM({ heightCm: setup.height, waistCm: measurementForm.waistCm, sex: setup.sex })
+  const updateMeasurement = (key, value) => {
+    const nextMeasurements = { ...measurementForm, [key]: value === '' ? null : +value }
+    setMeasurementForm(nextMeasurements)
+    const base = sundayLog || { date:sundayDate, weight:null, sleep:null, sleepQuality:null, steps:null, inclineMin:null, meals:[], notes:'', fasting:false, fastingOverridden:false }
+    onSaveLog?.({ ...base, date:sundayDate, measurements:nextMeasurements })
+  }
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
       <WeeklyReview logs={logs} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE}/>
@@ -2021,6 +2034,20 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
             </ResponsiveContainer>
           ):<div style={{padding:'30px 0',textAlign:'center',color:C.textSub,fontSize:12}}>Log steps</div>}
         </div>
+      </div>
+      <div style={card({ borderLeft:`3px solid ${C.orange}` })}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:8}}>
+          <div><div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>Sunday body measurements</div><div style={{fontSize:11.5,color:C.textSub,marginTop:5,lineHeight:1.45}}>Measure relaxed, at the same time every Sunday. Units: cm.</div></div>
+          <span style={{fontFamily:F.mono,fontSize:11,color:C.textFaint,whiteSpace:'nowrap'}}>{fmtDate(sundayDate)}</span>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr':'repeat(3,1fr)',gap:10,marginTop:12}}>
+          {BODY_MEASUREMENTS.map(m => <label key={m.key} style={{fontSize:11,color:C.textSub}}>{m.label}<span style={{display:'block',fontSize:9.5,color:C.textFaint,margin:'2px 0 5px'}}>{m.hint}</span><input type="number" inputMode="decimal" step="0.1" min="1" value={measurementForm[m.key] ?? ''} onChange={e=>updateMeasurement(m.key,e.target.value)} placeholder="—" style={inp({padding:'8px 9px',fontFamily:F.mono})} /></label>)}
+        </div>
+        <div style={{marginTop:14,paddingTop:13,borderTop:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <div><div style={LBL}>Estimated body fat · RFM</div><div style={{fontSize:11,color:C.textFaint}}>Uses height, waist and sex; not a diagnosis.</div></div>
+          <div style={{fontFamily:F.mono,fontSize:24,fontWeight:700,color:measuredBF==null?C.textFaint:C.orange}}>{measuredBF == null ? '—' : `${measuredBF}%`}</div>
+        </div>
+        <div style={{fontSize:10.5,color:C.textFaint,marginTop:10,lineHeight:1.45}}>Arms, forearms, chest and neck are saved for weekly trend tracking. RFM does not claim they improve accuracy without a validated population-specific model.</div>
       </div>
       <ProgressPhotos/>
     </div>
@@ -2417,7 +2444,7 @@ export default function App() {
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
         {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
-        {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE}/>}
+        {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSaveLog={saveTodayLog}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
         {tab==='workout'   && <WorkoutTab />}
         {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel} todayLog={todayLog} recipes={recipes} customFoods={customFoods}/>}

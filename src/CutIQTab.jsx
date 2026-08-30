@@ -186,7 +186,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
         </div>
         {nutritionCoach.length ? nutritionCoach.slice(0,3).map(g=>(
           <div key={g.id} style={{ display:'flex', justifyContent:'space-between', gap:10, padding:'8px 0', borderTop:`1px solid ${C.borderSoft}`, fontSize:12 }}>
-            <span style={{ color:C.orange }}>{g.label} · {g.percentage}%</span>
+            <span style={{ color:C.orange }}>{g.label} · {g.consumed} {g.unit} / {g.target} {g.unit} · {g.percentage}%</span>
             <span style={{ color:C.textSub, textAlign:'right' }}>{g.suggestions[0]?.food.name || 'Add a mapped food'}</span>
           </div>
         )) : <div style={{ fontSize:12, color:C.teal }}>No tracked micronutrient gaps in today’s mapped foods.</div>}
