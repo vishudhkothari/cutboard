@@ -14,7 +14,7 @@ import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, esti
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
-import { estimateRFM, BODY_MEASUREMENTS, isSunday, normalizeMeasurements } from './lib/bodyFat'
+import { estimateNavy, BODY_MEASUREMENTS, isSunday, normalizeMeasurements } from './lib/bodyFat'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -1976,7 +1976,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
   const weightData=logs.filter(l=>l.weight!=null).map(l=>({date:fmtDate(l.date),weight:l.weight,goal:+goalWeight.toFixed(1)}))
   const sleepData=logs.filter(l=>l.sleep!=null).map(l=>({date:fmtDate(l.date),sleep:l.sleep}))
   const stepsData=logs.filter(l=>l.steps!=null).map(l=>({date:fmtDate(l.date),steps:l.steps}))
-  const measuredBF = estimateRFM({ heightCm: setup.height, waistIn: measurementForm.waistIn, sex: setup.sex })
+  const measuredBF = estimateNavy({ heightCm: setup.height, waistIn: measurementForm.waistIn, neckIn: measurementForm.neckIn, hipIn: measurementForm.hipIn, sex: setup.sex })
   const updateMeasurement = (key, value) => {
     const nextMeasurements = { ...measurementForm, [key]: value === '' ? null : +value }
     setMeasurementForm(nextMeasurements)
@@ -2041,13 +2041,13 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
           <span style={{fontFamily:F.mono,fontSize:11,color:C.textFaint,whiteSpace:'nowrap'}}>{fmtDate(sundayDate)}</span>
         </div>
         <div style={{display:'grid',gridTemplateColumns:mobile?'1fr 1fr':'repeat(3,1fr)',gap:10,marginTop:12}}>
-          {BODY_MEASUREMENTS.map(m => <label key={m.key} style={{fontSize:11,color:C.textSub}}>{m.label}<span style={{display:'block',fontSize:9.5,color:C.textFaint,margin:'2px 0 5px'}}>{m.hint}</span><input type="number" inputMode="decimal" step="0.1" min="1" value={measurementForm[m.key] ?? ''} onChange={e=>updateMeasurement(m.key,e.target.value)} placeholder="—" style={inp({padding:'8px 9px',fontFamily:F.mono})} /></label>)}
+          {BODY_MEASUREMENTS.filter(m => !m.femaleOnly || setup.sex === 'female').map(m => <label key={m.key} style={{fontSize:11,color:C.textSub}}>{m.label}<span style={{display:'block',fontSize:9.5,color:C.textFaint,margin:'2px 0 5px'}}>{m.hint}</span><input type="number" inputMode="decimal" step="0.1" min="1" value={measurementForm[m.key] ?? ''} onChange={e=>updateMeasurement(m.key,e.target.value)} placeholder="—" style={inp({padding:'8px 9px',fontFamily:F.mono})} /></label>)}
         </div>
         <div style={{marginTop:14,paddingTop:13,borderTop:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <div><div style={LBL}>Estimated body fat · RFM</div><div style={{fontSize:11,color:C.textFaint}}>Uses height, waist and sex; not a diagnosis.</div></div>
+          <div><div style={LBL}>Estimated body fat · Navy/DoD</div><div style={{fontSize:11,color:C.textFaint}}>Uses height, waist and neck{setup.sex === 'female' ? ', plus hip' : ''}; not a diagnosis.</div></div>
           <div style={{fontFamily:F.mono,fontSize:24,fontWeight:700,color:measuredBF==null?C.textFaint:C.orange}}>{measuredBF == null ? '—' : `${measuredBF}%`}</div>
         </div>
-        <div style={{fontSize:10.5,color:C.textFaint,marginTop:10,lineHeight:1.45}}>Arms, forearms, chest and neck are saved for weekly trend tracking. RFM does not claim they improve accuracy without a validated population-specific model.</div>
+        <div style={{fontSize:10.5,color:C.textFaint,marginTop:10,lineHeight:1.45}}>Arms, forearms and chest are saved for weekly trend tracking, but are intentionally excluded from this validated equation.</div>
       </div>
       <ProgressPhotos/>
     </div>
