@@ -1678,10 +1678,10 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
       {nutrientCoach.length>0 && <div style={card({border:`1px solid ${C.orange}44`})}>
         <div style={{fontFamily:F.head,fontWeight:700,fontSize:15,marginBottom:5}}>Improve today</div>
         <div style={{fontSize:12,color:C.textSub,lineHeight:1.45,marginBottom:12}}>These are food-log gaps. Choose an option that fits your remaining calories and macros.</div>
-        <div style={{display:'grid',gap:12}}>{nutrientCoach.map(g=><div key={g.id} style={{background:'rgba(255,255,255,0.02)',borderRadius:11,padding:'10px 12px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:7}}><strong style={{color:C.orange}}>{g.label}</strong><span style={{fontFamily:F.mono,color:C.textSub}}>{g.percentage}% of target</span></div>
+        <div style={{display:'grid',gap:8}}>{nutrientCoach.map(g=><details key={g.id} style={{background:'rgba(255,255,255,0.02)',borderRadius:11,overflow:'hidden'}}>
+          <summary style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,padding:'11px 12px',fontSize:12.5,cursor:'pointer',listStylePosition:'inside'}}><strong style={{color:C.orange}}>{g.label}</strong><span style={{fontFamily:F.mono,color:C.textSub}}>{g.percentage}% of target</span></summary>
           <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>{g.suggestions.slice(0,3).map(s=><span key={s.food.id} style={{fontSize:11,color:C.textSub,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:'5px 8px'}}>{s.food.name} · {s.serving}{s.food.unit} / +{s.nutrition.micros[g.id].toFixed(1)} {g.unit}</span>)}</div>
-        </div>)}</div>
+        </details>)}</div>
       </div>}
       <div style={card()}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
