@@ -267,6 +267,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
                   <span style={{ color:C.text }}>{v}</span>
                 </div>
               ))}
+              <button style={{ ...btn(true, true), marginTop:6 }} onClick={() => save({ ...(cutData || {}), cardioMin:pace.cardioRx.weeklyMin, cardioPlan:pace.cardioRx })}>
+                Apply cardio plan to Today
+              </button>
             </div>
           )}
 

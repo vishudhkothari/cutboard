@@ -364,7 +364,7 @@ export function paceController({
       const addMin = currentCardioMin === 0 ? 40 : currentCardioMin < 60 ? 60 : 90
       const sessions = addMin <= 40 ? '2×20 min' : addMin <= 60 ? '2×30 min' : '3×30 min'
       cardioRx = {
-        weeklyMin: addMin, sessions,
+        weeklyMin: addMin, sessions, sessionsPerWeek: addMin <= 60 ? 2 : 3, minutesPerSession: addMin <= 60 ? Math.round(addMin / 2) : 30,
         intensity: 'Zone 2 (can hold a conversation, ~60-70% max HR)',
         when: 'Rest days or AFTER lifting — never before leg day',
         what: 'Incline walk, cycling, or elliptical. Keep it boring and easy.',
@@ -419,8 +419,7 @@ export function paceController({
       status = 'lever_cardio'
       headline = 'Still stalled — add Zone 2 cardio'
       cardioRx = {
-        weeklyMin: addMin,
-        sessions,
+        weeklyMin: addMin, sessions, sessionsPerWeek: addMin <= 60 ? 2 : 3, minutesPerSession: addMin <= 60 ? Math.round(addMin / 2) : 30,
         intensity: 'Zone 2 (can hold a conversation, ~60-70% max HR)',
         when: 'Rest days or AFTER lifting — never before leg day',
         what: 'Incline walk, cycling, or elliptical. Keep it boring and easy.',

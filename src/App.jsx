@@ -1164,7 +1164,7 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
@@ -1202,6 +1202,16 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
     ? getDynamicStepGoal(setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, stepTarget)
     : { goal: setup?.stepGoal || 10000, extra: 0, reason: null },
   [setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, stepTarget, viewDate])
+  const zone2Sessions = Array.isArray(local.zone2Sessions) ? local.zone2Sessions : []
+  const zone2WeekStart = (() => {
+    const d = new Date(viewDate + 'T12:00:00')
+    return addDaysStr(viewDate, -d.getDay())
+  })()
+  const zone2WeekLogs = allLogs.map(l => l.date === local.date ? local : l).filter(l => l.date >= zone2WeekStart && l.date <= addDaysStr(zone2WeekStart, 6))
+  const zone2WeekCompleted = zone2WeekLogs.reduce((sum, l) => sum + (Array.isArray(l.zone2Sessions) ? l.zone2Sessions.length : 0), 0)
+  const zone2WeekMinutes = zone2WeekLogs.reduce((sum, l) => sum + (Array.isArray(l.zone2Sessions) ? l.zone2Sessions.reduce((total, minutes) => total + (+minutes || 0), 0) : 0), 0)
+  const addZone2Session = minutes => upd('zone2Sessions', [...zone2Sessions, minutes])
+  const removeZone2Session = () => zone2Sessions.length && upd('zone2Sessions', zone2Sessions.slice(0, -1))
 
   // ── ALL targets come from dayPlan (the single source of truth) ──
   const regime          = dayPlan.regime
@@ -1441,6 +1451,24 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           </div>
         )}
       </div>
+
+      {cardioPlan && (
+        <div style={card({ borderLeft:`3px solid ${C.purple}` })}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:6 }}>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15 }}>Zone 2 tracker</div>
+            <span style={{ fontFamily:F.mono, fontSize:12, color:C.purple }}>{zone2WeekCompleted}/{cardioPlan.sessionsPerWeek || 2} sessions</span>
+          </div>
+          <div style={{ fontSize:12, color:C.textSub, lineHeight:1.45, marginBottom:12 }}>
+            Weekly prescription: {cardioPlan.sessions} · {cardioPlan.weeklyMin} min total. Log each completed session on the day you do it.
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <button style={btn(true, true)} onClick={() => addZone2Session(cardioPlan.minutesPerSession || 20)}>+ Log {cardioPlan.minutesPerSession || 20} min session</button>
+            {zone2Sessions.length > 0 && <button style={btn(false, true)} onClick={removeZone2Session}>Undo today’s last session</button>}
+            <span style={{ fontFamily:F.mono, fontSize:11, color:C.textSub, marginLeft:'auto' }}>{zone2WeekMinutes}/{cardioPlan.weeklyMin} min this week</span>
+          </div>
+          {zone2Sessions.length > 0 && <div style={{ fontSize:11, color:C.teal, marginTop:10 }}>Today logged: {zone2Sessions.join(' + ')} min</div>}
+        </div>
+      )}
 
       {/* Meals */}
       <div ref={mealsRef} style={{...card(),gridColumn:'1/-1'}}>
@@ -2478,7 +2506,7 @@ export default function App() {
       <TabBar tab={tab} setTab={setTab}/>
       {/* keyed on tab so each switch replays the fade-up entrance */}
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
-        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} stepTarget={cutIntel?.stepGoal || setup.stepGoal} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} stepTarget={cutIntel?.stepGoal || setup.stepGoal} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={allLogs} setup={setup} planSettings={planSettings} zigzagSettings={zigzagSettings} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveLog={saveTodayLog}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
