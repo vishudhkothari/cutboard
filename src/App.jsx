@@ -59,14 +59,15 @@ export function inclineWalkBurn(minutes, weightKg) {
   return Math.round((+minutes || 0) * (+weightKg || 0) * CARDIO_KCAL_PER_KG_MIN)
 }
 
-function getAdaptiveTDEE(setup, logs, planSettings = {}) {
+function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) {
   if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut', activeCut: false, cardioBurn: 0, cardioMin: 0, foodDeficit: 600, effMaint: 2400 }
-  const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
+  const scopedLogs = logs.filter(l => l.date <= asOfDate)
+  const wLogs = scopedLogs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
   // use the SMOOTHED trend weight, not the raw last weigh-in: a fasting day (or
   // any water/glycogen swing) makes the latest scale reading jump, which would
   // wobble BMR → maintenance → today's target. Trend absorbs that. Falls back
   // to the raw reading, then the start weight, before any logs exist.
-  const curW  = currentTrendWeight(logs) ?? wLogs.at(-1)?.weight ?? setup.startWeight
+  const curW  = currentTrendWeight(scopedLogs) ?? wLogs.at(-1)?.weight ?? setup.startWeight
   const mult  = ACTIVITY.find(a => a.id === setup.activity)?.mult ?? 1.45
   const bmr   = Math.round(calcBMR(curW, setup.height, setup.age, setup.sex, setup.startBF))
   const formulaTDEE = Math.round(bmr * mult)
@@ -81,15 +82,15 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}) {
   // LEARN_DAYS gate is a WATER-CLEARANCE clock — measure calendar days since
   // the first log, not how many entries exist (sparse logs aren't faster
   // physiology). The ±15% clamp + BMR floor keep an early, noisier estimate safe.
-  const datedLogs = logs.filter(l => l.weight != null || (l.meals && l.meals.length) || l.fasting)
+  const datedLogs = scopedLogs.filter(l => l.weight != null || (l.meals && l.meals.length) || l.fasting)
   const daysLogged = datedLogs.length
-  const spanDays = datedLogs.length ? daysBetween(datedLogs[0].date, todayStr()) + 1 : 0
+  const spanDays = datedLogs.length ? daysBetween(datedLogs[0].date, asOfDate) + 1 : 0
   if (spanDays >= LEARN_DAYS && daysLogged >= 5) {
     // feed scheduled/manual fasts into the regression at their real intake
     // (0 for a full fast, ~25% of target for compensation days)
     const fastComp   = !!planSettings.fastCompensation
     const approxTgt  = Math.max(bmr, formulaTDEE - (setup.activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
-    const est = estimateTDEE(logs, {
+    const est = estimateTDEE(scopedLogs, {
       fastingDays: planSettings.fastingDays || [],
       fastComp,
       fastKcal: fastComp ? Math.round(approxTgt * 0.25) : 0,
@@ -104,7 +105,7 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}) {
 
   // ── Phase: cutting until cutLength days, then maintenance ──
   const cutLen = setup.cutLength || 60
-  const dayN   = setup.startDate ? daysBetween(setup.startDate, todayStr()) + 1 : 1
+  const dayN   = setup.startDate ? Math.max(1, daysBetween(setup.startDate, asOfDate) + 1) : 1
   const phase  = dayN > cutLen ? 'maintenance' : 'cut'
 
   // ── ACTIVE CUT (energy-flux path, per-user) ──
@@ -137,6 +138,22 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}) {
   }
   const target = Math.max(bmr, Math.round(effMaint - stdDeficit))
   return { target, base, adj: 0, curW, deficit: effMaint - target, isDataDriven, bmr, phase, ...extra }
+}
+
+function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSettings = {} }) {
+  const tdee = getAdaptiveTDEE(setup, logs, planSettings, date)
+  return buildDayPlan({
+    baseTarget: tdee.target,
+    maintenance: tdee.effMaint ?? tdee.base,
+    floor: tdee.bmr,
+    regime: zigzagSettings.on ? 'zigzag' : 'steady',
+    zigzag: { schedule: zigzagSettings.schedule || 1, mode: zigzagSettings.mode || 'weight' },
+    fastingDays: planSettings.fastingDays || [],
+    fastComp: !!planSettings.fastCompensation,
+    manualFastToday: !!log?.fasting,
+    overriddenToday: !!log?.fastingOverridden,
+    dateObj: new Date(date + 'T12:00:00'),
+  })
 }
 
 /* ─── ZIGZAG CALORIE CYCLING ─────────────────────────────────────
@@ -1185,7 +1202,10 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }, [customFoods])
   const recipeById = useMemo(() => Object.fromEntries(recipes.map(r => [r.id, r])), [recipes])
 
-  const stepData  = useMemo(() => getDynamicStepGoal(setup, allLogs, adaptiveTDEE, dayPlan), [setup, allLogs, adaptiveTDEE, dayPlan])
+  const stepData  = useMemo(() => viewDate === todayStr()
+    ? getDynamicStepGoal(setup, allLogs, adaptiveTDEE, dayPlan)
+    : { goal: setup?.stepGoal || 10000, extra: 0, reason: null },
+  [setup, allLogs, adaptiveTDEE, dayPlan, viewDate])
 
   // ── ALL targets come from dayPlan (the single source of truth) ──
   const regime          = dayPlan.regime
@@ -1605,7 +1625,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 /* ═══════════════════════════════════════════════════════════════
    NUTRITION TAB
 ═══════════════════════════════════════════════════════════════ */
-function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = [], onSaveRecipes, customFoods = [] }) {
+function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, planSettings = {}, zigzagSettings = {}, recipes = [], onSaveRecipes, customFoods = [] }) {
   const mobile = useIsMobile()
   const [builder, setBuilder] = useState(null)   // null | {recipe: r|null}
   const [profileMeal, setProfileMeal] = useState(null)
@@ -1637,7 +1657,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
   const adherence=(()=>{
     const days=allLogs.filter(l=>l.date>=cut14&&((l.meals&&l.meals.length)||l.fasting))
     if(days.length<3)return null
-    const targetFor=l=>{const wk=dayPlan?.week?.[new Date(l.date+'T12:00:00').getDay()];if(!wk)return dayPlan.baseTarget;return wk.isFast&&l.fastingOverridden?wk.baseEat:wk.eat}
+    const targetFor=l=>l.planSnapshot?.eatTarget ?? getPlanForDate({ date:l.date, log:l, setup, logs:allLogs, planSettings, zigzagSettings }).eatTarget
     const hit=days.filter(l=>(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)<=targetFor(l)+75).length
     return {pct:Math.round(hit/days.length*100),hit,total:days.length}
   })()
@@ -1777,7 +1797,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
 /* ═══════════════════════════════════════════════════════════════
    WEEKLY REVIEW — auto digest of the last 7 full days
 ═══════════════════════════════════════════════════════════════ */
-function WeeklyReview({ logs, dayPlan, adaptiveTDEE }) {
+function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, zigzagSettings = {} }) {
   const end   = addDaysStr(todayStr(), -1)
   const start = addDaysStr(end, -6)
   const week  = logs.filter(l => l.date >= start && l.date <= end)
@@ -1790,11 +1810,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE }) {
   const deltaKg = tEnd && tStart && tEnd.date !== tStart.date ? Math.round((tEnd.trend - tStart.trend) * 100) / 100 : null
 
   const dayCals = l => (l.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
-  const targetFor = l => {
-    const wk = dayPlan?.week?.[new Date(l.date + 'T12:00:00').getDay()]
-    if (!wk) return adaptiveTDEE.target
-    return wk.isFast && l.fastingOverridden ? wk.baseEat : wk.eat
-  }
+  const targetFor = l => l.planSnapshot?.eatTarget ?? getPlanForDate({ date:l.date, log:l, setup, logs, planSettings, zigzagSettings }).eatTarget
   const onTarget   = intakeDays.filter(l => dayCals(l) <= targetFor(l) + 75).length
   const avgIntake  = Math.round(intakeDays.reduce((s, l) => s + dayCals(l), 0) / intakeDays.length)
   const protDays   = intakeDays.filter(l => l.meals && l.meals.length)
@@ -1958,7 +1974,7 @@ function ProgressPhotos() {
 /* ═══════════════════════════════════════════════════════════════
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
-function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE, onSaveLog }) {
+function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE, planSettings = {}, zigzagSettings = {}, onSaveLog }) {
   const mobile = useIsMobile()
   const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
   const latestSunday = [...logs].filter(l => l.measurements && isSunday(l.date)).at(-1)
@@ -1985,7 +2001,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
   }
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
-      <WeeklyReview logs={logs} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE}/>
+      <WeeklyReview logs={logs} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} setup={setup} planSettings={planSettings} zigzagSettings={zigzagSettings}/>
       <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
         {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:`${latestBF}`,unit:'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
@@ -2301,9 +2317,25 @@ export default function App() {
   const pendingLogs   = useRef({})   // date -> latest unsaved log payload
   const saveTodayLog = log => {
     const date = log.date || viewDate
-    setTodayLog(log)
-    setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?log:l); return [...prev,log].sort((a,b)=>a.date.localeCompare(b.date)) })
-    pendingLogs.current[date] = log
+    const previous = allLogs.find(l => l.date === date)
+    const fastChanged = previous && (previous.fasting !== log.fasting || previous.fastingOverridden !== log.fastingOverridden)
+    let nextLog = log
+    if (!log.planSnapshot || fastChanged) {
+      const plan = getPlanForDate({ date, log, setup, logs:allLogs, planSettings, zigzagSettings })
+      const tdee = getAdaptiveTDEE(setup, allLogs, planSettings, date)
+      nextLog = {
+        ...log,
+        planSnapshot: {
+          target:tdee.target, base:tdee.base, bmr:tdee.bmr,
+          effMaint:tdee.effMaint ?? tdee.base, activeCut:tdee.activeCut,
+          cardioBurn:tdee.cardioBurn, cardioMin:tdee.cardioMin,
+          phase:tdee.phase, eatTarget:plan.eatTarget, deficit:plan.deficit,
+        },
+      }
+    }
+    setTodayLog(nextLog)
+    setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?nextLog:l); return [...prev,nextLog].sort((a,b)=>a.date.localeCompare(b.date)) })
+    pendingLogs.current[date] = nextLog
     clearTimeout(logSaveTimers.current[date])
     logSaveTimers.current[date] = setTimeout(() => {
       delete logSaveTimers.current[date]
@@ -2375,6 +2407,9 @@ export default function App() {
   }
 
   const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings), [setup, allLogs, planSettings])
+  // Historical views must use the model state available on that date. A saved
+  // snapshot is preferred because it preserves the exact target shown then.
+  const historicalTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings, viewDate), [setup, allLogs, planSettings, viewDate])
   const streaks      = useMemo(() => getStreaks(allLogs), [allLogs])
 
   // Midnight rollover: if the app stays open past midnight while viewing
@@ -2420,11 +2455,13 @@ export default function App() {
   const daysLeft     = Math.max(0, cutLength - dayCount)
 
   // ★ THE SINGLE SOURCE OF TRUTH — computed once, passed read-only everywhere ★
-  const dayPlan = buildDayPlan({
-    baseTarget:   adaptiveTDEE.target,
+  const savedPlan = todayLog.planSnapshot
+  const dayTDEE = savedPlan ? { ...historicalTDEE, ...savedPlan } : historicalTDEE
+  const computedDayPlan = buildDayPlan({
+    baseTarget:   dayTDEE.target,
     // cardio-inclusive maintenance so the displayed deficit = the TOTAL deficit
-    maintenance:  adaptiveTDEE.effMaint ?? adaptiveTDEE.base,
-    floor:        adaptiveTDEE.bmr,
+    maintenance:  dayTDEE.effMaint ?? dayTDEE.base,
+    floor:        dayTDEE.bmr,
     regime:       zigzagSettings?.on ? 'zigzag' : 'steady',
     zigzag:       { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
     fastingDays:  planSettings?.fastingDays || [],
@@ -2433,6 +2470,9 @@ export default function App() {
     overriddenToday: !!todayLog.fastingOverridden,
     dateObj:      new Date(viewDate + 'T12:00:00'),
   })
+  const dayPlan = savedPlan?.eatTarget != null
+    ? { ...computedDayPlan, ...macrosFromCalories(savedPlan.eatTarget), eatTarget:savedPlan.eatTarget, deficit:savedPlan.deficit ?? computedDayPlan.deficit }
+    : computedDayPlan
 
   return (
     <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #14101e 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,
@@ -2442,9 +2482,9 @@ export default function App() {
       <TabBar tab={tab} setTab={setTab}/>
       {/* keyed on tab so each switch replays the fade-up entrance */}
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
-        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
-        {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} allLogs={allLogs} setup={setup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
-        {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSaveLog={saveTodayLog}/>}
+        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={allLogs} setup={setup} planSettings={planSettings} zigzagSettings={zigzagSettings} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
+        {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveLog={saveTodayLog}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
         {tab==='workout'   && <WorkoutTab />}
         {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel} todayLog={todayLog} recipes={recipes} customFoods={customFoods}/>}

@@ -505,11 +505,11 @@ const _ZZ_PATTERN = {
 /* weekly zigzag distribution (Sun–Sat) as eat-targets around `target`.
    The pattern is auto-centered so the 7-day mean equals `target` exactly,
    keeping the weekly deficit identical to steady mode. */
-export function zigzagWeek(target, schedule = 1, intensity = 'weight', floor = MIN_CALS) {
+export function zigzagWeek(target, schedule = 1, intensity = 'weight', floor = MIN_CALS, dateObj = new Date()) {
   const ampScale = intensity === 'mild' ? 0.6 : intensity === 'extreme' ? 1.5 : 1
   const pattern = _ZZ_PATTERN[schedule] || _ZZ_PATTERN[1]
   const patMean = pattern.reduce((s, x) => s + x, 0) / 7   // center the pattern
-  const todayDow = new Date().getDay()
+  const todayDow = dateObj.getDay()
   return _DAYS.map((name, dow) => {
     const pct = (pattern[dow] - patMean) * ampScale
     const cals = Math.max(floor, Math.round(target * (1 + pct)))
@@ -574,7 +574,7 @@ export function buildDayPlan({
   // the cut TARGET (mean === target), and never drops below the floor.
   let weekEat            // array[7] of kcal to eat each weekday (pre-fasting)
   if (regime === 'zigzag') {
-    const raw = zigzagWeek(baseTarget, zigzag.schedule, zigzag.mode, floorCals)
+    const raw = zigzagWeek(baseTarget, zigzag.schedule, zigzag.mode, floorCals, dateObj)
     weekEat = raw.map(d => d.cals)
   } else {
     const flat = Math.max(floorCals, Math.round(baseTarget))
