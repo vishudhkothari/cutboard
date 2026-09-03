@@ -16,7 +16,7 @@ const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth()
 const STATUS_COLOR = {
   on_track:C.teal, lever_steps:C.blue, lever_cardio:C.purple, lever_calories:C.orange,
   too_fast:C.orange, muscle_risk:C.red, too_slow:C.gold, learning:C.textSub,
-  gaining:C.red, reached:C.teal,
+  gaining:C.red, reached:C.teal, movement_adherence:C.orange, movement_hold:C.textSub,
 }
 const STRENGTH_OPTS = [
   { id:'up',          label:'Up',           desc:'Lifts climbing' },
@@ -57,6 +57,25 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   const curWeight = trendNow ?? setup?.startWeight
   const baselineSteps = setup?.stepGoal || 10000
   const currentSteps = cutData?.stepGoal || baselineSteps
+  const recentMovement = useMemo(() => {
+    const end = localDateStr()
+    const startDate = new Date(end + 'T12:00:00')
+    startDate.setDate(startDate.getDate() - 6)
+    const start = localDateStr(startDate)
+    const logs = allLogs.filter(l => l.date >= start && l.date <= end && Number.isFinite(+l.steps) && +l.steps >= 0)
+    return { days:logs.length, average:logs.length ? logs.reduce((sum,l) => sum + +l.steps, 0) / logs.length : null }
+  }, [allLogs])
+  const zone2Progress = useMemo(() => {
+    const now = new Date()
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+    const start = localDateStr(weekStart)
+    const sessions = allLogs.filter(l => l.date >= start && l.date <= localDateStr() && Array.isArray(l.zone2Sessions))
+      .reduce((sum,l) => sum + l.zone2Sessions.filter(s => +s.minutes > 0).length, 0)
+    const plan = cutData?.cardioPlan
+    return { sessions, required:plan?.sessionsPerWeek || 0 }
+  }, [allLogs, cutData?.cardioPlan])
+  const stepGoalChangedAt = cutData?.stepGoalChangedAt
+  const stepAdjustmentEligible = !stepGoalChangedAt || Math.floor((Date.now() - new Date(stepGoalChangedAt + 'T12:00:00')) / 86400000) >= 7
 
   const projection = useMemo(()=> setup && leanMass && currentBF ? projectGoal({
     logs:allLogs, currentBF, goalBF:setup.goalBF, currentWeight:curWeight, leanMass
@@ -83,7 +102,12 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
     strengthSignal: cutData?.strengthSignal,
     dataDays: dataSpanDays,
     hasRate: !!tdeeEst,
-  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays, currentSteps, baselineSteps])
+    recentAvgSteps: recentMovement.average,
+    recentStepDays: recentMovement.days,
+    zone2CompletedSessions: zone2Progress.sessions,
+    requiredZone2Sessions: zone2Progress.required,
+    stepAdjustmentEligible,
+  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays, currentSteps, baselineSteps, recentMovement, zone2Progress, stepAdjustmentEligible])
 
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
   const refeed = useMemo(() => !inMaintenance ? suggestRefeed({
@@ -246,7 +270,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
               <span style={{ fontSize:12, color:C.textSub }}>
                 Dynamic step target: <strong style={{ color:C.text }}>{pace.recommendedSteps.toLocaleString()}/day</strong>
               </span>
-              <button style={btn(true, true)} onClick={() => save({ ...(cutData || {}), stepGoal:pace.recommendedSteps })}>
+              <button style={btn(true, true)} onClick={() => save({ ...(cutData || {}), stepGoal:pace.recommendedSteps, stepGoalChangedAt:localDateStr() })}>
                 Apply step target
               </button>
             </div>

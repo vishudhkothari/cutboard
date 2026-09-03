@@ -156,6 +156,18 @@ function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSetti
   })
 }
 
+function createPlanSnapshot({ date, log, setup, logs, planSettings = {}, zigzagSettings = {}, source = 'captured' }) {
+  const tdee = getAdaptiveTDEE(setup, logs, planSettings, date)
+  const plan = getPlanForDate({ date, log, setup, logs, planSettings, zigzagSettings })
+  return {
+    target:tdee.target, base:tdee.base, bmr:tdee.bmr,
+    effMaint:tdee.effMaint ?? tdee.base, activeCut:tdee.activeCut,
+    cardioBurn:tdee.cardioBurn, cardioMin:tdee.cardioMin,
+    phase:tdee.phase, eatTarget:plan.eatTarget, deficit:plan.deficit,
+    source,
+  }
+}
+
 /* ─── ZIGZAG CALORIE CYCLING ─────────────────────────────────────
    Zigzag is a bounded % SWING around the daily cut target — the weekly
    deficit is IDENTICAL to Steady mode in every intensity. Intensity only
@@ -2291,14 +2303,31 @@ export default function App() {
     setDataReady(false)
     const s = await store.get('setup'); setSetup(s)
     if (s) {
-      const td   = await store.get(`log:${todayStr()}`); setTodayLog(td || emptyLog())
-      setAllLogs(await loadLogs())
-      setCutIntel(await store.get('cut_intel') || { anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
-      setMealHistory(await store.get('meal_history') || [])
-      setCustomFoods(await store.getSharedFoods() || [])
-      setRecipes(await store.get('recipes') || [])
-      setPlanSettings(await store.get('plan_settings') || { fastingDays:[], fastCompensation:false })
-      setZigzagSettings(await store.get('zigzag_settings') || { on:false, schedule:1, mode:'weight' })
+      const [td, rawLogs, ci, mh, cf, rs, ps, zs] = await Promise.all([
+        store.get(`log:${todayStr()}`), loadLogs(), store.get('cut_intel'),
+        store.get('meal_history'), store.getSharedFoods(), store.get('recipes'),
+        store.get('plan_settings'), store.get('zigzag_settings'),
+      ])
+      const loadedPlanSettings = ps || { fastingDays:[], fastCompensation:false }
+      const loadedZigzagSettings = zs || { on:false, schedule:1, mode:'weight' }
+      const hydratedLogs = rawLogs.map(log => log.planSnapshot ? log : {
+        ...log,
+        planSnapshot: createPlanSnapshot({ date:log.date, log, setup:s, logs:rawLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, source:'reconstructed' }),
+      })
+      const todayLoaded = hydratedLogs.find(log => log.date === todayStr()) || (td ? {
+        ...td,
+        planSnapshot: td.planSnapshot || createPlanSnapshot({ date:todayStr(), log:td, setup:s, logs:rawLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, source:'reconstructed' }),
+      } : emptyLog())
+      setTodayLog(todayLoaded)
+      setAllLogs(hydratedLogs)
+      setCutIntel(ci || { anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
+      setMealHistory(mh || [])
+      setCustomFoods(cf || [])
+      setRecipes(rs || [])
+      setPlanSettings(loadedPlanSettings)
+      setZigzagSettings(loadedZigzagSettings)
+      const legacyLogs = hydratedLogs.filter((log, index) => !rawLogs[index].planSnapshot)
+      if (legacyLogs.length) await Promise.all(legacyLogs.map(log => store.set(`log:${log.date}`, log)))
     }
     setDataReady(true)
   }, [])
@@ -2326,10 +2355,14 @@ export default function App() {
   // Navigate to a specific day (won't go past today)
   const changeViewDate = async (dateStr) => {
     if (dateStr > todayStr()) return
+    const requestId = (viewRequestRef.current += 1)
     setViewDate(dateStr)
+    const pending = pendingLogs.current[dateStr]
+    if (pending) { setTodayLog(pending); return }
     const existing = allLogs.find(l => l.date === dateStr)
     if (existing) { setTodayLog(existing); return }
     const fromStore = await store.get(`log:${dateStr}`)
+    if (requestId !== viewRequestRef.current) return
     setTodayLog(fromStore || emptyLog(dateStr))
   }
 
@@ -2339,22 +2372,25 @@ export default function App() {
   // unflushed write is never lost by navigating away.
   const logSaveTimers = useRef({})
   const pendingLogs   = useRef({})   // date -> latest unsaved log payload
+  const viewRequestRef = useRef(0)
+  const persistLog = useCallback(async (date, payload, attempt = 0) => {
+    const saved = await store.set(`log:${date}`, payload)
+    if (saved || attempt >= 3) {
+      if (!saved) console.error(`Unable to save log:${date} after ${attempt + 1} attempts`)
+      return saved
+    }
+    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+    return persistLog(date, pendingLogs.current[date] || payload, attempt + 1)
+  }, [])
   const saveTodayLog = log => {
     const date = log.date || viewDate
     const previous = allLogs.find(l => l.date === date)
     const fastChanged = previous && (previous.fasting !== log.fasting || previous.fastingOverridden !== log.fastingOverridden)
     let nextLog = log
     if (!log.planSnapshot || fastChanged) {
-      const plan = getPlanForDate({ date, log, setup, logs:allLogs, planSettings, zigzagSettings })
-      const tdee = getAdaptiveTDEE(setup, allLogs, planSettings, date)
       nextLog = {
         ...log,
-        planSnapshot: {
-          target:tdee.target, base:tdee.base, bmr:tdee.bmr,
-          effMaint:tdee.effMaint ?? tdee.base, activeCut:tdee.activeCut,
-          cardioBurn:tdee.cardioBurn, cardioMin:tdee.cardioMin,
-          phase:tdee.phase, eatTarget:plan.eatTarget, deficit:plan.deficit,
-        },
+        planSnapshot: createPlanSnapshot({ date, log, setup, logs:allLogs, planSettings, zigzagSettings }),
       }
     }
     setTodayLog(nextLog)
@@ -2363,8 +2399,9 @@ export default function App() {
     clearTimeout(logSaveTimers.current[date])
     logSaveTimers.current[date] = setTimeout(() => {
       delete logSaveTimers.current[date]
+      const payload = pendingLogs.current[date] || nextLog
       delete pendingLogs.current[date]
-      store.set(`log:${date}`, log)
+      persistLog(date, payload)
     }, 600)
   }
   // Flush any debounced writes when the tab is hidden/closed or App unmounts —
@@ -2376,7 +2413,7 @@ export default function App() {
         delete logSaveTimers.current[date]
         const log = pendingLogs.current[date]
         delete pendingLogs.current[date]
-        store.set(`log:${date}`, log)
+        persistLog(date, log)
       }
     }
     const onVis = () => { if (document.visibilityState === 'hidden') flush() }
@@ -2387,7 +2424,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis)
       flush()
     }
-  }, [])
+  }, [persistLog])
   const saveCutIntel = async ci => { await store.set('cut_intel', ci); setCutIntel(ci) }
   const saveMealToHistory = async (meal) => {
     const key=meal.name.trim().toLowerCase()

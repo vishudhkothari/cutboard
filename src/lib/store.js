@@ -28,8 +28,10 @@ const realStore = {
         .upsert({ user_id: user.id, key, value, updated_at: new Date().toISOString() },
                  { onConflict: 'user_id,key' })
       if (error) throw error
+      return true
     } catch (e) {
       console.error('store.set error', e)
+      return false
     }
   },
 

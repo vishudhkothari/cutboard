@@ -57,14 +57,13 @@ export function currentTrendWeight(logs) {
    Uses a trailing window of CALENDAR days that have intake data.
 
    Fasting days are REAL low/zero-intake days and must feed the regression.
-   A day counts as fasting if it was MANUALLY fasted (l.fasting) OR it lands
-   on a scheduled fasting weekday and wasn't overridden. Scheduled fasts never
-   persist l.fasting=true, so treating only manual fasts as intake days dropped
-   the lowest-intake days from avgIntake and overestimated TDEE.
+   A scheduled fasting weekday is only a plan. A day counts as fasting only
+   when the user explicitly records l.fasting=true, so an unlogged plan never
+   fabricates a zero-intake day or distorts the TDEE estimate.
 
    opts: { windowDays, fastingDays:[dow], fastComp:bool, fastKcal:number }
 ─────────────────────────────────────────────────────────────── */
-export function estimateTDEE(logs, { windowDays = 18, fastingDays = [], fastComp = false, fastKcal = 0 } = {}) {
+export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal = 0 } = {}) {
   const sorted = logs
     .filter(l => l.date)
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -77,8 +76,9 @@ export function estimateTDEE(logs, { windowDays = 18, fastingDays = [], fastComp
   const cutoff = _shiftDate(sorted[sorted.length - 1].date, -(windowDays - 1))
   const window = sorted.filter(l => l.date >= cutoff)
 
-  const _dow = d => new Date(d + 'T12:00:00').getDay()
-  const isFastDay = l => !!l.fasting || (fastingDays.includes(_dow(l.date)) && !l.fastingOverridden)
+  // A scheduled fast is only a plan.  It must not change historical TDEE
+  // accounting unless the user explicitly logged the fast as completed.
+  const isFastDay = l => l.fasting === true
   // per-day intake: a fast day ate ~0 (full) or ~25% (compensation); every
   // other day is the sum of its logged meals
   const dayIntake = l => isFastDay(l)
@@ -249,6 +249,11 @@ export function paceController({
   currentCardioMin = 0, strengthSignal,
   dataDays = 0,           // # of logged days with usable data
   hasRate = false,        // whether actualWeeklyRateKg is a real measurement (not a 0 placeholder)
+  recentAvgSteps = null,
+  recentStepDays = 0,
+  zone2CompletedSessions = 0,
+  requiredZone2Sessions = 0,
+  stepAdjustmentEligible = true,
 }) {
   const goalWeight   = leanMass / (1 - goalBF / 100)
   const kgToGo       = currentWeight - goalWeight
@@ -338,6 +343,41 @@ export function paceController({
   const tooFast  = actualRate > safeRateKg * 1.1
   // only "too slow" if losing meaningfully less than a healthy minimum
   const tooSlow  = actualRate < healthyFloor
+
+  // Never escalate a movement prescription from a target the user has not
+  // actually demonstrated.  This prevents the controller from treating an
+  // uncompleted 14k target as evidence that 16k is needed.
+  const movementNeedsProof = !losingMuscle && !tooFast && (gaining || tooSlow) && (
+    recentStepDays < 5 || recentAvgSteps == null || recentAvgSteps < currentSteps * 0.95
+  )
+  const cardioNeedsProof = !losingMuscle && !tooFast && currentCardioMin > 0 && requiredZone2Sessions > 0 &&
+    zone2CompletedSessions < requiredZone2Sessions
+  if (movementNeedsProof || cardioNeedsProof) {
+    return {
+      status: 'movement_adherence',
+      headline: movementNeedsProof ? 'Complete the current step target before increasing it' : 'Complete the current Zone 2 plan before adding more',
+      actions: movementNeedsProof
+        ? [`Your recent average is ${recentAvgSteps == null ? 'not available' : Math.round(recentAvgSteps).toLocaleString()} steps across ${recentStepDays} logged day${recentStepDays === 1 ? '' : 's'}.`, `Hold ${currentSteps.toLocaleString()} steps/day and log at least 5 days before changing the prescription.`, 'Unfinished movement cannot be used as evidence that calories need to fall.']
+        : [`You have logged ${zone2CompletedSessions} of ${requiredZone2Sessions} planned Zone 2 session${requiredZone2Sessions === 1 ? '' : 's'} this week.`, 'Complete the current sessions before adding more cardio or reducing calories.', 'Log each session in Today so the next recommendation reflects what actually happened.'],
+      cardioRx: null,
+      recommendedSteps: currentSteps,
+      goalTooAggressive,
+      ...stats,
+    }
+  }
+
+  const stepChangeNeeded = gaining || tooSlow || (onTrack && currentSteps > baselineSteps)
+  if (stepChangeNeeded && !stepAdjustmentEligible) {
+    return {
+      status: 'movement_hold',
+      headline: 'Hold this movement target for 7 days',
+      actions: ['Movement targets are reviewed weekly so the plan cannot ratchet up day after day.', `Keep ${currentSteps.toLocaleString()} steps/day until the review window is complete.`, 'Calories remain unchanged while this target is being tested.'],
+      cardioRx: null,
+      recommendedSteps: currentSteps,
+      goalTooAggressive,
+      ...stats,
+    }
+  }
 
   let status, headline, actions = [], cardioRx = null
 

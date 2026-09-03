@@ -136,7 +136,7 @@ const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)))
 
 export const demoStore = {
   async get(key) { return mem.has(key) ? clone(mem.get(key)) : null },
-  async set(key, value) { mem.set(key, clone(value)) },
+  async set(key, value) { mem.set(key, clone(value)); return true },
   async list(prefix) { return [...mem.keys()].filter(k => k.startsWith(prefix)) },
   async getByPrefix(prefix) {
     return [...mem.entries()].filter(([k]) => k.startsWith(prefix)).map(([, v]) => clone(v)).filter(Boolean)
