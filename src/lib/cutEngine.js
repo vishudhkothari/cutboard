@@ -245,6 +245,7 @@ export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }
 export function paceController({
   currentWeight, currentBF, goalBF, leanMass,
   daysLeft, actualWeeklyRateKg, currentSteps = 10000,
+  baselineSteps = 10000,
   currentCardioMin = 0, strengthSignal,
   dataDays = 0,           // # of logged days with usable data
   hasRate = false,        // whether actualWeeklyRateKg is a real measurement (not a 0 placeholder)
@@ -278,6 +279,7 @@ export function paceController({
         'Early weight swings are mostly water and glycogen, so trust them less at first.',
       ],
       cardioRx: null,
+      recommendedSteps: currentSteps,
       requiredRateKg: Math.round(requiredRate * 100) / 100,
       requiredPct: Math.round(requiredPct * 1000) / 10,
       actualRateKg: hasRate ? Math.round(lossRate * 100) / 100 : null,
@@ -311,6 +313,7 @@ export function paceController({
         'Keep protein at 130g and keep lifting — that locks the result in.',
       ],
       cardioRx: null,
+      recommendedSteps: baselineSteps,
       goalTooAggressive: false,
       ...stats,
     }
@@ -325,6 +328,9 @@ export function paceController({
   const goalTooAggressive = daysLeft >= 7 && requiredPct > SAFE_RATE
   const losingMuscle = strengthSignal === 'down'
   const gaining      = lossRate < -0.05            // trend rising >50g/wk
+  const maxStepGoal  = 14000
+  const nextStepGoal = Math.min(currentSteps + 2000, maxStepGoal)
+  const lowerStepGoal = Math.max(baselineSteps, currentSteps - 1000)
 
   // healthy band: from a gentle floor (~60% of ideal) up to the safe ceiling
   const healthyFloor = idealRateKg * 0.6
@@ -344,13 +350,39 @@ export function paceController({
       'Keep protein at 130g, prioritise sleep 7.5h+.',
     ]
   } else if (gaining) {
-    status = 'gaining'
-    headline = `Trend weight is rising ${Math.abs(lossRate).toFixed(2)} kg/wk`
-    actions = [
-      'Your smoothed trend is going up, not down — the deficit isn\'t real right now.',
-      'Audit logging first: untracked oils, sauces and bites are the usual culprits.',
-      'If logging is honest, trim ~150 kcal from the daily target and reassess in 7 days.',
-    ]
+    if (currentSteps < maxStepGoal) {
+      status = 'lever_steps'
+      headline = `Trend is rising ${Math.abs(lossRate).toFixed(2)} kg/wk — increase steps first`
+      actions = [
+        'Your smoothed trend is going up, so the deficit is not real right now.',
+        `Raise the daily step goal to ${nextStepGoal.toLocaleString()} (from ${currentSteps.toLocaleString()}) and hold it for 7 days.`,
+        'Audit logging too: untracked oils, sauces and bites are common causes.',
+      ]
+    } else if (currentCardioMin < 90) {
+      status = 'lever_cardio'
+      headline = 'Trend is rising — add Zone 2 before cutting food'
+      const addMin = currentCardioMin === 0 ? 40 : currentCardioMin < 60 ? 60 : 90
+      const sessions = addMin <= 40 ? '2×20 min' : addMin <= 60 ? '2×30 min' : '3×30 min'
+      cardioRx = {
+        weeklyMin: addMin, sessions,
+        intensity: 'Zone 2 (can hold a conversation, ~60-70% max HR)',
+        when: 'Rest days or AFTER lifting — never before leg day',
+        what: 'Incline walk, cycling, or elliptical. Keep it boring and easy.',
+      }
+      actions = [
+        'Your smoothed trend is going up, so the deficit is not real right now.',
+        `Keep ${currentSteps.toLocaleString()} steps and add ${sessions} of Zone 2 cardio.`,
+        'Only reduce calories after logging and movement have been consistent for 7 days.',
+      ]
+    } else {
+      status = 'lever_calories'
+      headline = 'Movement is maxed — trim calories last'
+      actions = [
+        'Your smoothed trend is going up despite the movement plan.',
+        'Audit logging carefully, then trim ~150 kcal from the daily target.',
+        'Keep protein fixed and reassess after 7 days.',
+      ]
+    }
   } else if (tooFast) {
     status = 'too_fast'
     headline = `Losing ${actualRate.toFixed(2)} kg/wk — faster than safe`
@@ -363,14 +395,17 @@ export function paceController({
     status = 'on_track'
     headline = `On track — losing ${actualRate.toFixed(2)} kg/wk`
     actions = [
-      'You\'re losing at a healthy, muscle-sparing rate. Hold everything as is.',
+      'You\'re losing at a healthy, muscle-sparing rate.',
+      currentSteps > baselineSteps
+        ? `Reduce the step goal to ${lowerStepGoal.toLocaleString()} and hold it for 7 days; food stays unchanged.`
+        : 'Hold the current movement and calorie plan.',
       'Trend weight is moving the right way — consistency is doing its job.',
     ]
   } else if (tooSlow) {
     status = 'too_slow'
     // LEVER ORDER: steps → Zone 2 → calories
-    if (currentSteps < 12000) {
-      const newSteps = Math.min(currentSteps + 2000, 12000)
+    if (currentSteps < maxStepGoal) {
+      const newSteps = nextStepGoal
       status = 'lever_steps'
       headline = 'Stalled — bump daily steps first'
       actions = [
@@ -410,7 +445,8 @@ export function paceController({
     actions = ['Stay the course and keep logging.']
   }
 
-  return { status, headline, actions, cardioRx, goalTooAggressive, ...stats }
+  const recommendedSteps = status === 'lever_steps' ? nextStepGoal : status === 'on_track' ? lowerStepGoal : currentSteps
+  return { status, headline, actions, cardioRx, recommendedSteps, goalTooAggressive, ...stats }
 }
 
 

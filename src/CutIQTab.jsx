@@ -55,6 +55,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   const currentBF = bodyComp?.bf ?? anchor?.bf
   const leanMass  = anchor ? anchor.weight * (1 - anchor.bf/100) : null
   const curWeight = trendNow ?? setup?.startWeight
+  const baselineSteps = setup?.stepGoal || 10000
+  const currentSteps = cutData?.stepGoal || baselineSteps
 
   const projection = useMemo(()=> setup && leanMass && currentBF ? projectGoal({
     logs:allLogs, currentBF, goalBF:setup.goalBF, currentWeight:curWeight, leanMass
@@ -75,12 +77,13 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   const pace = useMemo(()=> setup && leanMass ? paceController({
     currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, daysLeft,
     actualWeeklyRateKg: tdeeEst?.weeklyRateKg ?? 0,
-    currentSteps: setup.stepGoal || 10000,
+    currentSteps,
+    baselineSteps,
     currentCardioMin: cutData?.cardioMin || 0,
     strengthSignal: cutData?.strengthSignal,
     dataDays: dataSpanDays,
     hasRate: !!tdeeEst,
-  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays])
+  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays, currentSteps, baselineSteps])
 
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
   const refeed = useMemo(() => !inMaintenance ? suggestRefeed({
@@ -237,6 +240,17 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
               </div>
             ))}
           </div>
+
+          {pace.recommendedSteps != null && pace.recommendedSteps !== currentSteps && (
+            <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.borderSoft}`, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+              <span style={{ fontSize:12, color:C.textSub }}>
+                Dynamic step target: <strong style={{ color:C.text }}>{pace.recommendedSteps.toLocaleString()}/day</strong>
+              </span>
+              <button style={btn(true, true)} onClick={() => save({ ...(cutData || {}), stepGoal:pace.recommendedSteps })}>
+                Apply step target
+              </button>
+            </div>
+          )}
 
           {/* Zone 2 cardio prescription */}
           {pace.cardioRx && (
