@@ -93,7 +93,10 @@ export function compareMicros(totals = {}, targets = {}) {
       consumed: known ? round(consumed) : null,
       target: target || null,
       percentage: pct,
-      status: !known || !target ? 'unknown' : pct < 50 ? 'very_low' : pct < 80 ? 'low' : pct <= 120 ? 'adequate' : 'high',
+      // Keep the status bands aligned with the micronutrient colour coding:
+      // very low (<50%) red, below target orange, on target green, and above
+      // 110% dark green.
+      status: !known || !target ? 'unknown' : pct < 50 ? 'very_low' : pct < 100 ? 'low' : pct <= 110 ? 'adequate' : 'high',
     }
   })
 }

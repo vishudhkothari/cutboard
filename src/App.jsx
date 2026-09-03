@@ -1666,7 +1666,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, recipes = []
         <div style={{fontSize:12,color:C.textSub,lineHeight:1.45,marginBottom:14}}>Logged-food coverage only. This is an intake estimate, not a deficiency diagnosis.</div>
         <div style={{display:'grid',gridTemplateColumns:mobile?'1fr':'repeat(2,1fr)',gap:'10px 18px'}}>
           {dayNutrition.comparison.map(n=>{
-            const color=n.status==='low'||n.status==='very_low'?C.orange:n.status==='high'?C.gold:C.teal
+            const color=n.status==='very_low'?C.red:n.status==='low'?C.orange:n.status==='high'?C.darkGreen:n.status==='adequate'?C.green:C.textSub
             return <div key={n.id}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:11.5,marginBottom:5}}><span style={{color:C.textSub}}>{n.label}</span><span style={{fontFamily:F.mono,color}}>{n.consumed == null ? '—' : `${n.consumed} ${n.unit}`}<span style={{color:C.textFaint}}> / {n.target == null ? '—' : `${n.target} ${n.unit}`} · {n.percentage == null ? '—' : `${n.percentage}%`}</span></span></div>
               <div style={{height:5,background:C.borderSoft,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(n.percentage||0,100)}%`,background:color,borderRadius:3}} /></div>

@@ -27,6 +27,7 @@ export const C = {
   // ── semantic set: SAME KEYS as before, muted values ──
   // every old reference (steps, streak, sleep, alerts…) softens for free
   red:'#d8748c', orange:'#d6a06b', blue:'#6f97bd', purple:'#a78bfa', gold:'#d6a45c', teal:'#5fb89a',
+  darkGreen:'#2f7d4a', green:'#5fb89a',
 
   // ── explicit macro tokens (use these on the macro bars) ──
   protein:'#d6a06b', carbs:'#6f97bd', fat:'#c98f93', fiber:'#6fb09c',
