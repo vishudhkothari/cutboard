@@ -171,29 +171,24 @@ const ZIGZAG_LABELS = { mild: 'Mild (±9% swing)', weight: 'Standard (±15% swin
 
 
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
-function getDynamicStepGoal(setup, logs, tdeeData, dayPlan) {
+function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSettings = {}) {
   const base = setup?.stepGoal || 10000
-  // Only the ACTUAL yesterday counts — the old "latest log before today" could
-  // be a week old and still nag "you overate yesterday".
-  const yStr      = addDaysStr(todayStr(), -1)
-  const yesterday = logs.find(l => l.date === yStr)
-  if (!yesterday) return { goal: base, extra: 0, reason: null }
-  const yCals = yesterday.meals?.reduce((s, m) => s + (+m.cals || 0), 0) || 0
-  if (yCals === 0) return { goal: base, extra: 0, reason: null }
-  // Compare against yesterday's ACTUAL target (zigzag-aware). If yesterday was
-  // a planned fast the user overrode (or they simply ate), judge against the
-  // normal day target — week[].eat would be 0 and count ALL food as surplus.
-  const yDow = new Date(yesterday.date + 'T12:00:00').getDay()
-  const wk   = dayPlan?.week?.[yDow]
-  let yTarget
-  if (!wk) yTarget = tdeeData.target
-  else if (wk.isFast && (yesterday.fastingOverridden || !yesterday.fasting)) yTarget = wk.baseEat ?? tdeeData.target
-  else yTarget = wk.eat
-  const surplus = Math.round(yCals - yTarget)
-  if (surplus <= 100) return { goal: base, extra: 0, reason: null }
   const calPerStep = tdeeData.curW * 0.00061
-  const extra      = Math.min(Math.round(surplus / calPerStep), 6000)
-  return { goal: base + extra, extra, reason: `+${extra.toLocaleString()} steps to offset ${surplus} extra kcal from yesterday` }
+  // Keep a rolling calorie debt. Over-target calories add to it; only steps
+  // above the normal daily goal pay it down. This means completed compensation
+  // is credited, while unfinished compensation carries into the next day.
+  let debt = 0
+  const priorLogs = logs.filter(l => l.date < todayStr()).sort((a, b) => a.date.localeCompare(b.date))
+  for (const log of priorLogs) {
+    const target = log.planSnapshot?.eatTarget ?? getPlanForDate({ date:log.date, log, setup, logs, planSettings, zigzagSettings }).eatTarget
+    const calories = (log.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
+    debt += Math.max(0, calories - target)
+    const extraSteps = Math.max(0, (+log.steps || 0) - base)
+    debt = Math.max(0, debt - extraSteps * calPerStep)
+  }
+  if (debt <= 0) return { goal: base, extra: 0, reason: null }
+  const extra = Math.min(Math.ceil(debt / calPerStep), 6000)
+  return { goal: base + extra, extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
 }
 
 /* ─── STREAKS ────────────────────────────────────────────────────
@@ -1168,7 +1163,7 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
@@ -1203,9 +1198,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const recipeById = useMemo(() => Object.fromEntries(recipes.map(r => [r.id, r])), [recipes])
 
   const stepData  = useMemo(() => viewDate === todayStr()
-    ? getDynamicStepGoal(setup, allLogs, adaptiveTDEE, dayPlan)
+    ? getDynamicStepGoal(setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings)
     : { goal: setup?.stepGoal || 10000, extra: 0, reason: null },
-  [setup, allLogs, adaptiveTDEE, dayPlan, viewDate])
+  [setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, viewDate])
 
   // ── ALL targets come from dayPlan (the single source of truth) ──
   const regime          = dayPlan.regime
@@ -2482,7 +2477,7 @@ export default function App() {
       <TabBar tab={tab} setTab={setTab}/>
       {/* keyed on tab so each switch replays the fade-up entrance */}
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
-        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={allLogs} setup={setup} planSettings={planSettings} zigzagSettings={zigzagSettings} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveLog={saveTodayLog}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
