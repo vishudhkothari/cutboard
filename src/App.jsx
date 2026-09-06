@@ -1834,11 +1834,25 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, planSettings
    WEEKLY REVIEW — auto digest of the last 7 full days
 ═══════════════════════════════════════════════════════════════ */
 function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, zigzagSettings = {} }) {
-  const end   = addDaysStr(todayStr(), -1)
+  const latestEnd = addDaysStr(todayStr(), -1)
+  const firstLogDate = logs.length ? logs.reduce((first, log) => log.date < first ? log.date : first, logs[0].date) : latestEnd
+  // A review is available for every completed Sunday–Saturday-style window
+  // (the current review uses the seven days ending yesterday). Skip sparse
+  // windows so cycling never lands on an empty/meaningless review.
+  const reviewEnds = []
+  for (let end = latestEnd; end >= firstLogDate; end = addDaysStr(end, -7)) {
+    const start = addDaysStr(end, -6)
+    const intakeCount = logs.filter(l => l.date >= start && l.date <= end && ((l.meals && l.meals.length) || l.fasting)).length
+    if (intakeCount >= 4) reviewEnds.push(end)
+  }
+  const [reviewIndex, setReviewIndex] = useState(0)
+  useEffect(() => setReviewIndex(index => Math.min(index, Math.max(0, reviewEnds.length - 1))), [reviewEnds.length])
+  if (!reviewEnds.length) return null   // not enough data for a fair review
+
+  const end   = reviewEnds[reviewIndex]
   const start = addDaysStr(end, -6)
   const week  = logs.filter(l => l.date >= start && l.date <= end)
   const intakeDays = week.filter(l => (l.meals && l.meals.length) || l.fasting)
-  if (intakeDays.length < 4) return null   // not enough data for a fair review
 
   const trend = trendWeight(logs)
   const tAt = d => { let last = null; for (const t of trend) { if (t.date <= d) last = t; else break } return last }
@@ -1870,9 +1884,24 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
 
   return (
     <div style={card({ borderLeft: `3px solid ${vColor}` })}>
-      <div style={{ display:'flex', alignItems:'baseline', gap:10, marginBottom:6, flexWrap:'wrap' }}>
-        <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15 }}><Icon name="flag" size={16} color={vColor} /> Weekly Review</div>
-        <span style={{ fontSize:11, color:C.textSub, fontFamily:F.mono }}>{fmtDate(start)} – {fmtDate(end)}</span>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap' }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15 }}><Icon name="flag" size={16} color={vColor} /> Weekly Review</div>
+          <span style={{ fontSize:11, color:C.textSub, fontFamily:F.mono }}>{fmtDate(start)} – {fmtDate(end)}</span>
+        </div>
+        {reviewEnds.length > 1 && <div style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+          <button aria-label="Previous weekly review" title="Previous weekly review" disabled={reviewIndex >= reviewEnds.length - 1}
+            style={{ ...btn(false, true), padding:'5px 7px', opacity:reviewIndex >= reviewEnds.length - 1 ? 0.35 : 1 }}
+            onClick={() => { setReviewIndex(index => Math.min(index + 1, reviewEnds.length - 1)); buzz(8) }}>
+            <Icon name="chevronLeft" size={15} />
+          </button>
+          <span style={{ fontSize:10, color:C.textSub, fontFamily:F.mono }}>{reviewIndex + 1}/{reviewEnds.length}</span>
+          <button aria-label="Next weekly review" title="Next weekly review" disabled={reviewIndex <= 0}
+            style={{ ...btn(false, true), padding:'5px 7px', opacity:reviewIndex <= 0 ? 0.35 : 1 }}
+            onClick={() => { setReviewIndex(index => Math.max(index - 1, 0)); buzz(8) }}>
+            <Icon name="chevronRight" size={15} />
+          </button>
+        </div>}
       </div>
       <div style={{ fontSize:13, color:vColor, fontWeight:600, marginBottom:14, lineHeight:1.45 }}>{verdict}</div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
