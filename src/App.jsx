@@ -195,13 +195,13 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
   for (const log of priorLogs) {
     const target = log.planSnapshot?.eatTarget ?? getPlanForDate({ date:log.date, log, setup, logs, planSettings, zigzagSettings }).eatTarget
     const calories = (log.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
-    // A full fast is not an ordinary zero-calorie day relative to the
-    // compensation target saved in the snapshot. It replaces the day's
-    // normal food budget, so credit the difference against any earlier
-    // over-target intake. Rebuild the same day with fasting disabled to get
-    // that normal budget (including the correct zigzag day, if enabled).
-    const isLoggedFast = log.fasting === true
-    const normalTarget = isLoggedFast
+    // A fast is not an ordinary zero-calorie day relative to the target
+    // saved in the snapshot. A complete fast creates a deficit against
+    // maintenance/TDEE, so credit that full deficit against earlier
+    // over-target intake. Use the normal version of the day to recover the
+    // correct maintenance value and to handle scheduled fast snapshots too.
+    const isLoggedFast = log.fasting === true || log.planSnapshot?.eatTarget === 0
+    const normalPlan = isLoggedFast
       ? getPlanForDate({
           date: log.date,
           log: { ...log, fasting: false, fastingOverridden: true },
@@ -209,9 +209,10 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
           logs,
           planSettings,
           zigzagSettings,
-        }).eatTarget
-      : target
-    debt += Math.max(0, calories - normalTarget)
+        })
+      : null
+    const debtTarget = normalPlan?.maintenance ?? target
+    debt += isLoggedFast ? calories - debtTarget : Math.max(0, calories - debtTarget)
     const extraSteps = Math.max(0, (+log.steps || 0) - baseline)
     debt = Math.max(0, debt - extraSteps * calPerStep)
   }
