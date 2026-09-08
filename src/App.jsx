@@ -2184,6 +2184,13 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
   const [zigzagSched, setZigzagSched] = useState(zigzagSettings?.schedule || 1)
   const [zigzagMode,  setZigzagMode]  = useState(zigzagSettings?.mode || 'weight')
   const [zigzagOn,    setZigzagOn]    = useState(zigzagSettings?.on || false)
+  const fastingDays = Array.isArray(planSettings?.fastingDays) ? planSettings.fastingDays : []
+  const toggleFastingDay = dow => {
+    const next = fastingDays.includes(dow)
+      ? fastingDays.filter(day => day !== dow)
+      : [...fastingDays, dow].sort((a, b) => a - b)
+    onSavePlanSettings?.({ ...planSettings, fastingDays: next })
+  }
 
   // today's target comes straight from the single source of truth
   const isFastingToday = dayPlan.fasting.isFasting
@@ -2249,6 +2256,27 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         <div style={{marginTop:12,display:'flex',alignItems:'center',gap:8,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
           <Icon name="dumbbell" size={15} color={C.protein} /> <span>Protein locked at <strong style={{color:C.protein}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? 'Calibrated from your real data' : 'Becomes data-driven after ~1 week of logging'}</span>
         </div>
+      </div>
+
+      {/* Fasting manager */}
+      <div style={card()}>
+        <div style={{fontFamily:F.head,fontWeight:700,fontSize:16}}>Fasting Schedule</div>
+        <div style={{fontSize:12,color:C.textSub,marginTop:3,lineHeight:1.5}}>
+          Choose recurring days. A day is only counted as completed fasting after you confirm it in Today.
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6,marginTop:14}}>
+          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((name, dow) => (
+            <button key={name} style={{...btn(fastingDays.includes(dow), true), padding:'10px 4px', fontSize:11}}
+              onClick={() => toggleFastingDay(dow)} aria-pressed={fastingDays.includes(dow)}>
+              {name}
+            </button>
+          ))}
+        </div>
+        <label style={{display:'flex',alignItems:'center',gap:9,marginTop:14,fontSize:12.5,color:C.textSub,cursor:'pointer'}}>
+          <input type="checkbox" checked={!!planSettings?.fastCompensation}
+            onChange={e => onSavePlanSettings?.({...planSettings, fastCompensation:e.target.checked})} />
+          Allow 25% calorie compensation on fasting days
+        </label>
       </div>
 
       {/* Regime selector */}
@@ -2504,11 +2532,42 @@ export default function App() {
     updated=updated.sort((a,b)=>(b.count||1)-(a.count||1)).slice(0,100)
     await store.set('meal_history',updated); setMealHistory(updated)
   }
+  const recaptureTodayPlan = (nextPlanSettings, nextZigzagSettings) => {
+    const date = todayStr()
+    const current = todayLog?.date === date ? todayLog : allLogs.find(log => log.date === date)
+    if (!current) return
+    const next = {
+      ...current,
+      planSnapshot: createPlanSnapshot({
+        date, log: current, setup, logs: allLogs,
+        planSettings: nextPlanSettings, zigzagSettings: nextZigzagSettings,
+        source: 'recaptured',
+      }),
+    }
+    setTodayLog(prev => prev?.date === date ? next : prev)
+    setAllLogs(prev => prev.map(log => log.date === date ? next : log))
+    pendingLogs.current[date] = next
+    clearTimeout(logSaveTimers.current[date])
+    logSaveTimers.current[date] = setTimeout(() => {
+      delete logSaveTimers.current[date]
+      const payload = pendingLogs.current[date] || next
+      delete pendingLogs.current[date]
+      persistLog(date, payload)
+    }, 0)
+  }
   const savePlanSettings = async ps => {
-    await store.set('plan_settings', ps); setPlanSettings(ps)
+    await store.set('plan_settings', ps)
+    setPlanSettings(ps)
+    // Historical snapshots stay fixed, but the active day must immediately
+    // reflect a schedule change and persist that new snapshot.
+    recaptureTodayPlan(ps, zigzagSettings)
   }
   const saveZigzagSettings = async zs => {
-    await store.set('zigzag_settings', zs); setZigzagSettings(zs)
+    await store.set('zigzag_settings', zs)
+    setZigzagSettings(zs)
+    // Keep the current day in sync with the newly selected distribution;
+    // older days retain the target they actually had when logged.
+    recaptureTodayPlan(planSettings, zs)
   }
   const saveCustomFood = async food => {
     await store.addSharedFood(food)

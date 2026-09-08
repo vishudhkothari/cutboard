@@ -90,12 +90,20 @@ export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal
     (Array.isArray(l.meals) && l.meals.length > 0) || isFastDay(l))
   if (withIntake.length < 5) return null   // not enough signal yet
 
-  const avgIntake = withIntake.reduce((s, l) => s + dayIntake(l), 0) / withIntake.length
-
   // trend-weight delta across the window span
   const firstDate = window.find(l => trendMap[l.date] != null)?.date
   const lastDate  = [...window].reverse().find(l => trendMap[l.date] != null)?.date
   if (!firstDate || !lastDate || firstDate === lastDate) return null
+
+  // A handful of meal entries cannot support a calendar-day energy balance.
+  // Previously five entries over an 18-day window were averaged as if they
+  // represented every day, while the weight change still covered all 18
+  // days. That could manufacture an implausibly high TDEE from sparse logs.
+  const calendarDays = _daySpan(firstDate, lastDate) + 1
+  const coverage = withIntake.length / calendarDays
+  if (coverage < 0.60) return null
+
+  const avgIntake = withIntake.reduce((s, l) => s + dayIntake(l), 0) / withIntake.length
 
   const wStart = trendMap[firstDate]
   const wEnd   = trendMap[lastDate]
@@ -109,6 +117,7 @@ export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal
     weeklyRateKg: Math.round(kgChangePerDay * 7 * 100) / 100,  // kg/week (neg = loss)
     spanDays: Math.round(spanDays),
     dataPoints: withIntake.length,
+    coverage: Math.round(coverage * 100) / 100,
   }
 }
 
@@ -134,18 +143,25 @@ export function fatFraction(strengthSignal, weekIntoCut) {
    anchor = { date, weight, bf }  (your honest visual/Realme re-anchor)
    Re-anchors completely reset the model from that point. */
 export function inferBodyComp({ logs, anchor, strengthSignal, startDate }) {
-  const trendNow = currentTrendWeight(logs)
+  const trend = trendWeight(logs)
+  const trendNow = trend.length ? trend[trend.length - 1].trend : null
   if (!anchor || trendNow == null) return null
 
   const anchorTrend = (() => {
-    const t = trendWeight(logs)
     // trend weight closest to (>=) anchor date
-    const at = t.find(x => x.date >= anchor.date) || t[t.length - 1]
+    const at = trend.find(x => x.date >= anchor.date) || trend[trend.length - 1]
     return at ? at.trend : anchor.weight
   })()
 
   const massLost = anchorTrend - trendNow            // kg lost since anchor (positive)
-  const weeksIn  = Math.max(0, (new Date() - new Date(startDate + 'T00:00:00')) / 604800000)
+  // A re-anchor starts a new composition model. Use the latest observed
+  // weigh-in as the model's as-of date so opening the app later cannot change
+  // the result without new evidence.
+  const modelStart = anchor.date || startDate
+  const modelEnd = trend[trend.length - 1].date
+  const weeksIn = modelStart && modelEnd
+    ? Math.max(0, _daySpan(modelStart, modelEnd) / 7)
+    : 0
   const ff       = fatFraction(strengthSignal, weeksIn) ?? 0.85
 
   const anchorFatMass = anchor.weight * (anchor.bf / 100)
@@ -176,7 +192,7 @@ export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }
   // feedback. Counting entries alone let sparse logs through too early.
   const trendSpan = trend.length > 1
     ? _daySpan(trend[0].date, trend[trend.length - 1].date) + 1 : 0
-  if (trend.length < 4 || trendSpan < LEARN_DAYS || currentBF == null) return { early: true }
+  if (trend.length < 4 || trendSpan < LEARN_DAYS || !Number.isFinite(+currentBF)) return { early: true }
 
   // weekly rates between trend points ~RATE_MIN+ REAL days apart (array
   // indices are not days — a missed weigh-in must not inflate the rate).
@@ -243,7 +259,7 @@ export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }
    steps → Zone 2 cardio → calories (in that order).
 ─────────────────────────────────────────────────────────────── */
 export function paceController({
-  currentWeight, currentBF, goalBF, leanMass,
+  currentWeight, goalBF, leanMass,
   daysLeft, actualWeeklyRateKg, currentSteps = 10000,
   baselineSteps = 10000,
   currentCardioMin = 0, strengthSignal,
@@ -343,11 +359,12 @@ export function paceController({
   const tooFast  = actualRate > safeRateKg * 1.1
   // only "too slow" if losing meaningfully less than a healthy minimum
   const tooSlow  = actualRate < healthyFloor
-  // A healthy rate can still miss the user's chosen cut deadline. Keep the
-  // deadline and the safety ceiling separate: add movement when the required
-  // rate is achievable safely, but never chase an unsafe calendar target.
+  // A healthy rate can still miss the user's chosen cut deadline. Movement is
+  // still the next useful lever when there is room below the step ceiling;
+  // goalTooAggressive remains a warning that movement alone cannot safely
+  // guarantee the requested date.
   const behindSchedule = requiredRate > actualRate + 0.02
-  const scheduleNeedsMovement = behindSchedule && !goalTooAggressive && currentSteps < maxStepGoal
+  const scheduleNeedsMovement = behindSchedule && currentSteps < maxStepGoal
 
   // Never escalate a movement prescription from a target the user has not
   // actually demonstrated.  This prevents the controller from treating an
@@ -442,7 +459,9 @@ export function paceController({
     actions = [
       'You\'re losing at a healthy, muscle-sparing rate.',
       goalTooAggressive
-        ? 'Your selected deadline requires an unsafe rate. Keep the healthy pace instead of adding steps to chase the date.'
+        ? scheduleNeedsMovement
+          ? `Raise the step goal to ${nextStepGoal.toLocaleString()}/day to improve the trend, but the selected deadline still requires an unsafe rate. Do not push beyond ${maxStepGoal.toLocaleString()} steps to chase it.`
+          : 'Your selected deadline requires an unsafe rate. Keep the healthy pace instead of pushing beyond the movement ceiling.'
         : currentSteps > baselineSteps
         ? `Reduce the step goal to ${lowerStepGoal.toLocaleString()} and hold it for 7 days; food stays unchanged.`
         : 'Hold the current movement and calorie plan.',
@@ -491,7 +510,11 @@ export function paceController({
     actions = ['Stay the course and keep logging.']
   }
 
-  const recommendedSteps = status === 'lever_steps' ? nextStepGoal : status === 'on_track' ? lowerStepGoal : currentSteps
+  const recommendedSteps = status === 'lever_steps'
+    ? nextStepGoal
+    : status === 'on_track'
+      ? (scheduleNeedsMovement ? nextStepGoal : lowerStepGoal)
+      : currentSteps
   return { status, headline, actions, cardioRx, recommendedSteps, goalTooAggressive, ...stats }
 }
 
@@ -504,7 +527,7 @@ export function paceController({
    or a full diet break (1 week at maintenance, 8+ weeks in) is the
    evidence-based reset. Returns null when not warranted.
 ─────────────────────────────────────────────────────────────── */
-export function suggestRefeed({ logs, weeksIntoCut, maintenance }) {
+export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories = null }) {
   if (weeksIntoCut < 4) return null
   const trend = trendWeight(logs)
   if (trend.length < 10) return null
@@ -520,6 +543,17 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance }) {
   const days = _daySpan(ref.date, last.date)
   if (days < 10) return null
   const rate = (last.trend - ref.trend) / days * 7   // kg/week
+
+  // A flat scale trend is not a genuine plateau when intake is consistently
+  // above plan, and sparse food logs cannot establish adherence. Refeed only
+  // when at least 10 of the trailing 15 calendar days have intake data and
+  // the logged average is reasonably close to the plan.
+  const adherenceWindow = logs.filter(l => l.date >= cutoffDate && l.date <= last.date && l.meals?.length)
+  if (adherenceWindow.length < 10) return null
+  const fallbackTarget = Math.max(MIN_CALS, maintenance - 600)
+  const avgTarget = adherenceWindow.reduce((sum, l) => sum + (l.planSnapshot?.eatTarget ?? targetCalories ?? fallbackTarget), 0) / adherenceWindow.length
+  const avgIntake = adherenceWindow.reduce((sum, l) => sum + l.meals.reduce((day, meal) => day + (+meal.cals || 0), 0), 0) / adherenceWindow.length
+  if (avgIntake > avgTarget + 150) return null
 
   // only a TRUE plateau qualifies: not losing, but not gaining either —
   // gaining means intake, not adaptation, and the pace coach handles that

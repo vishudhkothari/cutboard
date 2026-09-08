@@ -117,7 +117,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
   const refeed = useMemo(() => !inMaintenance ? suggestRefeed({
     logs: allLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0,
-  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE?.base, inMaintenance])
+    targetCalories: adaptiveTDEE?.target,
+  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance])
 
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
