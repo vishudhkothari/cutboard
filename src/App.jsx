@@ -195,7 +195,23 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
   for (const log of priorLogs) {
     const target = log.planSnapshot?.eatTarget ?? getPlanForDate({ date:log.date, log, setup, logs, planSettings, zigzagSettings }).eatTarget
     const calories = (log.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
-    debt += Math.max(0, calories - target)
+    // A full fast is not an ordinary zero-calorie day relative to the
+    // compensation target saved in the snapshot. It replaces the day's
+    // normal food budget, so credit the difference against any earlier
+    // over-target intake. Rebuild the same day with fasting disabled to get
+    // that normal budget (including the correct zigzag day, if enabled).
+    const isLoggedFast = log.fasting === true
+    const normalTarget = isLoggedFast
+      ? getPlanForDate({
+          date: log.date,
+          log: { ...log, fasting: false, fastingOverridden: true },
+          setup,
+          logs,
+          planSettings,
+          zigzagSettings,
+        }).eatTarget
+      : target
+    debt += Math.max(0, calories - normalTarget)
     const extraSteps = Math.max(0, (+log.steps || 0) - baseline)
     debt = Math.max(0, debt - extraSteps * calPerStep)
   }
@@ -262,7 +278,7 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
   }
   if (stepData.extra > 0) {
     const kcal = Math.round(stepData.extra * tdeeData.curW * 0.00061)
-    insights.push({ color: C.orange, msg: `You ate ~${kcal} kcal over target yesterday. Walk ${stepData.extra.toLocaleString()} extra steps today to stay in deficit.` })
+    insights.push({ color: C.orange, msg: `You have ~${kcal} kcal of outstanding compensation. Walk ${stepData.extra.toLocaleString()} extra steps today to stay in deficit.` })
   }
   if (macros.calTarget > 0 && todayCals > macros.calTarget * 0.4) {
     const short = Math.round((macros.proteinG - todayProtein) * 10) / 10
