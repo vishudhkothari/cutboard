@@ -343,11 +343,16 @@ export function paceController({
   const tooFast  = actualRate > safeRateKg * 1.1
   // only "too slow" if losing meaningfully less than a healthy minimum
   const tooSlow  = actualRate < healthyFloor
+  // A healthy rate can still miss the user's chosen cut deadline. Keep the
+  // deadline and the safety ceiling separate: add movement when the required
+  // rate is achievable safely, but never chase an unsafe calendar target.
+  const behindSchedule = requiredRate > actualRate + 0.02
+  const scheduleNeedsMovement = behindSchedule && !goalTooAggressive && currentSteps < maxStepGoal
 
   // Never escalate a movement prescription from a target the user has not
   // actually demonstrated.  This prevents the controller from treating an
   // uncompleted 14k target as evidence that 16k is needed.
-  const movementNeedsProof = !losingMuscle && !tooFast && (gaining || tooSlow) && (
+  const movementNeedsProof = !losingMuscle && !tooFast && (gaining || tooSlow || scheduleNeedsMovement) && (
     recentStepDays < 5 || recentAvgSteps == null || recentAvgSteps < currentSteps * 0.95
   )
   const cardioNeedsProof = !losingMuscle && !tooFast && currentCardioMin > 0 && requiredZone2Sessions > 0 &&
@@ -366,7 +371,7 @@ export function paceController({
     }
   }
 
-  const stepChangeNeeded = gaining || tooSlow || (onTrack && currentSteps > baselineSteps)
+  const stepChangeNeeded = gaining || tooSlow || scheduleNeedsMovement || (onTrack && currentSteps > baselineSteps)
   if (stepChangeNeeded && !stepAdjustmentEligible) {
     return {
       status: 'movement_hold',
@@ -436,7 +441,9 @@ export function paceController({
     headline = `On track — losing ${actualRate.toFixed(2)} kg/wk`
     actions = [
       'You\'re losing at a healthy, muscle-sparing rate.',
-      currentSteps > baselineSteps
+      goalTooAggressive
+        ? 'Your selected deadline requires an unsafe rate. Keep the healthy pace instead of adding steps to chase the date.'
+        : currentSteps > baselineSteps
         ? `Reduce the step goal to ${lowerStepGoal.toLocaleString()} and hold it for 7 days; food stays unchanged.`
         : 'Hold the current movement and calorie plan.',
       'Trend weight is moving the right way — consistency is doing its job.',
