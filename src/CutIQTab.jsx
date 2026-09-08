@@ -13,6 +13,9 @@ import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 const fmtD = d => d ? new Date(typeof d === 'string' ? d + 'T12:00:00' : d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
 const pad2 = n => String(n).padStart(2, '0')
 const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`
+const daysBetween = (from, to = localDateStr()) => Math.max(0,
+  Math.floor((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 86400000)
+)
 const STATUS_COLOR = {
   on_track:C.teal, lever_steps:C.blue, lever_cardio:C.purple, lever_calories:C.orange,
   too_fast:C.orange, muscle_risk:C.red, too_slow:C.gold, learning:C.textSub,
@@ -42,11 +45,11 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
     fastComp: !!planSettings?.fastCompensation,
     fastKcal: planSettings?.fastCompensation ? Math.round((adaptiveTDEE?.target || 0) * 0.25) : 0,
   }), [allLogs, planSettings, adaptiveTDEE])
-  const weeksIntoCut= setup?.startDate ? Math.max(0,(Date.now()-new Date(setup.startDate+'T00:00:00'))/604800000) : 0
+  const weeksIntoCut= setup?.startDate ? daysBetween(setup.startDate) / 7 : 0
 
-  const anchor = cutData?.anchor || (setup ? {
+  const anchor = useMemo(() => cutData?.anchor || (setup ? {
     date: setup.startDate, weight: setup.startWeight, bf: setup.startBF
-  } : null)
+  } : null), [cutData?.anchor, setup])
 
   const bodyComp = useMemo(()=> setup && anchor ? inferBodyComp({
     logs:allLogs, anchor, strengthSignal:cutData?.strengthSignal, startDate:setup.startDate
@@ -82,13 +85,15 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   }) : null, [allLogs, currentBF, setup, curWeight, leanMass])
 
   const cutLen   = setup?.cutLength || 60
-  const daysLeft = setup?.startDate ? Math.max(1, cutLen - Math.floor((Date.now()-new Date(setup.startDate+'T00:00:00'))/86400000)) : cutLen
+  // Keep this in lockstep with App's header/plan timeline: the start date is
+  // day 1, so a 60-day cut has 59 days left on its start day.
+  const daysLeft = setup?.startDate ? Math.max(0, cutLen - (daysBetween(setup.startDate) + 1)) : cutLen
   const inMaintenance = adaptiveTDEE?.phase === 'maintenance'
 
   // 14-day learning gate is a water-clearance CLOCK — measure the calendar
   // span of weigh-ins, not how many entries exist
   const dataSpanDays = useMemo(()=>{
-    const w = allLogs.filter(l=>l.weight!=null)
+    const w = allLogs.filter(l=>l.weight!=null).sort((a,b)=>a.date.localeCompare(b.date))
     if (!w.length) return 0
     return Math.round((new Date(w[w.length-1].date+'T12:00:00') - new Date(w[0].date+'T12:00:00'))/86400000) + 1
   }, [allLogs])
