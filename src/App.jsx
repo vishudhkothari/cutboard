@@ -183,7 +183,7 @@ const ZIGZAG_LABELS = { mild: 'Mild (±9% swing)', weight: 'Standard (±15% swin
 
 
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
-function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSettings = {}, prescribedSteps = null) {
+function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSettings = {}, prescribedSteps = null, currentLog = null, currentPlan = null) {
   const baseline = setup?.stepGoal || 10000
   const base = prescribedSteps || baseline
   const calPerStep = tdeeData.curW * 0.00061
@@ -214,6 +214,29 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
     const debtTarget = normalPlan?.maintenance ?? target
     debt += isLoggedFast ? calories - debtTarget : Math.max(0, calories - debtTarget)
     const extraSteps = Math.max(0, (+log.steps || 0) - baseline)
+    debt = Math.max(0, debt - extraSteps * calPerStep)
+  }
+  // Include the live day as well. This lets a user eat over target and pay
+  // for those calories with extra steps immediately, instead of waiting for
+  // tomorrow's recalculation. The same kcal-per-step conversion is used on
+  // both sides, so matching the overage with movement clears it today.
+  if (currentLog?.date === todayStr()) {
+    const target = currentPlan?.eatTarget ?? currentLog.planSnapshot?.eatTarget ?? getPlanForDate({ date:currentLog.date, log:currentLog, setup, logs, planSettings, zigzagSettings }).eatTarget
+    const calories = (currentLog.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
+    const isLoggedFast = currentLog.fasting === true || currentLog.planSnapshot?.eatTarget === 0
+    const normalPlan = isLoggedFast
+      ? (currentPlan?.maintenance != null ? currentPlan : getPlanForDate({
+          date: currentLog.date,
+          log: { ...currentLog, fasting:false, fastingOverridden:true },
+          setup,
+          logs,
+          planSettings,
+          zigzagSettings,
+        }))
+      : null
+    const debtTarget = normalPlan?.maintenance ?? target
+    debt += isLoggedFast ? calories - debtTarget : Math.max(0, calories - debtTarget)
+    const extraSteps = Math.max(0, (+currentLog.steps || 0) - baseline)
     debt = Math.max(0, debt - extraSteps * calPerStep)
   }
   if (debt <= 0) return { goal: base, extra: 0, reason: null }
@@ -1228,9 +1251,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const recipeById = useMemo(() => Object.fromEntries(recipes.map(r => [r.id, r])), [recipes])
 
   const stepData  = useMemo(() => viewDate === todayStr()
-    ? getDynamicStepGoal(setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, stepTarget)
+    ? getDynamicStepGoal(setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, stepTarget, local, dayPlan)
     : { goal: setup?.stepGoal || 10000, extra: 0, reason: null },
-  [setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, stepTarget, viewDate])
+  [setup, allLogs, adaptiveTDEE, planSettings, zigzagSettings, stepTarget, local, dayPlan, viewDate])
   const zone2Sessions = Array.isArray(local.zone2Sessions) ? local.zone2Sessions : []
   const zone2WeekStart = (() => {
     const d = new Date(viewDate + 'T12:00:00')
