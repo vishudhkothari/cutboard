@@ -10,14 +10,77 @@
    5. paceController()   — weekly recalibration: steps → cardio → calories
 ═══════════════════════════════════════════════════════════════ */
 
-const KCAL_PER_KG = 7700          // energy in 1kg of body mass (mixed)
 const MIN_CALS    = 1200          // physiological floor
 const SAFE_RATE   = 0.0100        // max %BW/week before muscle risk climbs
 const IDEAL_RATE  = 0.0070        // muscle-sparing sweet spot (%BW/week)
+const NOISE_GAINING_RATE_KG = 0.05 // absolute scale-noise threshold, not a capacity threshold
+const NOISE_STALLED_RATE_KG = 0.05 // absolute scale-noise threshold, not a capacity threshold
+const REFEED_FLAT_RATE_KG = 0.15   // absolute plateau band; water noise is not proportional to body size
+const PROTEIN_CONFIG = Object.freeze({ factor: 2.0, min: 110, max: 220 })
+const EWMA_CONFIG = Object.freeze({ defaultAlpha: 0.10, acceleratedAlpha: 0.22, deviationThreshold: 1.25, consecutiveDays: 3, minResidualSamples: 5 })
+const ENERGY_DENSITY_CONFIG = Object.freeze({ fat: 9400, lean: 1800, defaultFatFraction: 0.85 })
+const DEFAULT_MAX_STEP_BUDGET = 14000
+const MOVEMENT_HOLD_DAYS = 7
+const CALORIE_HOLD_DAYS = 7
+const LEANNESS_CONFIG = Object.freeze({ referenceHighBF: 25, minimumMultiplier: 0.75 })
 // How many days of data before Cut IQ starts JUDGING (projection, pace,
 // live TDEE). Shorter = faster feedback but noisier (water/glycogen).
 // Single source so every Cut IQ surface stays in sync.
 export const LEARN_DAYS = 7
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+
+export function proteinTargetForWeight(weightKg, {
+  factor = PROTEIN_CONFIG.factor,
+  min = PROTEIN_CONFIG.min,
+  max = PROTEIN_CONFIG.max,
+} = {}) {
+  const weight = Number(weightKg)
+  const safeFactor = clamp(Number(factor) || PROTEIN_CONFIG.factor, 1.8, 2.2)
+  if (!Number.isFinite(weight) || weight <= 0) return min
+  return clamp(Math.round(weight * safeFactor), min, max)
+}
+
+export function compositeEnergyDensity(fatFraction = ENERGY_DENSITY_CONFIG.defaultFatFraction) {
+  const f = clamp(Number.isFinite(+fatFraction) ? +fatFraction : ENERGY_DENSITY_CONFIG.defaultFatFraction, 0, 1)
+  // A kg lost is a mixture of fat (~9,400 kcal/kg) and lean tissue (~1,800 kcal/kg).
+  // Weighting those densities by the modeled fat fraction replaces the old fixed 7,700 assumption.
+  return f * ENERGY_DENSITY_CONFIG.fat + (1 - f) * ENERGY_DENSITY_CONFIG.lean
+}
+
+export function tdeeConfidence({ coverage = 0, trendSpanDays = 0, dataPoints = 0 } = {}) {
+  const coverageScore = clamp((coverage - 0.60) / 0.40, 0, 1)
+  const spanScore = clamp((trendSpanDays - LEARN_DAYS) / 35, 0, 1)
+  const pointScore = clamp((dataPoints - 5) / 13, 0, 1)
+  // Confidence starts cautiously after the learning gate and rises only when
+  // both intake coverage and trend history support the measured estimate.
+  return clamp(0.10 + 0.45 * coverageScore + 0.30 * spanScore + 0.15 * pointScore, 0.10, 0.90)
+}
+
+export function leannessRateMultiplier(currentBF, goalBF, {
+  referenceHighBF = LEANNESS_CONFIG.referenceHighBF,
+  minimumMultiplier = LEANNESS_CONFIG.minimumMultiplier,
+} = {}) {
+  const current = Number(currentBF)
+  const goal = Number(goalBF)
+  if (!Number.isFinite(current) || !Number.isFinite(goal)) return 1
+  if (current <= goal) return minimumMultiplier
+  const span = Math.max(0.01, referenceHighBF - goal)
+  const proximity = clamp((referenceHighBF - current) / span, 0, 1)
+  return 1 - proximity * (1 - minimumMultiplier)
+}
+
+export function stepCeiling({ baselineStepAvg, userMaxStepBudget = DEFAULT_MAX_STEP_BUDGET } = {}) {
+  const baseline = Math.max(0, Number(baselineStepAvg) || 0)
+  const maxBudget = Math.max(0, Number(userMaxStepBudget) || DEFAULT_MAX_STEP_BUDGET)
+  return Math.min(maxBudget, baseline + 4000)
+}
+
+export function isAdjustmentEligible(lastChangedAt, asOfDate, holdDays) {
+  if (!lastChangedAt) return true
+  const elapsed = _daySpan(lastChangedAt, asOfDate)
+  return elapsed >= holdDays
+}
 
 /* local-date string helpers — all log keys are LOCAL 'YYYY-MM-DD' strings,
    so date math must stay in local time (toISOString would shift the day
@@ -28,18 +91,40 @@ const _shiftDate = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.
 const _daySpan  = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000)
 
 /* ───────────────────────────────────────────────────────────────
-   1. TREND WEIGHT  (Exponentially Weighted Moving Average)
-   Smooths out water/glycogen/sodium noise. alpha ~0.10 ≈ 9-day half-life.
+   1. TREND WEIGHT  (adaptive Exponentially Weighted Moving Average)
+   alpha 0.10 smooths normal water noise. After three consecutive calendar
+   days of unusually directional residuals, alpha temporarily rises to 0.22
+   so a genuine rapid change is not hidden behind filter lag.
 ─────────────────────────────────────────────────────────────── */
-export function trendWeight(logs, alpha = 0.10) {
+export function trendWeight(logs, alpha = EWMA_CONFIG.defaultAlpha) {
   const weighed = logs
     .filter(l => l.weight != null)
     .sort((a, b) => a.date.localeCompare(b.date))
   if (!weighed.length) return []
   let ewma = weighed[0].weight
-  return weighed.map(l => {
-    ewma = alpha * l.weight + (1 - alpha) * ewma
-    return { date: l.date, raw: l.weight, trend: Math.round(ewma * 100) / 100 }
+  const residuals = []
+  let directionalRun = 0
+  let previousDirection = 0
+  return weighed.map((l, index) => {
+    if (index === 0) return { date: l.date, raw: l.weight, trend: Math.round(ewma * 100) / 100, alpha: 0 }
+
+    const residual = l.weight - ewma
+    const historical = residuals.slice()
+    const mean = historical.length ? historical.reduce((sum, x) => sum + x, 0) / historical.length : 0
+    const variance = historical.length ? historical.reduce((sum, x) => sum + (x - mean) ** 2, 0) / historical.length : 0
+    const noiseSD = Math.sqrt(variance)
+    const direction = Math.sign(residual)
+    const isConsecutiveDay = _daySpan(weighed[index - 1].date, l.date) === 1
+    const exceedsNoise = historical.length >= EWMA_CONFIG.minResidualSamples && Math.abs(residual - mean) > EWMA_CONFIG.deviationThreshold * noiseSD
+
+    if (!isConsecutiveDay || direction === 0 || direction !== previousDirection || !exceedsNoise) directionalRun = 0
+    directionalRun = exceedsNoise && isConsecutiveDay && direction === previousDirection ? directionalRun + 1 : (exceedsNoise && isConsecutiveDay ? 1 : directionalRun)
+    previousDirection = direction
+
+    const adaptiveAlpha = directionalRun >= EWMA_CONFIG.consecutiveDays ? EWMA_CONFIG.acceleratedAlpha : alpha
+    ewma = adaptiveAlpha * l.weight + (1 - adaptiveAlpha) * ewma
+    residuals.push(residual)
+    return { date: l.date, raw: l.weight, trend: Math.round(ewma * 100) / 100, alpha: adaptiveAlpha }
   })
 }
 
@@ -51,8 +136,8 @@ export function currentTrendWeight(logs) {
 
 /* ───────────────────────────────────────────────────────────────
    2. ROLLING TDEE ESTIMATE
-   Energy balance: ΔW = (intake − TDEE) / 7700
-   ⇒ TDEE ≈ avgIntake − (trendWeightChangePerDay × 7700)
+   Energy balance: ΔW = (intake − TDEE) / compositeDensity
+   ⇒ TDEE ≈ avgIntake − (trendWeightChangePerDay × compositeDensity)
    (losing ⇒ ΔW negative ⇒ TDEE sits ABOVE intake)
    Uses a trailing window of CALENDAR days that have intake data.
 
@@ -63,7 +148,7 @@ export function currentTrendWeight(logs) {
 
    opts: { windowDays, fastingDays:[dow], fastComp:bool, fastKcal:number }
 ─────────────────────────────────────────────────────────────── */
-export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal = 0 } = {}) {
+export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal = 0, fatFraction = ENERGY_DENSITY_CONFIG.defaultFatFraction } = {}) {
   const sorted = logs
     .filter(l => l.date)
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -109,7 +194,8 @@ export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal
   const wEnd   = trendMap[lastDate]
   const spanDays = Math.max(1, _daySpan(firstDate, lastDate))
   const kgChangePerDay = (wEnd - wStart) / spanDays            // negative when losing
-  const tdee = Math.round(avgIntake - kgChangePerDay * KCAL_PER_KG)
+  const density = compositeEnergyDensity(fatFraction)
+  const tdee = Math.round(avgIntake - kgChangePerDay * density)
 
   return {
     tdee,
@@ -118,6 +204,7 @@ export function estimateTDEE(logs, { windowDays = 18, fastComp = false, fastKcal
     spanDays: Math.round(spanDays),
     dataPoints: withIntake.length,
     coverage: Math.round(coverage * 100) / 100,
+    density: Math.round(density),
   }
 }
 
@@ -137,6 +224,56 @@ export function fatFraction(strengthSignal, weekIntoCut) {
     case 'down':        return 0.60   // burning real muscle — too aggressive
     default:            return 0.85   // no signal → evidence-based default
   }
+}
+
+export function evaluateMuscleRisk({ strengthReports = [], e1rmTrend = [] } = {}) {
+  const reports = strengthReports
+    .filter(r => r?.signal && r?.weekKey != null)
+    .sort((a, b) => String(a.weekKey).localeCompare(String(b.weekKey)))
+  const lastTwo = reports.slice(-2)
+  const consecutiveDown = lastTwo.length === 2 && lastTwo.every(r => r.signal === 'down') &&
+    String(lastTwo[1].weekKey) !== String(lastTwo[0].weekKey)
+
+  const valid = e1rmTrend.filter(x => Number.isFinite(+x?.baseline) && Number.isFinite(+x?.current) && +x.baseline > 0)
+  const objectiveDrop = valid.some(x => (+x.current / +x.baseline) <= 0.97)
+  const confirmed = consecutiveDown || objectiveDrop
+  return {
+    confirmed,
+    watch: !confirmed && (reports.at(-1)?.signal === 'down' || objectiveDrop),
+    reason: consecutiveDown ? 'two_consecutive_down_reports' : objectiveDrop ? 'objective_e1rm_drop' : null,
+  }
+}
+
+const PRIMARY_COMPOUNDS = new Set(['squat', 'front_squat', 'bench_press', 'deadlift', 'rdl', 'ohp', 'pull_up'])
+const _e1rm = (weight, reps) => reps === 1 ? weight : weight * (1 + reps / 30)
+
+export function objectiveE1rmTrend(workouts = [], asOfDate = null) {
+  const dated = workouts.filter(w => w?.date && (!asOfDate || w.date <= asOfDate)).sort((a,b)=>a.date.localeCompare(b.date))
+  if (!dated.length) return []
+  const end = dated.at(-1).date
+  const endDate = new Date(end + 'T12:00:00')
+  const shift = days => { const d = new Date(endDate); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+  const recentStart = shift(-13)
+  const priorStart = shift(-27)
+  const byLift = {}
+  for (const workout of dated) {
+    const window = workout.date >= recentStart ? 'current' : workout.date >= priorStart ? 'baseline' : null
+    if (!window) continue
+    for (const exercise of workout.exercises || []) {
+      if (!PRIMARY_COMPOUNDS.has(exercise.exerciseId)) continue
+      const best = (exercise.sets || []).filter(s => s.done !== false && +s.weight > 0 && +s.reps > 0)
+        .reduce((bestSet, s) => Math.max(bestSet, _e1rm(+s.weight, +s.reps)), 0)
+      if (best > 0) byLift[exercise.exerciseId] ||= { baseline: [], current: [] }
+      if (best > 0) byLift[exercise.exerciseId][window].push(best)
+    }
+  }
+  return Object.entries(byLift)
+    .filter(([, value]) => value.baseline.length && value.current.length)
+    .map(([exerciseId, value]) => ({
+      exerciseId,
+      baseline: value.baseline.reduce((s, x) => s + x, 0) / value.baseline.length,
+      current: value.current.reduce((s, x) => s + x, 0) / value.current.length,
+    }))
 }
 
 /* Estimate current fat mass & BF% from an anchor + modelled fat loss.
@@ -169,12 +306,14 @@ export function inferBodyComp({ logs, anchor, strengthSignal, startDate }) {
   const leanLost      = Math.max(0, massLost) * (1 - ff)
   const newFatMass    = Math.max(0, anchorFatMass - fatLost)
   const newBF         = trendNow > 0 ? (newFatMass / trendNow) * 100 : anchor.bf
+  const leanMass      = Math.max(0, trendNow - newFatMass)
 
   return {
     bf: Math.round(newBF * 10) / 10,
     fatMass: Math.round(newFatMass * 10) / 10,
     fatLost: Math.round(fatLost * 100) / 100,
     leanLost: Math.round(leanLost * 100) / 100,
+    leanMass: Math.round(leanMass * 10) / 10,
     massLost: Math.round(massLost * 100) / 100,
     fatFractionUsed: ff,
   }
@@ -222,7 +361,7 @@ export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }
   const variance = recent.reduce((s, x) => s + (x - meanRate) ** 2, 0) / recent.length
   const sd = Math.sqrt(variance)
 
-  if (meanRate >= -0.05) return { stalled: true, meanRateKg: Math.round(meanRate * 100) / 100 }
+  if (meanRate >= -NOISE_STALLED_RATE_KG) return { stalled: true, meanRateKg: Math.round(meanRate * 100) / 100 }
 
   // goal weight at goal BF, holding current lean mass
   const goalWeight = leanMass / (1 - goalBF / 100)
@@ -259,10 +398,13 @@ export function projectGoal({ logs, currentBF, goalBF, currentWeight, leanMass }
    steps → Zone 2 cardio → calories (in that order).
 ─────────────────────────────────────────────────────────────── */
 export function paceController({
-  currentWeight, goalBF, leanMass,
+  currentWeight, currentBF, goalBF, leanMass,
   daysLeft, actualWeeklyRateKg, currentSteps = 10000,
   baselineSteps = 10000,
+  baselineStepAvg = baselineSteps,
+  userMaxStepBudget = DEFAULT_MAX_STEP_BUDGET,
   currentCardioMin = 0, strengthSignal,
+  muscleRisk = null,
   dataDays = 0,           // # of logged days with usable data
   hasRate = false,        // whether actualWeeklyRateKg is a real measurement (not a 0 placeholder)
   recentAvgSteps = null,
@@ -270,6 +412,8 @@ export function paceController({
   zone2CompletedSessions = 0,
   requiredZone2Sessions = 0,
   stepAdjustmentEligible = true,
+  calorieAdjustmentEligible = true,
+  calorieCooldownDays = CALORIE_HOLD_DAYS,
 }) {
   const goalWeight   = leanMass / (1 - goalBF / 100)
   const kgToGo       = currentWeight - goalWeight
@@ -282,8 +426,9 @@ export function paceController({
   const lossRate     = -(actualWeeklyRateKg || 0)
   const actualRate   = Math.max(0, lossRate)                    // kg/week actual loss
 
-  const safeRateKg  = currentWeight * SAFE_RATE
-  const idealRateKg = currentWeight * IDEAL_RATE
+  const rateMultiplier = leannessRateMultiplier(currentBF, goalBF)
+  const safeRateKg  = currentWeight * SAFE_RATE * rateMultiplier
+  const idealRateKg = currentWeight * IDEAL_RATE * rateMultiplier
 
   // ── COLD START: don't recommend anything until we've actually learned ──
   // Needs ~LEARN_DAYS logged days AND a real measured rate before judging
@@ -306,7 +451,7 @@ export function paceController({
       actualRateKg: hasRate ? Math.round(lossRate * 100) / 100 : null,
       safeRateKg: Math.round(safeRateKg * 100) / 100,
       idealRateKg: Math.round(idealRateKg * 100) / 100,
-      goalTooAggressive: daysLeft >= 7 && requiredPct > SAFE_RATE,
+      goalTooAggressive: daysLeft > 0 && requiredPct > SAFE_RATE * rateMultiplier,
       goalWeight: Math.round(goalWeight * 10) / 10,
       kgToGo: Math.round(kgToGo * 10) / 10,
       learning: true,
@@ -331,7 +476,7 @@ export function paceController({
       actions: [
         'You\'re at (or past) your goal weight. The cut is done.',
         'Reverse out slowly: add ~150–200 kcal/week until trend weight holds steady.',
-        'Keep protein at 130g and keep lifting — that locks the result in.',
+        `Keep protein at ${proteinTargetForWeight(currentWeight)}g and keep lifting — that locks the result in.`,
       ],
       cardioRx: null,
       recommendedSteps: baselineSteps,
@@ -346,10 +491,10 @@ export function paceController({
   // calendar goal is a SEPARATE question (goalTooAggressive note below).
   // (Past the 60-day window daysLeft pins at 1 and requiredPct explodes —
   // suppress the aggressive-goal note when under a week remains.)
-  const goalTooAggressive = daysLeft >= 7 && requiredPct > SAFE_RATE
-  const losingMuscle = strengthSignal === 'down'
-  const gaining      = lossRate < -0.05            // trend rising >50g/wk
-  const maxStepGoal  = 14000
+  const goalTooAggressive = daysLeft > 0 && requiredPct > SAFE_RATE * rateMultiplier
+  const losingMuscle = muscleRisk ? !!muscleRisk.confirmed : strengthSignal === 'down'
+  const gaining      = lossRate < -NOISE_GAINING_RATE_KG // absolute scale-noise threshold
+  const maxStepGoal  = stepCeiling({ baselineStepAvg, userMaxStepBudget })
   const nextStepGoal = Math.min(currentSteps + 2000, maxStepGoal)
   const lowerStepGoal = Math.max(baselineSteps, currentSteps - 1000)
 
@@ -383,6 +528,26 @@ export function paceController({
         : [`You have logged ${zone2CompletedSessions} of ${requiredZone2Sessions} planned Zone 2 session${requiredZone2Sessions === 1 ? '' : 's'} this week.`, 'Complete the current sessions before adding more cardio or reducing calories.', 'Log each session in Today so the next recommendation reflects what actually happened.'],
       cardioRx: null,
       recommendedSteps: currentSteps,
+      muscleWatch: !!muscleRisk?.watch,
+      goalTooAggressive,
+      ...stats,
+    }
+  }
+
+  // Confirmed muscle risk outranks movement cooldown: strength loss is the
+  // more consequential signal and must not be hidden for a review week.
+  if (losingMuscle) {
+    return {
+      status: 'muscle_risk',
+      headline: 'Strength is dropping - ease the deficit',
+      actions: [
+        'Your lifts are falling, which signals muscle loss. Pull back, don\'t push harder.',
+        'Add 100-150 kcal back (carbs around training) and hold for a week.',
+        'Keep protein dynamic, prioritise sleep 7.5h+.',
+      ],
+      cardioRx: null,
+      recommendedSteps: currentSteps,
+      muscleWatch: !!muscleRisk?.watch,
       goalTooAggressive,
       ...stats,
     }
@@ -409,7 +574,7 @@ export function paceController({
     actions = [
       'Your lifts are falling, which signals muscle loss. Pull back, don\'t push harder.',
       'Add 100–150 kcal back (carbs around training) and hold for a week.',
-      'Keep protein at 130g, prioritise sleep 7.5h+.',
+      `Keep protein at ${proteinTargetForWeight(currentWeight)}g, prioritise sleep 7.5h+.`,
     ]
   } else if (gaining) {
     if (currentSteps < maxStepGoal) {
@@ -442,7 +607,7 @@ export function paceController({
       actions = [
         'Your smoothed trend is going up despite the movement plan.',
         'Audit logging carefully, then trim ~150 kcal from the daily target.',
-        'Keep protein fixed and reassess after 7 days.',
+        `Keep protein at ${proteinTargetForWeight(currentWeight)}g and reassess after 7 days.`,
       ]
     }
   } else if (tooFast) {
@@ -500,7 +665,7 @@ export function paceController({
       headline = 'Steps & cardio maxed — trim calories last'
       actions = [
         'You\'ve maxed movement. Now cut ~150 kcal from the daily target.',
-        'Take it from carbs on rest days, keep protein at 130g.',
+        `Take it from carbs on rest days, keep protein at ${proteinTargetForWeight(currentWeight)}g.`,
         'This is the last lever for a reason — protect food as long as possible.',
       ]
     }
@@ -510,12 +675,22 @@ export function paceController({
     actions = ['Stay the course and keep logging.']
   }
 
+  if ((status === 'too_fast' || status === 'lever_calories') && !calorieAdjustmentEligible) {
+    status = 'calorie_hold'
+    headline = 'Hold the calorie target for the review window'
+    actions = [
+      `A calorie change was made recently; hold it for ${calorieCooldownDays} days before changing food again.`,
+      'Keep logging weight, meals, movement, and training so the next decision uses a complete response window.',
+    ]
+    cardioRx = null
+  }
+
   const recommendedSteps = status === 'lever_steps'
     ? nextStepGoal
     : status === 'on_track'
       ? (scheduleNeedsMovement ? nextStepGoal : lowerStepGoal)
       : currentSteps
-  return { status, headline, actions, cardioRx, recommendedSteps, goalTooAggressive, ...stats }
+  return { status, headline, actions, cardioRx, recommendedSteps, muscleWatch: !!muscleRisk?.watch, goalTooAggressive, ...stats }
 }
 
 
@@ -527,12 +702,9 @@ export function paceController({
    or a full diet break (1 week at maintenance, 8+ weeks in) is the
    evidence-based reset. Returns null when not warranted.
 ─────────────────────────────────────────────────────────────── */
-export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories = null }) {
-  if (weeksIntoCut < 4) return null
+export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories = null, currentWeight = null, proteinFactor = PROTEIN_CONFIG.factor, movementAdherence = null }) {
   const trend = trendWeight(logs)
   if (trend.length < 10) return null
-  const span = _daySpan(trend[0].date, trend[trend.length - 1].date) + 1
-  if (span < 28) return null                       // need a month of context
 
   // rate over the trailing ~14 days
   const last = trend[trend.length - 1]
@@ -549,7 +721,25 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
   // when at least 10 of the trailing 15 calendar days have intake data and
   // the logged average is reasonably close to the plan.
   const adherenceWindow = logs.filter(l => l.date >= cutoffDate && l.date <= last.date && l.meals?.length)
-  if (adherenceWindow.length < 10) return null
+  const calendarDays = Math.max(1, _daySpan(cutoffDate, last.date) + 1)
+  const mealCoverage = adherenceWindow.length / calendarDays
+  if (weeksIntoCut * 7 >= 14 && mealCoverage >= 0.95 && movementAdherence === 1 && rate >= -0.05 && rate <= 0.05) {
+    const protein = proteinTargetForWeight(currentWeight, { factor: proteinFactor })
+    return {
+      kind: 'mini_refeed', durationDays: 2,
+      headline: 'High-confidence plateau — take a 2-day mini-refeed',
+      reason: `Your trend is flat (~${Math.abs(rate).toFixed(2)} kg/wk) across a fully logged, fully adherent 14-day window.`,
+      protocol: [
+        `Eat at estimated maintenance (~${Math.round(maintenance)} kcal) for two days.`,
+        `Keep protein at ${protein}g and place most additional calories into carbohydrates.`,
+        'Return to the normal target on day three; this does not override a higher-priority recovery or safety signal.',
+      ],
+    }
+  }
+
+  const span = _daySpan(trend[0].date, trend[trend.length - 1].date) + 1
+  if (weeksIntoCut < 4 || span < 28) return null                       // need a month of context
+  if (mealCoverage < 10 / 15) return null
   const fallbackTarget = Math.max(MIN_CALS, maintenance - 600)
   const avgTarget = adherenceWindow.reduce((sum, l) => sum + (l.planSnapshot?.eatTarget ?? targetCalories ?? fallbackTarget), 0) / adherenceWindow.length
   const avgIntake = adherenceWindow.reduce((sum, l) => sum + l.meals.reduce((day, meal) => day + (+meal.cals || 0), 0), 0) / adherenceWindow.length
@@ -557,7 +747,7 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
 
   // only a TRUE plateau qualifies: not losing, but not gaining either —
   // gaining means intake, not adaptation, and the pace coach handles that
-  if (rate <= -0.15 || rate >= 0.15) return null
+  if (rate <= -REFEED_FLAT_RATE_KG || rate >= REFEED_FLAT_RATE_KG) return null
 
   if (weeksIntoCut >= 8) {
     return {
@@ -566,7 +756,7 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
       reason: `Trend has been flat (~${Math.abs(rate).toFixed(2)} kg/wk) for two weeks after ${Math.floor(weeksIntoCut)} weeks of dieting. That pattern usually means metabolic adaptation, not failure.`,
       protocol: [
         `Eat at maintenance (~${Math.round(maintenance)} kcal) for ONE FULL WEEK. This is a reset, not a cheat.`,
-        'Keep protein at 130g and keep training — most of the scale jump will be water/glycogen.',
+        `Keep protein at ${proteinTargetForWeight(currentWeight, { factor: proteinFactor })}g and keep training — most of the scale jump will be water/glycogen.`,
         'After the week, resume the deficit. Loss typically restarts faster than before.',
       ],
     }
@@ -577,7 +767,7 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
     reason: `Trend has been flat (~${Math.abs(rate).toFixed(2)} kg/wk) for two weeks while you've been in a deficit. A planned high-carb day can reset hormones and training quality.`,
     protocol: [
       `Pick ONE day (ideally a hard training day): eat at maintenance (~${Math.round(maintenance)} kcal).`,
-      'Put the extra calories almost entirely into CARBS — keep protein at 130g, fat stays low.',
+      `Put the extra calories almost entirely into CARBS — keep protein at ${proteinTargetForWeight(currentWeight, { factor: proteinFactor })}g, fat stays low.`,
       'Expect +0.5–1 kg of water next morning; it clears in 2–3 days. Back to the normal target the next day.',
     ],
   }
@@ -592,7 +782,8 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
    1. Fasting day  → 0 or 25% compensation
    2. Cut IQ live target (model-driven base, auto-applied)
    3. Regime distribution: 'steady' = flat, 'zigzag' = weekly wave
-   Protein is FIXED at 130g; remaining kcal split 50/50 carb/fat.
+   Protein is dynamically calculated from current body mass; remaining kcal
+   split 50/50 carb/fat.
 
    params:
      baseTarget   — Cut IQ recommended daily target (or adaptiveTDEE.target fallback)
@@ -602,7 +793,6 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
      fasting      — { isFasting, compensation }  (compensation = 25% if true)
      dateObj      — Date to resolve for (defaults today)
 ─────────────────────────────────────────────────────────────── */
-const PROTEIN_G = 130
 const _DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
 /* Zigzag as a bounded % swing AROUND the daily cut target.
@@ -633,14 +823,18 @@ export function zigzagWeek(target, schedule = 1, intensity = 'weight', floor = M
   })
 }
 
-export function macrosFromCalories(calTarget, proteinG = PROTEIN_G) {
+export function macrosFromCalories(calTarget, proteinG = PROTEIN_CONFIG.min, currentWeightKg = null, proteinOptions = {}) {
+  const targetProteinG = currentWeightKg != null
+    ? proteinTargetForWeight(currentWeightKg, proteinOptions)
+    : proteinG
   // on tiny targets (25% fast compensation) cap protein at 60% of the day
   // so the macro grams can never sum past the calorie target
-  const p = Math.min(proteinG, Math.floor(calTarget * 0.6 / 4))
+  const p = Math.min(targetProteinG, Math.floor(calTarget * 0.6 / 4))
   const remaining = Math.max(calTarget - p * 4, 0)
   return {
     calTarget,
     proteinG: p,
+    proteinTargetG: targetProteinG,
     carbG: Math.round(remaining * 0.5 / 4),
     fatG:  Math.round(remaining * 0.5 / 9),
     // fibre: evidence-based ~14g per 1000 kcal, floored at 15g
@@ -680,6 +874,7 @@ export function buildDayPlan({
   zigzag = { schedule: 1, mode: 'weight' },
   fastingDays = [], fastComp = false,
   manualFastToday = false, overriddenToday = false,
+  currentWeightKg = null, proteinFactor = PROTEIN_CONFIG.factor,
   dateObj = new Date(),
 }) {
   const todayDow = dateObj.getDay()
@@ -723,7 +918,7 @@ export function buildDayPlan({
     eatTarget = baseEatToday
   }
 
-  const macros  = eatTarget > 0 ? macrosFromCalories(eatTarget) : { calTarget: 0, proteinG: 0, carbG: 0, fatG: 0, fiberG: 0 }
+  const macros  = eatTarget > 0 ? macrosFromCalories(eatTarget, null, currentWeightKg, { factor: proteinFactor }) : { calTarget: 0, proteinG: 0, proteinTargetG: 0, carbG: 0, fatG: 0, fiberG: 0 }
   const deficit = Math.round(maintenance - eatTarget)
 
   return {
@@ -739,4 +934,10 @@ export function buildDayPlan({
   }
 }
 
-export const ENGINE_CONST = { KCAL_PER_KG, MIN_CALS, SAFE_RATE, IDEAL_RATE, PROTEIN_G }
+export const ENGINE_CONST = {
+  MIN_CALS, SAFE_RATE, IDEAL_RATE,
+  NOISE_GAINING_RATE_KG, NOISE_STALLED_RATE_KG, REFEED_FLAT_RATE_KG,
+  PROTEIN_CONFIG, EWMA_CONFIG, ENERGY_DENSITY_CONFIG,
+  DEFAULT_MAX_STEP_BUDGET, MOVEMENT_HOLD_DAYS, CALORIE_HOLD_DAYS,
+  LEANNESS_CONFIG,
+}

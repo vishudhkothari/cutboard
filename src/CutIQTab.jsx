@@ -4,7 +4,8 @@ import { C, F, SHADOW, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from '
 import { Icon } from './lib/icons'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
-  inferBodyComp, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
+  inferBodyComp, fatFraction, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
+  proteinTargetForWeight, isAdjustmentEligible, evaluateMuscleRisk, objectiveE1rmTrend, ENGINE_CONST,
 } from './lib/cutEngine'
 import { FOOD_DB } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
@@ -13,6 +14,7 @@ import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 const fmtD = d => d ? new Date(typeof d === 'string' ? d + 'T12:00:00' : d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
 const pad2 = n => String(n).padStart(2, '0')
 const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`
+const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return localDateStr(d) }
 const daysBetween = (from, to = localDateStr()) => Math.max(0,
   Math.floor((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 86400000)
 )
@@ -28,7 +30,7 @@ const STRENGTH_OPTS = [
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
 ]
 
-export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, cutData, onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, cutData, workoutHistory = [], onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
   // cutData = { anchor, strengthSignal, strengthWeek, cardioMin } — owned by
   // App (single source of truth: the anchor also drives Header/Progress)
   const mobile = useIsMobile()
@@ -40,23 +42,27 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   // ── derived model outputs ──────────────────────────────────
   const trend       = useMemo(()=>trendWeight(allLogs), [allLogs])
   const trendNow    = useMemo(()=>currentTrendWeight(allLogs), [allLogs])
+  const weeksIntoCut= setup?.startDate ? daysBetween(setup.startDate) / 7 : 0
+  const objectiveE1rm = useMemo(() => objectiveE1rmTrend(workoutHistory, localDateStr()), [workoutHistory])
+  const muscleRisk = useMemo(() => evaluateMuscleRisk({ strengthReports: cutData?.strengthReports || [], e1rmTrend: objectiveE1rm }), [cutData?.strengthReports, objectiveE1rm])
   const tdeeEst     = useMemo(()=>estimateTDEE(allLogs, {
     fastingDays: planSettings?.fastingDays || [],
     fastComp: !!planSettings?.fastCompensation,
     fastKcal: planSettings?.fastCompensation ? Math.round((adaptiveTDEE?.target || 0) * 0.25) : 0,
-  }), [allLogs, planSettings, adaptiveTDEE])
-  const weeksIntoCut= setup?.startDate ? daysBetween(setup.startDate) / 7 : 0
+    fatFraction: fatFraction(cutData?.strengthSignal === 'down' && !muscleRisk.confirmed ? null : cutData?.strengthSignal, weeksIntoCut) ?? 0.85,
+  }), [allLogs, planSettings, adaptiveTDEE, cutData?.strengthSignal, setup?.startDate, muscleRisk.confirmed, weeksIntoCut])
 
   const anchor = useMemo(() => cutData?.anchor || (setup ? {
     date: setup.startDate, weight: setup.startWeight, bf: setup.startBF
   } : null), [cutData?.anchor, setup])
 
+  const modeledStrengthSignal = cutData?.strengthSignal === 'down' && !muscleRisk.confirmed ? null : cutData?.strengthSignal
   const bodyComp = useMemo(()=> setup && anchor ? inferBodyComp({
-    logs:allLogs, anchor, strengthSignal:cutData?.strengthSignal, startDate:setup.startDate
-  }) : null, [allLogs, anchor, cutData?.strengthSignal, setup])
+    logs:allLogs, anchor, strengthSignal:modeledStrengthSignal, startDate:setup.startDate
+  }) : null, [allLogs, anchor, modeledStrengthSignal, setup])
 
   const currentBF = bodyComp?.bf ?? anchor?.bf
-  const leanMass  = anchor ? anchor.weight * (1 - anchor.bf/100) : null
+  const leanMass  = bodyComp?.leanMass ?? (anchor ? anchor.weight * (1 - anchor.bf/100) : null)
   const curWeight = trendNow ?? setup?.startWeight
   const baselineSteps = setup?.stepGoal || 10000
   const currentSteps = cutData?.stepGoal || baselineSteps
@@ -73,7 +79,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
     const start = localDateStr(weekStart)
     const sessions = allLogs.filter(l => l.date >= start && l.date <= localDateStr() && Array.isArray(l.zone2Sessions))
-      .reduce((sum,l) => sum + l.zone2Sessions.filter(s => +s.minutes > 0).length, 0)
+      .reduce((sum,l) => sum + l.zone2Sessions.filter(s => (typeof s === 'number' ? s : s?.minutes) > 0).length, 0)
     const plan = cutData?.cardioPlan
     return { sessions, required:plan?.sessionsPerWeek || 0 }
   }, [allLogs, cutData?.cardioPlan])
@@ -98,13 +104,33 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
     return Math.round((new Date(w[w.length-1].date+'T12:00:00') - new Date(w[0].date+'T12:00:00'))/86400000) + 1
   }, [allLogs])
 
+  const baselineStepAvg = useMemo(() => {
+    const values = allLogs.filter(l => l.date <= localDateStr() && Number.isFinite(+l.steps) && +l.steps >= 0)
+      .sort((a,b)=>a.date.localeCompare(b.date)).slice(0, 14).map(l => +l.steps)
+    return values.length ? values.reduce((s,v)=>s+v,0) / values.length : baselineSteps
+  }, [allLogs, baselineSteps])
+  const movementAdherence = useMemo(() => {
+    const end = localDateStr()
+    const start = addDays(end, -13)
+    const window = Array.from({ length: 14 }, (_, i) => addDays(start, i))
+    const byDate = Object.fromEntries(allLogs.map(l => [l.date, l]))
+    const days = window.map(date => byDate[date])
+    if (days.some(l => !l || !Number.isFinite(+l.steps))) return 0
+    const stepOk = days.every(l => +l.steps >= currentSteps * 0.95)
+    const required = cutData?.cardioPlan?.sessionsPerWeek || 0
+    const sessions = days.reduce((sum, l) => sum + (Array.isArray(l.zone2Sessions) ? l.zone2Sessions.filter(s => (typeof s === 'number' ? s : s?.minutes) > 0).length : 0), 0)
+    return stepOk && sessions >= required * 2 ? 1 : 0
+  }, [allLogs, currentSteps, cutData?.cardioPlan?.sessionsPerWeek])
   const pace = useMemo(()=> setup && leanMass ? paceController({
     currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, daysLeft,
     actualWeeklyRateKg: tdeeEst?.weeklyRateKg ?? 0,
     currentSteps,
     baselineSteps,
+    baselineStepAvg,
+    userMaxStepBudget: cutData?.userMaxStepBudget || setup?.userMaxStepBudget || ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET,
     currentCardioMin: cutData?.cardioMin || 0,
     strengthSignal: cutData?.strengthSignal,
+    muscleRisk,
     dataDays: dataSpanDays,
     hasRate: !!tdeeEst,
     recentAvgSteps: recentMovement.average,
@@ -112,13 +138,15 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
     zone2CompletedSessions: zone2Progress.sessions,
     requiredZone2Sessions: zone2Progress.required,
     stepAdjustmentEligible,
-  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, dataSpanDays, currentSteps, baselineSteps, recentMovement, zone2Progress, stepAdjustmentEligible])
+    calorieAdjustmentEligible: isAdjustmentEligible(cutData?.lastCalorieChangeAt, localDateStr(), 7),
+  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, cutData, muscleRisk, dataSpanDays, currentSteps, baselineSteps, baselineStepAvg, recentMovement, zone2Progress, stepAdjustmentEligible])
 
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
   const refeed = useMemo(() => !inMaintenance ? suggestRefeed({
-    logs: allLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0,
+    logs: allLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0, currentWeight: curWeight,
     targetCalories: adaptiveTDEE?.target,
-  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance])
+    movementAdherence,
+  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance, curWeight, movementAdherence])
 
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
@@ -236,7 +264,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
             {[
               `Your target is ramping +150 kcal each week (currently ${adaptiveTDEE.target} kcal) until it reaches maintenance (~${adaptiveTDEE.base} kcal).`,
               'The goal now is a FLAT trend line — weight holding steady while eating more.',
-              'Keep protein at 130g and keep lifting heavy; that\'s what locks the result in.',
+              `Keep protein at ${proteinTargetForWeight(curWeight)}g and keep lifting heavy; that's what locks the result in.`,
               'Want to cut again later? Raise the cut length in Settings, or reset with a new start date.',
             ].map((a,i)=>(
               <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start', fontSize:12.5, color:C.text, opacity:0.85, lineHeight:1.5 }}>
@@ -343,7 +371,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
         </div>
         <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr 1fr':'repeat(4,1fr)', gap:8 }}>
           {STRENGTH_OPTS.map(o=>(
-            <button key={o.id} onClick={()=>{ buzz(12); save({ ...cutData, strengthSignal:o.id, strengthWeek:thisWeek }) }}
+            <button key={o.id} onClick={()=>{ buzz(12); const report={ weekKey:thisWeek, signal:o.id, recordedAt:localDateStr() }; save({ ...cutData, strengthSignal:o.id, strengthWeek:thisWeek, strengthReports:[...(cutData?.strengthReports||[]).filter(r=>r.weekKey!==thisWeek), report] }) }}
               style={{ ...btn(cutData?.strengthSignal===o.id,true), flexDirection:'column', display:'flex', alignItems:'center', gap:3, padding:'12px 6px', textAlign:'center' }}>
               <span style={{ fontWeight:700 }}>{o.label}</span>
               <span style={{ fontSize:10, color:cutData?.strengthSignal===o.id?'#0a0612':C.textSub }}>{o.desc}</span>
