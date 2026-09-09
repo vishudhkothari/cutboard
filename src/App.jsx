@@ -1222,6 +1222,8 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
 function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
+  const [copyDayOpen,  setCopyDayOpen]  = useState(false)
+  const [copySourceDate, setCopySourceDate] = useState(() => addDaysStr(viewDate, -1))
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
   const [mealsExpanded, setMealsExpanded] = useState(false)
   const [coachOpen,     setCoachOpen]     = useState(false)
@@ -1313,6 +1315,12 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
     })
   }
   const dupMeal    = idx => { const next = { ...local, meals: [...local.meals, { ...local.meals[idx] }] }; setLocal(next); onSave(next); buzz(12) }
+  const copySourceLog = copySourceDate === viewDate ? local : allLogs.find(l => l.date === copySourceDate)
+  const copyMealsFromDay = () => {
+    if (copySourceDate === viewDate || !copySourceLog?.meals?.length) return
+    const next = { ...local, meals: [...local.meals, ...copySourceLog.meals.map(m => ({ ...m }))] }
+    setLocal(next); onSave(next); setCopyDayOpen(false); buzz(12)
+  }
   const yesterdayLog = allLogs.find(l => l.date === addDaysStr(viewDate, -1))
   const copyYesterday = () => {
     if (!yesterdayLog?.meals?.length) return
@@ -1534,12 +1542,30 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {!isFasting && yesterdayLog?.meals?.length > 0 && <button style={btn(false,true)} onClick={copyYesterday} title="Copy all of yesterday's meals">⧉ Yesterday</button>}
+            {!isFasting && <button style={btn(false,true)} onClick={() => { setCopySourceDate(addDaysStr(viewDate, -1)); setCopyDayOpen(o => !o) }} title="Copy all meals from another day">Copy day</button>}
             {!isFasting && <button style={btn(true,true)} onClick={()=>setAddOpen(o=>!o)}>+ Add Meal</button>}
             <button style={{...btn(isFasting,true),...(isFasting?{background:'#0e1e30',borderColor:C.blue,color:C.blue}:{}), display:'inline-flex', alignItems:'center', gap:6}} onClick={toggleFasting}>
               {isFasting ? (isPlannedFast&&!local.fasting ? '↩ Override Fast' : '↩ Undo Fast') : <><Icon name="ban" size={14} /> Fasting Day</>}
             </button>
           </div>
         </div>
+
+        {!isFasting && copyDayOpen && (
+          <div style={{...card({background:'rgba(255,255,255,0.02)',marginBottom:16})}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:10}}>Copy every meal from a specific logged day into {niceDate}. Existing meals will be kept.</div>
+            <div style={{display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'}}>
+              <div>
+                <label style={LBL}>Source day</label>
+                <input type="date" max={todayStr()} value={copySourceDate} onChange={e=>setCopySourceDate(e.target.value)} style={inp({padding:'7px 10px'})} />
+              </div>
+              <button style={{...btn(true,true),opacity:copySourceLog?.meals?.length && copySourceDate !== viewDate ? 1 : 0.45}} disabled={!copySourceLog?.meals?.length || copySourceDate === viewDate} onClick={copyMealsFromDay}>Copy meals</button>
+              <button style={btn(false,true)} onClick={()=>setCopyDayOpen(false)}>Cancel</button>
+            </div>
+            {copySourceDate === viewDate
+              ? <div style={{fontSize:11,color:C.orange,marginTop:8}}>Choose a different day.</div>
+              : !copySourceLog?.meals?.length && <div style={{fontSize:11,color:C.orange,marginTop:8}}>No meals are logged on that day.</div>}
+          </div>
+        )}
 
         {/* Add meal panel */}
         {addOpen && (
