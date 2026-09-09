@@ -1593,6 +1593,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
                     {calendarCells.map(date => {
                       const d = new Date(date + 'T12:00:00')
                       const inMonth = d.getMonth() === calendarMonth.getMonth()
+                      if (!inMonth) return <div key={date} aria-hidden="true" style={{minHeight:42}} />
                       const future = date > todayStr()
                       const sameDay = date === viewDate
                       const cals = calendarCalsFor(date)
