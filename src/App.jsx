@@ -98,7 +98,7 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
     const fastComp   = !!planSettings.fastCompensation
     const approxTgt  = Math.max(bmr, formulaTDEE - (activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
     const est = estimateTDEE(scopedLogs, {
-      fastingDays: planSettings.fastingDays || [],
+      fastingDays: [],
       fastComp,
       fastKcal: fastComp ? Math.round(approxTgt * 0.25) : 0,
     })
@@ -155,7 +155,7 @@ function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSetti
     floor: tdee.bmr,
     regime: zigzagSettings.on ? 'zigzag' : 'steady',
     zigzag: { schedule: zigzagSettings.schedule || 1, mode: zigzagSettings.mode || 'weight' },
-    fastingDays: planSettings.fastingDays || [],
+    fastingDays: [],
     fastComp: !!planSettings.fastCompensation,
     manualFastToday: !!log?.fasting,
     overriddenToday: !!log?.fastingOverridden,
@@ -1333,7 +1333,6 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   // ── ALL targets come from dayPlan (the single source of truth) ──
   const regime          = dayPlan.regime
   const isFasting        = dayPlan.fasting.isFasting
-  const isPlannedFast    = dayPlan.fasting.planned
   const effectiveMacros  = { calTarget: dayPlan.eatTarget, proteinG: dayPlan.proteinG, carbG: dayPlan.carbG, fatG: dayPlan.fatG, fiberG: dayPlan.fiberG }
   const calTarget        = dayPlan.eatTarget
   const fastCompTarget   = dayPlan.fasting.kind === 'comp25' ? dayPlan.eatTarget : 0
@@ -1441,10 +1440,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }
   const toggleFasting = () => {
     // planned-day check must use the VIEWED date's weekday, not real today
-    const isPlannedDay = planSettings?.fastingDays?.includes(new Date(viewDate + 'T12:00:00').getDay())
     if (isFasting) {
-      // Turn off fasting — keep override flag if this is a planned day to prevent re-activation
-      const next = { ...local, fasting: false, fastingOverridden: isPlannedDay, meals: local.meals }
+      const next = { ...local, fasting: false, fastingOverridden: false, meals: local.meals }
       setLocal(next); onSave(next)
     } else {
       // Turn on manual fast
@@ -1506,7 +1503,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             <Icon name="ban" size={44} color={C.blue} />
             <div>
               <div style={{ fontFamily:F.head, fontWeight:800, fontSize:24, color:C.blue }}>
-                {isPlannedFast && !local.fasting ? 'Planned Fasting Day' : 'Fasting Day'}
+                Fasting Day
               </div>
               <div style={{ fontSize:13, color:C.textSub, marginTop:4 }}>
                 {planSettings?.fastCompensation && fastCompTarget > 0
@@ -1552,7 +1549,6 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15 }}>Coach</div>
           <div style={{ flex: 1 }} />
           {regime === 'zigzag' && <span style={{ background: 'rgba(167,139,250,0.12)', border: `1px solid ${C.accent}44`, color: C.accent, fontSize: 10, fontWeight: 700, padding: '4px 11px', borderRadius: 20, letterSpacing: '0.1em' }}>ZIGZAG</span>}
-          {isPlannedFast && <span style={{ background: '#0e1e30', border: '1px solid #1a4a7a', color: C.blue, fontSize: 10, fontWeight: 700, padding: '4px 11px', borderRadius: 20, letterSpacing: '0.1em' }}>PLANNED FAST</span>}
         </div>
         <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginTop:-8, marginBottom:12, fontSize:9.5, color:C.textFaint, fontFamily:F.mono }}>
           <span><i style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:C.good,marginRight:4}} />on track</span>
@@ -1660,14 +1656,14 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
           <div style={{display:'flex',alignItems:'center',gap:12}}>
             <div style={{fontFamily:F.head,fontWeight:700,fontSize:15}}>Meals</div>
-            {isFasting && <span style={{background:'#0e1e30',border:'1px solid #1a4a7a',color:C.blue,fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20}}>{isPlannedFast&&!local.fasting?'PLANNED FAST':'FASTING'}</span>}
+          {isFasting && <span style={{background:'#0e1e30',border:'1px solid #1a4a7a',color:C.blue,fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20}}>FASTING</span>}
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {!isFasting && yesterdayLog?.meals?.length > 0 && <button style={btn(false,true)} onClick={copyYesterday} title="Copy all of yesterday's meals">⧉ Yesterday</button>}
             {!isFasting && <button style={btn(false,true)} onClick={() => { const previous = addDaysStr(viewDate, -1); setCopySourceDate(previous); setCalendarMonth(new Date(previous + 'T12:00:00')); setCopyDayOpen(o => !o) }} title="Copy all meals from another day">Copy day</button>}
             {!isFasting && <button style={btn(true,true)} onClick={()=>setAddOpen(o=>!o)}>+ Add Meal</button>}
             <button style={{...btn(isFasting,true),...(isFasting?{background:'#0e1e30',borderColor:C.blue,color:C.blue}:{}), display:'inline-flex', alignItems:'center', gap:6}} onClick={toggleFasting}>
-              {isFasting ? (isPlannedFast&&!local.fasting ? '↩ Override Fast' : '↩ Undo Fast') : <><Icon name="ban" size={14} /> Fasting Day</>}
+              {isFasting ? '↩ Undo Fast' : <><Icon name="ban" size={14} /> Fasting Day</>}
             </button>
           </div>
         </div>
@@ -2365,7 +2361,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SCHEDULE TAB — Calorie strategy + fasting manager
+   SCHEDULE TAB — Calorie strategy + manual fasting settings
 ═══════════════════════════════════════════════════════════════ */
 function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag, onSetActiveCut }) {
   const mobile = useIsMobile()
@@ -2373,14 +2369,6 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
   const [zigzagSched, setZigzagSched] = useState(zigzagSettings?.schedule || 1)
   const [zigzagMode,  setZigzagMode]  = useState(zigzagSettings?.mode || 'weight')
   const [zigzagOn,    setZigzagOn]    = useState(zigzagSettings?.on || false)
-  const fastingDays = Array.isArray(planSettings?.fastingDays) ? planSettings.fastingDays : []
-  const toggleFastingDay = dow => {
-    const next = fastingDays.includes(dow)
-      ? fastingDays.filter(day => day !== dow)
-      : [...fastingDays, dow].sort((a, b) => a - b)
-    onSavePlanSettings?.({ ...planSettings, fastingDays: next })
-  }
-
   // today's target comes straight from the single source of truth
   const isFastingToday = dayPlan.fasting.isFasting
   const todayTarget    = dayPlan.eatTarget
@@ -2462,19 +2450,11 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         </div>
       </div>
 
-      {/* Fasting manager */}
+      {/* Manual fasting settings */}
       <div style={card()}>
-        <div style={{fontFamily:F.head,fontWeight:700,fontSize:16}}>Fasting Schedule</div>
+        <div style={{fontFamily:F.head,fontWeight:700,fontSize:16}}>Fasting</div>
         <div style={{fontSize:12,color:C.textSub,marginTop:3,lineHeight:1.5}}>
-          Choose recurring days. A day is only counted as completed fasting after you confirm it in Today.
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6,marginTop:14}}>
-          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((name, dow) => (
-            <button key={name} style={{...btn(fastingDays.includes(dow), true), padding:'10px 4px', fontSize:11}}
-              onClick={() => toggleFastingDay(dow)} aria-pressed={fastingDays.includes(dow)}>
-              {name}
-            </button>
-          ))}
+          Use the Fasting Day button in Today whenever you are fasting. There are no recurring fasting days.
         </div>
         <label style={{display:'flex',alignItems:'center',gap:9,marginTop:14,fontSize:12.5,color:C.textSub,cursor:'pointer'}}>
           <input type="checkbox" checked={!!planSettings?.fastCompensation}
@@ -2885,7 +2865,7 @@ export default function App() {
     floor:        dayTDEE.bmr,
     regime:       zigzagSettings?.on ? 'zigzag' : 'steady',
     zigzag:       { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
-    fastingDays:  planSettings?.fastingDays || [],
+    fastingDays:  [],
     fastComp:     !!planSettings?.fastCompensation,
     manualFastToday: !!todayLog.fasting,
     overriddenToday: !!todayLog.fastingOverridden,
