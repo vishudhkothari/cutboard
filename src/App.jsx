@@ -1596,15 +1596,17 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
                       const future = date > todayStr()
                       const sameDay = date === viewDate
                       const cals = calendarCalsFor(date)
-                      const hasMeals = !!calendarLogFor(date)?.meals?.length
+                      const dayLog = calendarLogFor(date)
+                      const hasMeals = !!dayLog?.meals?.length
+                      const isFastingDay = !!dayLog?.fasting
                       const selected = date === copySourceDate
                       const calsColor = calendarCalsColor(date, cals, hasMeals)
                       return <button key={date} type="button" disabled={future || sameDay || !hasMeals}
                         onClick={()=>setCopySourceDate(date)}
-                        title={hasMeals ? `${fmtDate(date)} · ${cals} kcal` : 'No meals logged'}
-                        style={{minHeight:42,width:'100%',boxSizing:'border-box',padding:'4px 2px',borderRadius:8,border:`1px solid ${selected?C.accent:'transparent'}`,background:selected?'rgba(167,139,250,0.16)':'transparent',color:inMonth?C.text:C.textFaint,opacity:future||sameDay||!hasMeals?0.38:1,cursor:future||sameDay||!hasMeals?'default':'pointer',fontFamily:F.body,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+                        title={isFastingDay ? `${fmtDate(date)} · Fasting day` : hasMeals ? `${fmtDate(date)} · ${cals} kcal` : 'No meals logged'}
+                        style={{minHeight:42,width:'100%',boxSizing:'border-box',padding:'4px 2px',borderRadius:8,border:`1px solid ${selected?C.accent:'transparent'}`,background:selected?'rgba(167,139,250,0.16)':'transparent',color:inMonth?C.text:C.textFaint,opacity:future||sameDay||(!hasMeals&&!isFastingDay)?0.38:1,cursor:future||sameDay||!hasMeals?'default':'pointer',fontFamily:F.body,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
                         <div style={{fontSize:12,fontWeight:selected?700:500}}>{d.getDate()}</div>
-                        <div style={{fontFamily:F.mono,fontSize:8,color:calsColor,marginTop:2,whiteSpace:'nowrap'}}>{hasMeals?`${cals} kcal`:'—'}</div>
+                        <div style={{fontFamily:F.mono,fontSize:isFastingDay?15:8,lineHeight:1,color:isFastingDay?C.blue:calsColor,marginTop:2,whiteSpace:'nowrap'}}>{isFastingDay?'×':hasMeals?`${cals} kcal`:'—'}</div>
                       </button>
                     })}
                   </div>
