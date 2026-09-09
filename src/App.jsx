@@ -10,7 +10,7 @@ import { store } from './lib/store'
 import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
-import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
+import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, fatFraction, evaluateMuscleRisk, tdeeConfidence, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
@@ -48,7 +48,7 @@ function calcBMR(w, h, age, sex = 'male', bfPct = null) {
 /* ─── TRUE ADAPTIVE TDEE ─────────────────────────────────────────
    After ~1 week of real data, blends the formula TDEE with the
    measured one from estimateTDEE() (energy balance:
-   TDEE = avg_intake − ΔtrendWeight × 7700 / days).
+   TDEE = avg_intake − ΔtrendWeight × composite energy density / days).
 ──────────────────────────────────────────────────────────────── */
 // Deficit presets. Active Cut is the "energy flux" path: a bigger TOTAL
 // deficit that's partly PAID FOR by deliberate cardio (incline walking),
@@ -62,7 +62,7 @@ export function inclineWalkBurn(minutes, weightKg) {
   return Math.round((+minutes || 0) * (+weightKg || 0) * CARDIO_KCAL_PER_KG_MIN)
 }
 
-function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) {
+function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr(), cutIntel = null) {
   if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut', activeCut: false, cardioBurn: 0, cardioMin: 0, foodDeficit: 600, effMaint: 2400 }
   const scopedLogs = logs.filter(l => l.date <= asOfDate)
   // Active Cut defaults to the profile setting, but a date entry can override
@@ -82,7 +82,7 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
   // ── Maintenance estimation (coach-standard) ──
   // Weeks 1-2: trust the formula completely (early loss is water/glycogen,
   // so scale-derived TDEE is meaningless and would crater the target).
-  // Week 3+: BLEND formula with the data estimate, but CLAMP the data
+  // Week 3+: confidence-weight formula with the data estimate, but CLAMP the data
   // value to ±15% of the formula so a noisy regression can't swing the
   // target into famine territory.
   let base = formulaTDEE, isDataDriven = false
@@ -93,18 +93,24 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
   const daysLogged = datedLogs.length
   const spanDays = datedLogs.length ? daysBetween(datedLogs[0].date, asOfDate) + 1 : 0
   if (spanDays >= LEARN_DAYS && daysLogged >= 5) {
-    // feed scheduled/manual fasts into the regression at their real intake
+    // Feed scheduled/manual fasts into the regression at their real intake.
     // (0 for a full fast, ~25% of target for compensation days)
     const fastComp   = !!planSettings.fastCompensation
     const approxTgt  = Math.max(bmr, formulaTDEE - (activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
+    const weeksIntoCut = setup.startDate ? daysBetween(setup.startDate, asOfDate) / 7 : 0
+    const strengthRiskForModel = evaluateMuscleRisk({ strengthReports: cutIntel?.strengthReports || [] })
+    const modeledSignal = cutIntel?.strengthSignal === 'down' && !strengthRiskForModel.confirmed ? null : cutIntel?.strengthSignal
+    const modeledFatFraction = fatFraction(modeledSignal, weeksIntoCut) ?? 0.85
     const est = estimateTDEE(scopedLogs, {
       fastComp,
       fastKcal: fastComp ? Math.round(approxTgt * 0.25) : 0,
+      fatFraction: modeledFatFraction,
     })
     if (est && est.tdee > 0) {
       const lo = formulaTDEE * 0.85, hi = formulaTDEE * 1.15
       const clamped = Math.min(hi, Math.max(lo, est.tdee))   // never >15% off formula
-      base = Math.round(formulaTDEE * 0.5 + clamped * 0.5)   // 50/50 blend
+      const measuredWeight = tdeeConfidence({ coverage: est.coverage, trendSpanDays: est.spanDays, dataPoints: est.dataPoints })
+      base = Math.round(formulaTDEE * (1 - measuredWeight) + clamped * measuredWeight)
       isDataDriven = true
     }
   }
@@ -146,8 +152,8 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
   return { target, base, adj: 0, curW, deficit: effMaint - target, isDataDriven, bmr, phase, ...extra }
 }
 
-function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSettings = {} }) {
-  const tdee = getAdaptiveTDEE(setup, logs, planSettings, date)
+function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSettings = {}, cutIntel = null }) {
+  const tdee = getAdaptiveTDEE(setup, logs, planSettings, date, cutIntel)
   return buildDayPlan({
     baseTarget: tdee.target,
     maintenance: tdee.effMaint ?? tdee.base,
@@ -161,9 +167,9 @@ function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSetti
   })
 }
 
-function createPlanSnapshot({ date, log, setup, logs, planSettings = {}, zigzagSettings = {}, source = 'captured' }) {
-  const tdee = getAdaptiveTDEE(setup, logs, planSettings, date)
-  const plan = getPlanForDate({ date, log, setup, logs, planSettings, zigzagSettings })
+function createPlanSnapshot({ date, log, setup, logs, planSettings = {}, zigzagSettings = {}, cutIntel = null, source = 'captured' }) {
+  const tdee = getAdaptiveTDEE(setup, logs, planSettings, date, cutIntel)
+  const plan = getPlanForDate({ date, log, setup, logs, planSettings, zigzagSettings, cutIntel })
   return {
     target:tdee.target, base:tdee.base, bmr:tdee.bmr,
     effMaint:tdee.effMaint ?? tdee.base, activeCut:tdee.activeCut,
@@ -191,6 +197,11 @@ const ZIGZAG_LABELS = { mild: 'Mild (±9% swing)', weight: 'Standard (±15% swin
 function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSettings = {}, prescribedSteps = null, currentLog = null, currentPlan = null) {
   const baseline = setup?.stepGoal || 10000
   const base = prescribedSteps || baseline
+  const baselineValues = logs.filter(l => Number.isFinite(+l.steps)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0, 14).map(l => +l.steps)
+  const baselineStepAvg = baselineValues.length ? baselineValues.reduce((s,v)=>s+v,0) / baselineValues.length : baseline
+  const maxStepBudget = setup?.userMaxStepBudget || ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET
+  const stepCeiling = Math.min(maxStepBudget, baselineStepAvg + 4000)
+  const boundedBase = Math.min(base, stepCeiling)
   const calPerStep = tdeeData.curW * 0.00061
   // Keep a rolling calorie debt. Over-target calories add to it; only steps
   // above the normal daily goal pay it down. This means completed compensation
@@ -244,18 +255,19 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
     const extraSteps = Math.max(0, (+currentLog.steps || 0) - baseline)
     debt = Math.max(0, debt - extraSteps * calPerStep)
   }
-  if (debt <= 0) return { goal: base, extra: 0, reason: null }
-  const extra = Math.min(Math.ceil(debt / calPerStep), 6000)
-  return { goal: Math.max(base, baseline + extra), extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
+  if (debt <= 0) return { goal: boundedBase, extra: 0, reason: null }
+  const maxExtra = Math.max(0, Math.floor(stepCeiling - baseline))
+  const extra = Math.min(Math.ceil(debt / calPerStep), maxExtra)
+  return { goal: Math.min(stepCeiling, Math.max(boundedBase, baseline + extra)), extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
 }
 
 /* ─── STREAKS ────────────────────────────────────────────────────
    Consecutive-day counts ending today (or yesterday if today isn't
    logged yet — an unfinished day never breaks a streak). */
-function getStreaks(logs) {
+function getStreaks(logs, proteinTarget = ENGINE_CONST.PROTEIN_CONFIG.min) {
   const byDate = Object.fromEntries(logs.map(l => [l.date, l]))
   const loggedDay = l => !!l && (l.weight != null || (l.meals && l.meals.length > 0) || l.fasting)
-  const protDay   = l => !!l && (l.meals || []).reduce((s, m) => s + (+m.protein || 0), 0) >= ENGINE_CONST.PROTEIN_G - 10
+  const protDay   = l => !!l && (l.meals || []).reduce((s, m) => s + (+m.protein || 0), 0) >= proteinTarget - 10
   const count = pred => {
     let d = todayStr(), n = 0
     if (!pred(byDate[d])) d = addDaysStr(d, -1)
@@ -454,7 +466,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
     name: existing?.name ?? userEmail?.split('@')[0] ?? '', age: existing?.age ?? '', height: existing?.height ?? '',
     sex: existing?.sex ?? 'male', activity: existing?.activity ?? 'mod',
     startWeight: existing?.startWeight ?? '', startBF: existing?.startBF ?? '', goalBF: existing?.goalBF ?? 12,
-    startDate: existing?.startDate ?? todayStr(), cutLength: existing?.cutLength ?? 60, stepGoal: existing?.stepGoal ?? 10000,
+    startDate: existing?.startDate ?? todayStr(), cutLength: existing?.cutLength ?? 60, stepGoal: existing?.stepGoal ?? 10000, userMaxStepBudget: existing?.userMaxStepBudget ?? ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET,
     carbCycling: existing?.carbCycling ?? false, trainingDays: existing?.trainingDays ?? [1,3,5],
     manualCalTarget: existing?.manualCalTarget ?? '',
     activeCut: existing?.activeCut ?? false, cardioMin: existing?.cardioMin ?? 35,
@@ -491,6 +503,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
             </div>
           )}
           <div style={{ maxWidth: 240 }}><label style={LBL}>Base Daily Step Goal</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.stepGoal} placeholder="10000" onChange={e => set('stepGoal', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Extra steps added automatically when you overeat</div></div>
+          <div style={{ maxWidth: 240 }}><label style={LBL}>Maximum Step Budget</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.userMaxStepBudget} placeholder="14000" onChange={e => set('userMaxStepBudget', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Also capped at baseline average + 4,000.</div></div>
           {/* ── Active Cut: eat more, move more (per-account) ── */}
           <div style={card({ background: f.activeCut ? '#0c1410' : '#0c0c0f', borderColor: f.activeCut ? `${C.teal}44` : C.border })}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -522,7 +535,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
           </div>
           <div style={card({ background: '#0c0c0f' })}>
             <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Diet Regime</div>
-            <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>Your daily target is driven by the <strong style={{ color: C.accent }}>Cut IQ</strong> engine. Choose <strong>Steady</strong> (same target daily) or <strong>Zigzag</strong> (varied across the week, same weekly deficit) anytime in the <strong style={{ color: C.accent }}>Schedule</strong> tab. Protein stays locked at 130g.</div>
+            <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>Your daily target is driven by the <strong style={{ color: C.accent }}>Cut IQ</strong> engine. Choose <strong>Steady</strong> (same target daily) or <strong>Zigzag</strong> (varied across the week, same weekly deficit) anytime in the <strong style={{ color: C.accent }}>Schedule</strong> tab. Protein is calculated from your current trend weight.</div>
           </div>
           <div style={card({ background: '#0c0e14' })}>
             <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Manual Calorie Target</div>
@@ -2431,7 +2444,7 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
           </div>
         )}
         <div style={{marginTop:12,display:'flex',alignItems:'center',gap:8,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
-          <Icon name="dumbbell" size={15} color={C.protein} /> <span>Protein locked at <strong style={{color:C.protein}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? 'Calibrated from your real data' : 'Becomes data-driven after ~1 week of logging'}</span>
+          <Icon name="dumbbell" size={15} color={C.protein} /> <span>Protein target adapts to current body weight · {adaptiveTDEE.isDataDriven ? 'Calibrated from your real data' : 'Becomes data-driven after ~1 week of logging'}</span>
         </div>
       </div>
 
@@ -2559,12 +2572,13 @@ export default function App() {
   const [todayLog,     setTodayLog]     = useState(null)
   const [viewDate,     setViewDate]     = useState(todayStr())
   const [allLogs,      setAllLogs]      = useState([])
-  const [cutIntel,     setCutIntel]     = useState({ anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
+  const [cutIntel,     setCutIntel]     = useState({ anchor: null, strengthSignal: null, strengthWeek: null, strengthReports: [], cardioMin: 0, userMaxStepBudget: ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET, proteinFactor: ENGINE_CONST.PROTEIN_CONFIG.factor })
   const [mealHistory,  setMealHistory]  = useState([])
   const [customFoods,  setCustomFoods]  = useState([])
   const [recipes,      setRecipes]      = useState([])
   const [planSettings,   setPlanSettings]   = useState({ fastCompensation:false })
   const [zigzagSettings, setZigzagSettings] = useState({ on:false, schedule:1, mode:'weight' })
+  const [workoutHistory, setWorkoutHistory] = useState([])
 
   useEffect(() => {
     if (DEMO) { setSession(demoSession); return }   // skip auth in demo builds
@@ -2575,37 +2589,47 @@ export default function App() {
 
   const emptyLog = (date = todayStr()) => ({ date, weight:null, sleep:null, sleepQuality:null, steps:null, inclineMin:null, meals:[], notes:'', fasting:false, fastingOverridden:false })
 
-  // single round-trip: pull every day's log at once, newest-sortable
-  const loadLogs = async () => (await store.getByPrefix('log:')).sort((a,b)=>a.date.localeCompare(b.date))
+  // Prefer the single-round-trip loader, but retain the older key-by-key path
+  // as a compatibility fallback. A failed bulk query used to return [] and
+  // make Cut IQ/Progress look like only today had been logged.
+  const loadLogs = async () => {
+    const bulk = await store.getByPrefix('log:')
+    if (bulk.length) return bulk.sort((a,b)=>a.date.localeCompare(b.date))
+    const keys = await store.list('log:')
+    return (await Promise.all(keys.map(k => store.get(k))))
+      .filter(Boolean)
+      .sort((a,b)=>a.date.localeCompare(b.date))
+  }
 
   const loadData = useCallback(async () => {
     setDataReady(false)
     const s = await store.get('setup'); setSetup(s)
     if (s) {
-      const [td, rawLogs, ci, mh, cf, rs, ps, zs] = await Promise.all([
+      const [td, rawLogs, ci, mh, cf, rs, ps, zs, wh] = await Promise.all([
         store.get(`log:${todayStr()}`), loadLogs(), store.get('cut_intel'),
         store.get('meal_history'), store.getSharedFoods(), store.get('recipes'),
-        store.get('plan_settings'), store.get('zigzag_settings'),
+        store.get('plan_settings'), store.get('zigzag_settings'), store.get('workout_history'),
       ])
       const loadedPlanSettings = ps || { fastCompensation:false }
       const loadedZigzagSettings = zs || { on:false, schedule:1, mode:'weight' }
-      const hydratedLogs = rawLogs.map(log => log.planSnapshot ? log : {
+      const sourceLogs = rawLogs.some(log => log.date === todayStr()) || !td
+        ? rawLogs
+        : [...rawLogs, td]
+      const hydratedLogs = sourceLogs.map(log => log.planSnapshot ? log : {
         ...log,
-        planSnapshot: createPlanSnapshot({ date:log.date, log, setup:s, logs:rawLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, source:'reconstructed' }),
+        planSnapshot: createPlanSnapshot({ date:log.date, log, setup:s, logs:sourceLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, cutIntel:ci, source:'reconstructed' }),
       })
-      const todayLoaded = hydratedLogs.find(log => log.date === todayStr()) || (td ? {
-        ...td,
-        planSnapshot: td.planSnapshot || createPlanSnapshot({ date:todayStr(), log:td, setup:s, logs:rawLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, source:'reconstructed' }),
-      } : emptyLog())
+      const todayLoaded = hydratedLogs.find(log => log.date === todayStr()) || emptyLog()
       setTodayLog(todayLoaded)
       setAllLogs(hydratedLogs)
-      setCutIntel(ci || { anchor: null, strengthSignal: null, strengthWeek: null, cardioMin: 0 })
+      setCutIntel(ci || { anchor: null, strengthSignal: null, strengthWeek: null, strengthReports: [], cardioMin: 0, userMaxStepBudget: ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET, proteinFactor: ENGINE_CONST.PROTEIN_CONFIG.factor })
       setMealHistory(mh || [])
       setCustomFoods(cf || [])
       setRecipes(rs || [])
       setPlanSettings(loadedPlanSettings)
       setZigzagSettings(loadedZigzagSettings)
-      const legacyLogs = hydratedLogs.filter((log, index) => !rawLogs[index].planSnapshot)
+      setWorkoutHistory(wh || [])
+      const legacyLogs = hydratedLogs.filter(log => !rawLogs.find(raw => raw.date === log.date)?.planSnapshot)
       if (legacyLogs.length) await Promise.all(legacyLogs.map(log => store.set(`log:${log.date}`, log)))
     }
     setDataReady(true)
@@ -2669,8 +2693,15 @@ export default function App() {
     if (!log.planSnapshot || fastChanged) {
       nextLog = {
         ...log,
-        planSnapshot: createPlanSnapshot({ date, log, setup, logs:allLogs, planSettings, zigzagSettings }),
+        planSnapshot: createPlanSnapshot({ date, log, setup, logs:allLogs, planSettings, zigzagSettings, cutIntel }),
       }
+    }
+    const previousTarget = previous?.planSnapshot?.target
+    const nextTarget = nextLog.planSnapshot?.target
+    if (previousTarget != null && nextTarget != null && previousTarget !== nextTarget) {
+      const nextCutIntel = { ...(cutIntel || {}), lastCalorieChangeAt: date }
+      setCutIntel(nextCutIntel)
+      store.set('cut_intel', nextCutIntel)
     }
     setTodayLog(nextLog)
     setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?nextLog:l); return [...prev,nextLog].sort((a,b)=>a.date.localeCompare(b.date)) })
@@ -2723,6 +2754,7 @@ export default function App() {
       planSnapshot: createPlanSnapshot({
         date, log: current, setup, logs: allLogs,
         planSettings: nextPlanSettings, zigzagSettings: nextZigzagSettings,
+        cutIntel,
         source: 'recaptured',
       }),
     }
@@ -2766,7 +2798,7 @@ export default function App() {
     if (!current) return
     const nextLog = {
       ...current,
-      planSnapshot: createPlanSnapshot({ date, log:current, setup:nextSetup, logs:allLogs, planSettings, zigzagSettings, source:'active-cut-schedule' }),
+      planSnapshot: createPlanSnapshot({ date, log:current, setup:nextSetup, logs:allLogs, planSettings, zigzagSettings, cutIntel, source:'active-cut-schedule' }),
     }
     setTodayLog(nextLog)
     setAllLogs(prev => prev.map(log => log.date === date ? nextLog : log))
@@ -2805,11 +2837,11 @@ export default function App() {
     }
   }
 
-  const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings), [setup, allLogs, planSettings])
+  const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings, todayStr(), cutIntel), [setup, allLogs, planSettings, cutIntel])
   // Historical views must use the model state available on that date. A saved
   // snapshot is preferred because it preserves the exact target shown then.
-  const historicalTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings, viewDate), [setup, allLogs, planSettings, viewDate])
-  const streaks      = useMemo(() => getStreaks(allLogs), [allLogs])
+  const historicalTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, planSettings, viewDate, cutIntel), [setup, allLogs, planSettings, viewDate, cutIntel])
+  const streaks      = useMemo(() => getStreaks(allLogs, adaptiveTDEE.curW ? Math.min(ENGINE_CONST.PROTEIN_CONFIG.max, Math.max(ENGINE_CONST.PROTEIN_CONFIG.min, Math.round(adaptiveTDEE.curW * (cutIntel?.proteinFactor || 2)))) : ENGINE_CONST.PROTEIN_CONFIG.min), [allLogs, adaptiveTDEE.curW, cutIntel?.proteinFactor])
 
   // Midnight rollover: if the app stays open past midnight while viewing
   // "today", follow the date forward so logs land on the right day.
@@ -2844,9 +2876,12 @@ export default function App() {
   // The Cut IQ anchor is THE source of lean mass — a re-anchor (e.g. honest
   // Realme BF reading) must move goal weight everywhere, not just in Cut IQ.
   const cutAnchor    = cutIntel?.anchor || { date: setup.startDate, weight: setup.startWeight, bf: setup.startBF }
-  const lbm          = cutAnchor.weight * (1 - cutAnchor.bf / 100)
+  const anchorLbm    = cutAnchor.weight * (1 - cutAnchor.bf / 100)
+  const strengthRisk = evaluateMuscleRisk({ strengthReports: cutIntel?.strengthReports || [] })
+  const modeledStrengthSignal = cutIntel?.strengthSignal === 'down' && !strengthRisk.confirmed ? null : cutIntel?.strengthSignal
+  const bodyComp     = inferBodyComp({ logs: allLogs, anchor: cutAnchor, strengthSignal: modeledStrengthSignal, startDate: setup.startDate })
+  const lbm          = bodyComp?.leanMass ?? anchorLbm
   const goalWeight   = lbm / (1 - setup.goalBF / 100)
-  const bodyComp     = inferBodyComp({ logs: allLogs, anchor: cutAnchor, strengthSignal: cutIntel?.strengthSignal, startDate: setup.startDate })
   const currentBF    = bodyComp?.bf ?? cutAnchor.bf
   const cutLength    = setup.cutLength || 60
   const dayCount     = daysBetween(setup.startDate, todayStr()) + 1
@@ -2866,10 +2901,12 @@ export default function App() {
     fastComp:     !!planSettings?.fastCompensation,
     manualFastToday: !!todayLog.fasting,
     overriddenToday: !!todayLog.fastingOverridden,
+    currentWeightKg: dayTDEE.curW ?? currentTrendWeight(allLogs) ?? setup.startWeight,
+    proteinFactor: cutIntel?.proteinFactor,
     dateObj:      new Date(viewDate + 'T12:00:00'),
   })
   const dayPlan = savedPlan?.eatTarget != null
-    ? { ...computedDayPlan, ...macrosFromCalories(savedPlan.eatTarget), eatTarget:savedPlan.eatTarget, deficit:savedPlan.deficit ?? computedDayPlan.deficit }
+    ? { ...computedDayPlan, ...macrosFromCalories(savedPlan.eatTarget, null, dayTDEE.curW ?? currentTrendWeight(allLogs) ?? setup.startWeight, { factor: cutIntel?.proteinFactor }), eatTarget:savedPlan.eatTarget, deficit:savedPlan.deficit ?? computedDayPlan.deficit }
     : computedDayPlan
 
   return (
@@ -2885,7 +2922,7 @@ export default function App() {
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveLog={saveTodayLog}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings} onSetActiveCut={saveActiveCutSchedule}/>}
         {tab==='workout'   && <WorkoutTab />}
-        {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel} todayLog={todayLog} recipes={recipes} customFoods={customFoods}/>}
+        {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} workoutHistory={workoutHistory} onSaveCutData={saveCutIntel} todayLog={todayLog} recipes={recipes} customFoods={customFoods}/>} 
       </div>
     </div>
   )
