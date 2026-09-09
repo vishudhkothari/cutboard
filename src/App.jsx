@@ -25,6 +25,9 @@ const pad2        = n => String(n).padStart(2, '0')
 const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 const todayStr    = () => localDateStr()
 const addDaysStr  = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return localDateStr(d) }
+// Calendar weeks run Sunday through Saturday. A review only covers a fully
+// completed calendar week, so the current week's Sunday is never included.
+const startOfWeekStr = (s = todayStr()) => addDaysStr(s, -new Date(s + 'T12:00:00').getDay())
 const fmtDate     = d  => new Date(d + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 const daysBetween = (a, b) => Math.max(0, Math.floor((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000))
 const DAY_NAMES   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -1874,11 +1877,13 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, planSettings
    WEEKLY REVIEW — auto digest of the last 7 full days
 ═══════════════════════════════════════════════════════════════ */
 function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, zigzagSettings = {} }) {
-  const latestEnd = addDaysStr(todayStr(), -1)
+  // Keep the review static throughout the week: Sunday–Saturday, finalized
+  // when the next Sunday begins. Previously this used yesterday as the end,
+  // which made the seven-day window roll forward every day.
+  const latestEnd = addDaysStr(startOfWeekStr(), -1)
   const firstLogDate = logs.length ? logs.reduce((first, log) => log.date < first ? log.date : first, logs[0].date) : latestEnd
-  // A review is available for every completed Sunday–Saturday-style window
-  // (the current review uses the seven days ending yesterday). Skip sparse
-  // windows so cycling never lands on an empty/meaningless review.
+  // A review is available for every completed Sunday–Saturday window. Skip
+  // sparse windows so cycling never lands on an empty/meaningless review.
   const reviewEnds = []
   for (let end = latestEnd; end >= firstLogDate; end = addDaysStr(end, -7)) {
     const start = addDaysStr(end, -6)
