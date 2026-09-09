@@ -1223,7 +1223,7 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, onSetActiveCut, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
@@ -1410,8 +1410,6 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, onSetActiveCut, setup, a
     if (viewDate === addDaysStr(todayStr(), -1)) return 'Yesterday'
     return new Date(viewDate + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })
   })()
-  const setActiveCutForDay = enabled => onSetActiveCut?.([viewDate], enabled)
-  const setActiveCutForWeek = enabled => onSetActiveCut?.(Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(viewDate), i)), enabled)
 
   return (
     <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
@@ -1445,18 +1443,6 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, onSetActiveCut, setup, a
           </div>
           <button type="button" onClick={()=>{ onChangeDate(todayStr()); setNavCalendarOpen(false) }} style={{...btn(false,true),width:'100%',marginTop:10}}>Today</button>
         </div>}
-      </div>
-
-      {/* Date-scoped Active Cut control */}
-      <div style={{ ...card({ padding:'13px 16px', background: adaptiveTDEE.activeCut ? '#0c1410' : '#101013', borderColor: adaptiveTDEE.activeCut ? `${C.teal}44` : C.border }), gridColumn:'1/-1', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-        <div style={{ minWidth:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:7, fontFamily:F.head, fontWeight:700, fontSize:14 }}><Icon name="compass" size={15} color={adaptiveTDEE.activeCut ? C.teal : C.textSub} /> Active Cut <span style={{ fontSize:10.5, color:adaptiveTDEE.activeCut ? C.teal : C.textSub, fontWeight:600 }}>{adaptiveTDEE.activeCut ? `ON · ${adaptiveTDEE.cardioMin} min walk` : 'OFF'}</span></div>
-          <div style={{ fontSize:11, color:C.textSub, marginTop:4 }}>Choose whether movement-banked calories apply today or across this Sunday–Saturday week.</div>
-        </div>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-          <button style={btn(adaptiveTDEE.activeCut,true)} onClick={()=>setActiveCutForDay(!adaptiveTDEE.activeCut)}>Turn {adaptiveTDEE.activeCut ? 'off' : 'on'} today</button>
-          <button style={btn(false,true)} onClick={()=>setActiveCutForWeek(!adaptiveTDEE.activeCut)}>Turn {adaptiveTDEE.activeCut ? 'off' : 'on'} this week</button>
-        </div>
       </div>
 
       {/* Calorie Hero — ring + macro stats */}
@@ -2317,7 +2303,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
 /* ═══════════════════════════════════════════════════════════════
    SCHEDULE TAB — Calorie strategy + fasting manager
 ═══════════════════════════════════════════════════════════════ */
-function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag }) {
+function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setup, zigzagSettings, onSaveZigzag, onSetActiveCut }) {
   const mobile = useIsMobile()
 
   const [zigzagSched, setZigzagSched] = useState(zigzagSettings?.schedule || 1)
@@ -2334,6 +2320,8 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
   // today's target comes straight from the single source of truth
   const isFastingToday = dayPlan.fasting.isFasting
   const todayTarget    = dayPlan.eatTarget
+  const setActiveCutForToday = enabled => onSetActiveCut?.([todayStr()], enabled)
+  const setActiveCutForWeek = enabled => onSetActiveCut?.(Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(), i)), enabled)
 
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
@@ -2394,6 +2382,19 @@ function PlanTab({ dayPlan, planSettings, onSavePlanSettings, adaptiveTDEE, setu
         )}
         <div style={{marginTop:12,display:'flex',alignItems:'center',gap:8,background:'rgba(167,139,250,0.08)',border:`1px solid ${C.accent}33`,borderRadius:12,padding:'11px 14px',fontSize:12,color:C.textSub}}>
           <Icon name="dumbbell" size={15} color={C.protein} /> <span>Protein locked at <strong style={{color:C.protein}}>130g/day</strong> · {adaptiveTDEE.isDataDriven ? 'Calibrated from your real data' : 'Becomes data-driven after ~1 week of logging'}</span>
+        </div>
+      </div>
+
+      <div style={{ ...card({ padding:'13px 16px', background: adaptiveTDEE.activeCut ? '#0c1410' : '#101013', borderColor: adaptiveTDEE.activeCut ? `${C.teal}44` : C.border }) }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:7, fontFamily:F.head, fontWeight:700, fontSize:14 }}><Icon name="compass" size={15} color={adaptiveTDEE.activeCut ? C.teal : C.textSub} /> Active Cut <span style={{ fontSize:10.5, color:adaptiveTDEE.activeCut ? C.teal : C.textSub, fontWeight:600 }}>{adaptiveTDEE.activeCut ? `ON · ${adaptiveTDEE.cardioMin} min walk` : 'OFF'}</span></div>
+            <div style={{ fontSize:11, color:C.textSub, marginTop:4 }}>Apply movement-banked calories today or across this Sunday–Saturday week.</div>
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button style={btn(adaptiveTDEE.activeCut,true)} onClick={()=>setActiveCutForToday(!adaptiveTDEE.activeCut)}>Turn {adaptiveTDEE.activeCut ? 'off' : 'on'} today</button>
+            <button style={btn(false,true)} onClick={()=>setActiveCutForWeek(!adaptiveTDEE.activeCut)}>Turn {adaptiveTDEE.activeCut ? 'off' : 'on'} this week</button>
+          </div>
         </div>
       </div>
 
@@ -2838,10 +2839,10 @@ export default function App() {
       <TabBar tab={tab} setTab={setTab}/>
       {/* keyed on tab so each switch replays the fade-up entrance */}
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
-        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} onSetActiveCut={saveActiveCutSchedule} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} stepTarget={cutIntel?.stepGoal || setup.stepGoal} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} stepTarget={cutIntel?.stepGoal || setup.stepGoal} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={allLogs} setup={setup} planSettings={planSettings} zigzagSettings={zigzagSettings} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveLog={saveTodayLog}/>}
-        {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
+        {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings} onSetActiveCut={saveActiveCutSchedule}/>}
         {tab==='workout'   && <WorkoutTab />}
         {tab==='cutiq'     && <CutIQTab setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} cutData={cutIntel} onSaveCutData={saveCutIntel} todayLog={todayLog} recipes={recipes} customFoods={customFoods}/>}
       </div>
