@@ -1224,6 +1224,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const [addOpen,      setAddOpen]      = useState(false)
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
   const [copySourceDate, setCopySourceDate] = useState(() => addDaysStr(viewDate, -1))
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(viewDate + 'T12:00:00'))
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
   const [mealsExpanded, setMealsExpanded] = useState(false)
   const [coachOpen,     setCoachOpen]     = useState(false)
@@ -1316,6 +1317,18 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }
   const dupMeal    = idx => { const next = { ...local, meals: [...local.meals, { ...local.meals[idx] }] }; setLocal(next); onSave(next); buzz(12) }
   const copySourceLog = copySourceDate === viewDate ? local : allLogs.find(l => l.date === copySourceDate)
+  const calendarCells = useMemo(() => {
+    const first = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1, 12)
+    const start = new Date(first)
+    start.setDate(first.getDate() - first.getDay())
+    return Array.from({ length: 42 }, (_, i) => {
+      const date = new Date(start)
+      date.setDate(start.getDate() + i)
+      return localDateStr(date)
+    })
+  }, [calendarMonth])
+  const calendarLogFor = date => date === viewDate ? local : allLogs.find(l => l.date === date)
+  const calendarCalsFor = date => Math.round((calendarLogFor(date)?.meals || []).reduce((sum, meal) => sum + (+meal.cals || 0), 0))
   const copyMealsFromDay = () => {
     if (copySourceDate === viewDate || !copySourceLog?.meals?.length) return
     const next = { ...local, meals: [...local.meals, ...copySourceLog.meals.map(m => ({ ...m }))] }
@@ -1542,7 +1555,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {!isFasting && yesterdayLog?.meals?.length > 0 && <button style={btn(false,true)} onClick={copyYesterday} title="Copy all of yesterday's meals">⧉ Yesterday</button>}
-            {!isFasting && <button style={btn(false,true)} onClick={() => { setCopySourceDate(addDaysStr(viewDate, -1)); setCopyDayOpen(o => !o) }} title="Copy all meals from another day">Copy day</button>}
+            {!isFasting && <button style={btn(false,true)} onClick={() => { const previous = addDaysStr(viewDate, -1); setCopySourceDate(previous); setCalendarMonth(new Date(previous + 'T12:00:00')); setCopyDayOpen(o => !o) }} title="Copy all meals from another day">Copy day</button>}
             {!isFasting && <button style={btn(true,true)} onClick={()=>setAddOpen(o=>!o)}>+ Add Meal</button>}
             <button style={{...btn(isFasting,true),...(isFasting?{background:'#0e1e30',borderColor:C.blue,color:C.blue}:{}), display:'inline-flex', alignItems:'center', gap:6}} onClick={toggleFasting}>
               {isFasting ? (isPlannedFast&&!local.fasting ? '↩ Override Fast' : '↩ Undo Fast') : <><Icon name="ban" size={14} /> Fasting Day</>}
@@ -1554,9 +1567,39 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           <div style={{...card({background:'rgba(255,255,255,0.02)',marginBottom:16})}}>
             <div style={{fontSize:12,color:C.textSub,marginBottom:10}}>Copy every meal from a specific logged day into {niceDate}. Existing meals will be kept.</div>
             <div style={{display:'flex',gap:10,alignItems:'end',flexWrap:'wrap'}}>
-              <div>
-                <label style={LBL}>Source day</label>
-                <input type="date" max={todayStr()} value={copySourceDate} onChange={e=>setCopySourceDate(e.target.value)} style={inp({padding:'7px 10px'})} />
+              <div style={{width:'min(100%, 360px)'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                  <label style={LBL}>Source day</label>
+                  <span style={{fontFamily:F.mono,fontSize:11,color:C.textSub}}>{fmtDate(copySourceDate)}</span>
+                </div>
+                <div style={{background:'rgba(0,0,0,0.14)',border:`1px solid ${C.borderSoft}`,borderRadius:12,padding:10}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                    <button type="button" aria-label="Previous month" onClick={()=>setCalendarMonth(d=>new Date(d.getFullYear(),d.getMonth()-1,1,12))} style={{...btn(false,true),padding:'4px 9px'}}>‹</button>
+                    <span style={{fontFamily:F.head,fontWeight:700,fontSize:13}}>{calendarMonth.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</span>
+                    <button type="button" aria-label="Next month" onClick={()=>setCalendarMonth(d=>new Date(d.getFullYear(),d.getMonth()+1,1,12))} style={{...btn(false,true),padding:'4px 9px'}}>›</button>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4}}>
+                    {DAY_NAMES.map(day=><div key={day} style={{textAlign:'center',fontSize:9,color:C.textFaint,fontFamily:F.mono}}>{day.slice(0,1)}</div>)}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+                    {calendarCells.map(date => {
+                      const d = new Date(date + 'T12:00:00')
+                      const inMonth = d.getMonth() === calendarMonth.getMonth()
+                      const future = date > todayStr()
+                      const sameDay = date === viewDate
+                      const cals = calendarCalsFor(date)
+                      const hasMeals = !!calendarLogFor(date)?.meals?.length
+                      const selected = date === copySourceDate
+                      return <button key={date} type="button" disabled={future || sameDay || !hasMeals}
+                        onClick={()=>setCopySourceDate(date)}
+                        title={hasMeals ? `${fmtDate(date)} · ${cals} kcal` : 'No meals logged'}
+                        style={{minHeight:42,padding:'4px 2px',borderRadius:8,border:`1px solid ${selected?C.accent:'transparent'}`,background:selected?'rgba(167,139,250,0.16)':'transparent',color:inMonth?C.text:C.textFaint,opacity:future||sameDay||!hasMeals?0.38:1,cursor:future||sameDay||!hasMeals?'default':'pointer',fontFamily:F.body}}>
+                        <div style={{fontSize:12,fontWeight:selected?700:500}}>{d.getDate()}</div>
+                        <div style={{fontFamily:F.mono,fontSize:8,color:hasMeals?C.orange:C.textFaint,marginTop:2,whiteSpace:'nowrap'}}>{hasMeals?`${cals} kcal`:'—'}</div>
+                      </button>
+                    })}
+                  </div>
+                </div>
               </div>
               <button style={{...btn(true,true),opacity:copySourceLog?.meals?.length && copySourceDate !== viewDate ? 1 : 0.45}} disabled={!copySourceLog?.meals?.length || copySourceDate === viewDate} onClick={copyMealsFromDay}>Copy meals</button>
               <button style={btn(false,true)} onClick={()=>setCopyDayOpen(false)}>Cancel</button>
