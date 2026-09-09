@@ -1540,7 +1540,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, onSetActiveCut, setup, a
               <span style={{width:26,display:'inline-flex',justifyContent:'center'}}><Icon name={icon} size={18} color={C.textSub} /></span>
               <span style={{color:C.textSub,fontSize:13,flex:1}}>{label}</span>
               <input type="number" inputMode="decimal" step={step} value={local[key]??''} placeholder={ph} onChange={e=>upd(key,e.target.value?+e.target.value:null)} style={inp({width:mobile?90:100,textAlign:'right',fontFamily:F.mono,fontSize:15,padding:'8px 12px'})} />
-              {unit && <span style={{fontSize:12,color:C.textSub,width:28}}>{unit}</span>}
+              <span aria-hidden="true" style={{fontSize:12,color:unit?C.textSub:'transparent',width:28,flexShrink:0,textAlign:'left'}}>{unit || '—'}</span>
             </div>
           ))}
         </div>
