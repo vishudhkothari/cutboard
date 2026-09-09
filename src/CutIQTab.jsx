@@ -5,7 +5,7 @@ import { Icon } from './lib/icons'
 import {
   trendWeight, currentTrendWeight, estimateTDEE,
   inferBodyComp, fatFraction, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
-  proteinTargetForWeight, isAdjustmentEligible, evaluateMuscleRisk, objectiveE1rmTrend, ENGINE_CONST,
+  proteinTargetForWeight, isAdjustmentEligible, evaluateMuscleRisk, objectiveE1rmTrend, normalizeStepTarget, ENGINE_CONST,
 } from './lib/cutEngine'
 import { FOOD_DB } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
@@ -64,8 +64,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
   const currentBF = bodyComp?.bf ?? anchor?.bf
   const leanMass  = bodyComp?.leanMass ?? (anchor ? anchor.weight * (1 - anchor.bf/100) : null)
   const curWeight = trendNow ?? setup?.startWeight
-  const baselineSteps = setup?.stepGoal || 10000
-  const currentSteps = cutData?.stepGoal || baselineSteps
+  const baselineSteps = normalizeStepTarget(setup?.stepGoal, 10000)
+  const currentSteps = normalizeStepTarget(cutData?.stepGoal || baselineSteps, baselineSteps)
   const recentMovement = useMemo(() => {
     const end = localDateStr()
     const startDate = new Date(end + 'T12:00:00')
@@ -302,9 +302,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, planSettings, c
           {pace.recommendedSteps != null && pace.recommendedSteps !== currentSteps && (
             <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.borderSoft}`, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
               <span style={{ fontSize:12, color:C.textSub }}>
-                Dynamic step target: <strong style={{ color:C.text }}>{pace.recommendedSteps.toLocaleString()}/day</strong>
+                Dynamic step target: <strong style={{ color:C.text }}>{normalizeStepTarget(pace.recommendedSteps, currentSteps).toLocaleString()}/day</strong>
               </span>
-              <button style={btn(true, true)} onClick={() => save({ ...(cutData || {}), stepGoal:pace.recommendedSteps, stepGoalChangedAt:localDateStr() })}>
+              <button style={btn(true, true)} onClick={() => save({ ...(cutData || {}), stepGoal:normalizeStepTarget(pace.recommendedSteps, currentSteps), stepGoalChangedAt:localDateStr() })}>
                 Apply step target
               </button>
             </div>

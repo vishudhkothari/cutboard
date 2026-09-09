@@ -10,7 +10,7 @@ import { store } from './lib/store'
 import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
-import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, fatFraction, evaluateMuscleRisk, tdeeConfidence, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
+import { buildDayPlan, macrosFromCalories, currentTrendWeight, trendWeight, estimateTDEE, inferBodyComp, fatFraction, evaluateMuscleRisk, tdeeConfidence, normalizeStepTarget, ENGINE_CONST, LEARN_DAYS } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
@@ -195,13 +195,13 @@ const ZIGZAG_LABELS = { mild: 'Mild (±9% swing)', weight: 'Standard (±15% swin
 
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
 function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSettings = {}, prescribedSteps = null, currentLog = null, currentPlan = null) {
-  const baseline = setup?.stepGoal || 10000
-  const base = prescribedSteps || baseline
+  const baseline = normalizeStepTarget(setup?.stepGoal, 10000)
+  const base = normalizeStepTarget(prescribedSteps || baseline, baseline)
   const baselineValues = logs.filter(l => Number.isFinite(+l.steps)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0, 14).map(l => +l.steps)
   const baselineStepAvg = baselineValues.length ? baselineValues.reduce((s,v)=>s+v,0) / baselineValues.length : baseline
   const maxStepBudget = setup?.userMaxStepBudget || ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET
   const stepCeiling = Math.min(maxStepBudget, baselineStepAvg + 4000)
-  const boundedBase = Math.min(base, stepCeiling)
+  const boundedBase = normalizeStepTarget(Math.min(base, stepCeiling), stepCeiling)
   const calPerStep = tdeeData.curW * 0.00061
   // Keep a rolling calorie debt. Over-target calories add to it; only steps
   // above the normal daily goal pay it down. This means completed compensation
@@ -258,7 +258,7 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
   if (debt <= 0) return { goal: boundedBase, extra: 0, reason: null }
   const maxExtra = Math.max(0, Math.floor(stepCeiling - baseline))
   const extra = Math.min(Math.ceil(debt / calPerStep), maxExtra)
-  return { goal: Math.min(stepCeiling, Math.max(boundedBase, baseline + extra)), extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
+  return { goal: normalizeStepTarget(Math.min(stepCeiling, Math.max(boundedBase, baseline + extra)), stepCeiling), extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
 }
 
 /* ─── STREAKS ────────────────────────────────────────────────────
@@ -2612,17 +2612,21 @@ export default function App() {
       ])
       const loadedPlanSettings = ps || { fastCompensation:false }
       const loadedZigzagSettings = zs || { on:false, schedule:1, mode:'weight' }
+      const loadedCutIntel = ci
+        ? { ...ci, stepGoal: ci.stepGoal == null ? ci.stepGoal : normalizeStepTarget(ci.stepGoal, s.stepGoal || 10000) }
+        : { anchor: null, strengthSignal: null, strengthWeek: null, strengthReports: [], cardioMin: 0, userMaxStepBudget: ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET, proteinFactor: ENGINE_CONST.PROTEIN_CONFIG.factor }
       const sourceLogs = rawLogs.some(log => log.date === todayStr()) || !td
         ? rawLogs
         : [...rawLogs, td]
       const hydratedLogs = sourceLogs.map(log => log.planSnapshot ? log : {
         ...log,
-        planSnapshot: createPlanSnapshot({ date:log.date, log, setup:s, logs:sourceLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, cutIntel:ci, source:'reconstructed' }),
+        planSnapshot: createPlanSnapshot({ date:log.date, log, setup:s, logs:sourceLogs, planSettings:loadedPlanSettings, zigzagSettings:loadedZigzagSettings, cutIntel:loadedCutIntel, source:'reconstructed' }),
       })
       const todayLoaded = hydratedLogs.find(log => log.date === todayStr()) || emptyLog()
       setTodayLog(todayLoaded)
       setAllLogs(hydratedLogs)
-      setCutIntel(ci || { anchor: null, strengthSignal: null, strengthWeek: null, strengthReports: [], cardioMin: 0, userMaxStepBudget: ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET, proteinFactor: ENGINE_CONST.PROTEIN_CONFIG.factor })
+      setCutIntel(loadedCutIntel)
+      if (ci && ci.stepGoal !== loadedCutIntel.stepGoal) await store.set('cut_intel', loadedCutIntel)
       setMealHistory(mh || [])
       setCustomFoods(cf || [])
       setRecipes(rs || [])
@@ -2645,7 +2649,8 @@ export default function App() {
   }, [session, loadData])
 
   const saveSetup = async s => {
-    await store.set('setup', s); setSetup(s); setOnboarding(false)
+    const normalizedSetup = { ...s, stepGoal: normalizeStepTarget(s.stepGoal, 10000), userMaxStepBudget: normalizeStepTarget(s.userMaxStepBudget, ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET) }
+    await store.set('setup', normalizedSetup); setSetup(normalizedSetup); setOnboarding(false)
     if (!todayLog) {
       setTodayLog(emptyLog()); setAllLogs([])
     }
@@ -2735,7 +2740,10 @@ export default function App() {
       flush()
     }
   }, [persistLog])
-  const saveCutIntel = async ci => { await store.set('cut_intel', ci); setCutIntel(ci) }
+  const saveCutIntel = async ci => {
+    const normalized = ci ? { ...ci, stepGoal: ci.stepGoal == null ? ci.stepGoal : normalizeStepTarget(ci.stepGoal, setup?.stepGoal || 10000) } : ci
+    await store.set('cut_intel', normalized); setCutIntel(normalized)
+  }
   const saveMealToHistory = async (meal) => {
     const key=meal.name.trim().toLowerCase()
     const existing=mealHistory.find(m=>m.name.trim().toLowerCase()===key)

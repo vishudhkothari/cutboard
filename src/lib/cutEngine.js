@@ -73,7 +73,13 @@ export function leannessRateMultiplier(currentBF, goalBF, {
 export function stepCeiling({ baselineStepAvg, userMaxStepBudget = DEFAULT_MAX_STEP_BUDGET } = {}) {
   const baseline = Math.max(0, Number(baselineStepAvg) || 0)
   const maxBudget = Math.max(0, Number(userMaxStepBudget) || DEFAULT_MAX_STEP_BUDGET)
-  return Math.min(maxBudget, baseline + 4000)
+  return Math.floor(Math.min(maxBudget, baseline + 4000) / 100) * 100
+}
+
+export function normalizeStepTarget(value, fallback = 10000) {
+  const raw = Number(value)
+  const safe = Number.isFinite(raw) && raw > 0 ? raw : fallback
+  return Math.max(1000, Math.round(safe / 100) * 100)
 }
 
 export function isAdjustmentEligible(lastChangedAt, asOfDate, holdDays) {
