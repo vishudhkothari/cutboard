@@ -1225,6 +1225,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
   const [copySourceDate, setCopySourceDate] = useState(() => addDaysStr(viewDate, -1))
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(viewDate + 'T12:00:00'))
+  const [navCalendarOpen, setNavCalendarOpen] = useState(false)
+  const [navCalendarMonth, setNavCalendarMonth] = useState(() => new Date(viewDate + 'T12:00:00'))
   const [foodPickerOpen, setFoodPickerOpen] = useState(false)
   const [mealsExpanded, setMealsExpanded] = useState(false)
   const [coachOpen,     setCoachOpen]     = useState(false)
@@ -1327,6 +1329,16 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
       return localDateStr(date)
     })
   }, [calendarMonth])
+  const navCalendarCells = useMemo(() => {
+    const first = new Date(navCalendarMonth.getFullYear(), navCalendarMonth.getMonth(), 1, 12)
+    const start = new Date(first)
+    start.setDate(first.getDate() - first.getDay())
+    return Array.from({ length: 42 }, (_, i) => {
+      const date = new Date(start)
+      date.setDate(start.getDate() + i)
+      return localDateStr(date)
+    })
+  }, [navCalendarMonth])
   const calendarLogFor = date => date === viewDate ? local : allLogs.find(l => l.date === date)
   const calendarCalsFor = date => Math.round((calendarLogFor(date)?.meals || []).reduce((sum, meal) => sum + (+meal.cals || 0), 0))
   const calendarTargetFor = date => {
@@ -1399,13 +1411,34 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
     <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
 
       {/* Date navigator */}
-      <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, position:'relative' }}>
         <button onClick={() => shiftDay(-1)} style={{ ...btn(false, true), padding: '8px 14px', fontSize: 16, lineHeight: 1 }}>‹</button>
         <div style={{ textAlign: 'center', minWidth: mobile ? 140 : 180 }}>
-          <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 16, color: isToday ? C.accent : C.text }}>{niceDate}</div>
+          <button type="button" onClick={() => { setNavCalendarMonth(new Date(viewDate + 'T12:00:00')); setNavCalendarOpen(o => !o) }} style={{ background:'none', border:'none', color:isToday?C.accent:C.text, fontFamily:F.head, fontWeight:700, fontSize:16, cursor:'pointer', padding:0 }} title="Choose a date">{niceDate}</button>
           {!isToday && <button onClick={() => onChangeDate(todayStr())} style={{ background: 'none', border: 'none', color: C.textSub, fontSize: 11, cursor: 'pointer', marginTop: 2, fontFamily: F.body }}>↩ Jump to today</button>}
         </div>
         <button onClick={() => shiftDay(1)} disabled={isToday} style={{ ...btn(false, true), padding: '8px 14px', fontSize: 16, lineHeight: 1, opacity: isToday ? 0.3 : 1, cursor: isToday ? 'default' : 'pointer' }}>›</button>
+        {navCalendarOpen && <div style={{position:'absolute',top:'calc(100% + 10px)',left:'50%',transform:'translateX(-50%)',zIndex:30,width:'min(360px, calc(100vw - 24px))',background:C.surface,border:`1px solid ${C.border}`,borderRadius:RADIUS.inset,padding:12,boxShadow:SHADOW}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:9}}>
+            <button type="button" aria-label="Previous month" onClick={()=>setNavCalendarMonth(d=>new Date(d.getFullYear(),d.getMonth()-1,1,12))} style={{...btn(false,true),padding:'4px 9px'}}>‹</button>
+            <span style={{fontFamily:F.head,fontWeight:700,fontSize:13}}>{navCalendarMonth.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</span>
+            <button type="button" aria-label="Next month" disabled={navCalendarMonth.getFullYear() === new Date().getFullYear() && navCalendarMonth.getMonth() >= new Date().getMonth()} onClick={()=>setNavCalendarMonth(d=>new Date(d.getFullYear(),d.getMonth()+1,1,12))} style={{...btn(false,true),padding:'4px 9px',opacity:navCalendarMonth.getFullYear() === new Date().getFullYear() && navCalendarMonth.getMonth() >= new Date().getMonth()?0.35:1}}>›</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:4,marginBottom:4}}>
+            {DAY_NAMES.map(day=><div key={day} style={{textAlign:'center',fontSize:9,color:C.textFaint,fontFamily:F.mono}}>{day.slice(0,1)}</div>)}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:4}}>
+            {navCalendarCells.map(date => {
+              const d = new Date(date + 'T12:00:00')
+              const inMonth = d.getMonth() === navCalendarMonth.getMonth()
+              if (!inMonth) return <div key={date} aria-hidden="true" style={{minHeight:34}} />
+              const future = date > todayStr()
+              const selected = date === viewDate
+              return <button key={date} type="button" disabled={future} onClick={()=>{ onChangeDate(date); setNavCalendarOpen(false) }} style={{minHeight:34,width:'100%',boxSizing:'border-box',borderRadius:8,border:`1px solid ${selected?C.accent:'transparent'}`,background:selected?'rgba(167,139,250,0.16)':'transparent',color:future?C.textFaint:selected?C.accent:C.text,opacity:future?0.35:1,cursor:future?'default':'pointer',fontFamily:F.mono,fontSize:11}}>{d.getDate()}</button>
+            })}
+          </div>
+          <button type="button" onClick={()=>{ onChangeDate(todayStr()); setNavCalendarOpen(false) }} style={{...btn(false,true),width:'100%',marginTop:10}}>Today</button>
+        </div>}
       </div>
 
       {/* Calorie Hero — ring + macro stats */}
