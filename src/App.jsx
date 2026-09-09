@@ -117,14 +117,13 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
 
   // ── ACTIVE CUT (energy-flux path, per-user) ──
   // Deliberate incline walking is credited into your maintenance so you EAT
-  // MORE for moving more. Critically, we credit it ONLY in the formula phase:
-  // once the engine is data-driven, your measured TDEE already reflects the
-  // cardio (it shows up as faster real weight loss), so adding it again would
-  // double-count. effMaint is the cardio-inclusive maintenance the target/
-  // deficit are figured against; base stays your baseline maintenance display.
+  // MORE for moving more. Active Cut must never produce a lower food target
+  // than the ordinary cut, including after the TDEE model becomes data-driven.
+  // `base` remains the baseline maintenance display; `effMaint` is the
+  // cardio-inclusive value used for the active day's target.
   const cardioMin  = activeCut ? (setup.cardioMin ?? 35) : 0
   const cardioBurn = activeCut ? inclineWalkBurn(cardioMin, curW) : 0
-  const cardioCredit = (activeCut && !isDataDriven) ? cardioBurn : 0
+  const cardioCredit = activeCut ? cardioBurn : 0
   const effMaint   = base + cardioCredit
   const stdDeficit = activeCut ? ACTIVE_DEFICIT : STD_DEFICIT
   const foodDeficit = Math.max(0, stdDeficit - cardioBurn)   // portion from eating less
@@ -142,7 +141,9 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
     const target = Math.max(bmr, Math.min(base, Math.round(base - 600 + 150 * weeksOver)))
     return { target, base, adj: 0, curW, deficit: base - target, isDataDriven, bmr, phase, weeksOver, ...extra }
   }
-  const target = Math.max(bmr, Math.round(effMaint - stdDeficit))
+  const activeTarget = Math.round(effMaint - ACTIVE_DEFICIT)
+  const normalTarget = Math.round(base - STD_DEFICIT)
+  const target = Math.max(bmr, activeCut ? Math.max(normalTarget, activeTarget) : normalTarget)
   return { target, base, adj: 0, curW, deficit: effMaint - target, isDataDriven, bmr, phase, ...extra }
 }
 
