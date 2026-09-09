@@ -65,6 +65,10 @@ export function inclineWalkBurn(minutes, weightKg) {
 function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) {
   if (!setup) return { target: 1800, base: 2400, adj: 0, curW: 70, deficit: 600, isDataDriven: false, bmr: 1600, phase: 'cut', activeCut: false, cardioBurn: 0, cardioMin: 0, foodDeficit: 600, effMaint: 2400 }
   const scopedLogs = logs.filter(l => l.date <= asOfDate)
+  // Active Cut defaults to the profile setting, but a date entry can override
+  // it for one day or for a complete Sunday–Saturday week.
+  const activeCutOverride = setup.activeCutDays?.[asOfDate]
+  const activeCut = activeCutOverride == null ? !!setup.activeCut : !!activeCutOverride
   const wLogs = scopedLogs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
   // use the SMOOTHED trend weight, not the raw last weigh-in: a fasting day (or
   // any water/glycogen swing) makes the latest scale reading jump, which would
@@ -92,7 +96,7 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
     // feed scheduled/manual fasts into the regression at their real intake
     // (0 for a full fast, ~25% of target for compensation days)
     const fastComp   = !!planSettings.fastCompensation
-    const approxTgt  = Math.max(bmr, formulaTDEE - (setup.activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
+    const approxTgt  = Math.max(bmr, formulaTDEE - (activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
     const est = estimateTDEE(scopedLogs, {
       fastingDays: planSettings.fastingDays || [],
       fastComp,
@@ -118,7 +122,6 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
   // cardio (it shows up as faster real weight loss), so adding it again would
   // double-count. effMaint is the cardio-inclusive maintenance the target/
   // deficit are figured against; base stays your baseline maintenance display.
-  const activeCut  = !!setup.activeCut
   const cardioMin  = activeCut ? (setup.cardioMin ?? 35) : 0
   const cardioBurn = activeCut ? inclineWalkBurn(cardioMin, curW) : 0
   const cardioCredit = (activeCut && !isDataDriven) ? cardioBurn : 0
@@ -1219,7 +1222,7 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, onSetActiveCut, setup, allLogs, mealHistory = [], onSaveMealHistory, planSettings, zigzagSettings = {}, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
@@ -1406,6 +1409,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
     if (viewDate === addDaysStr(todayStr(), -1)) return 'Yesterday'
     return new Date(viewDate + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })
   })()
+  const setActiveCutForDay = enabled => onSetActiveCut?.([viewDate], enabled)
+  const setActiveCutForWeek = enabled => onSetActiveCut?.(Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(viewDate), i)), enabled)
 
   return (
     <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
@@ -1439,6 +1444,18 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           </div>
           <button type="button" onClick={()=>{ onChangeDate(todayStr()); setNavCalendarOpen(false) }} style={{...btn(false,true),width:'100%',marginTop:10}}>Today</button>
         </div>}
+      </div>
+
+      {/* Date-scoped Active Cut control */}
+      <div style={{ ...card({ padding:'13px 16px', background: adaptiveTDEE.activeCut ? '#0c1410' : '#101013', borderColor: adaptiveTDEE.activeCut ? `${C.teal}44` : C.border }), gridColumn:'1/-1', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+        <div style={{ minWidth:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:7, fontFamily:F.head, fontWeight:700, fontSize:14 }}><Icon name="compass" size={15} color={adaptiveTDEE.activeCut ? C.teal : C.textSub} /> Active Cut <span style={{ fontSize:10.5, color:adaptiveTDEE.activeCut ? C.teal : C.textSub, fontWeight:600 }}>{adaptiveTDEE.activeCut ? `ON · ${adaptiveTDEE.cardioMin} min walk` : 'OFF'}</span></div>
+          <div style={{ fontSize:11, color:C.textSub, marginTop:4 }}>Choose whether movement-banked calories apply today or across this Sunday–Saturday week.</div>
+        </div>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button style={btn(adaptiveTDEE.activeCut,true)} onClick={()=>setActiveCutForDay(!adaptiveTDEE.activeCut)}>Turn {adaptiveTDEE.activeCut ? 'off' : 'on'} today</button>
+          <button style={btn(false,true)} onClick={()=>setActiveCutForWeek(!adaptiveTDEE.activeCut)}>Turn {adaptiveTDEE.activeCut ? 'off' : 'on'} this week</button>
+        </div>
       </div>
 
       {/* Calorie Hero — ring + macro stats */}
@@ -2690,6 +2707,34 @@ export default function App() {
     // older days retain the target they actually had when logged.
     recaptureTodayPlan(planSettings, zs)
   }
+  const saveActiveCutSchedule = async (dates, enabled) => {
+    const nextSetup = {
+      ...setup,
+      activeCutDays: { ...(setup?.activeCutDays || {}), ...Object.fromEntries(dates.map(date => [date, enabled])) },
+    }
+    await store.set('setup', nextSetup)
+    setSetup(nextSetup)
+
+    // Refresh the viewed day immediately so its food and calorie plan reflects
+    // the date-scoped Active Cut choice instead of waiting for a reload.
+    const date = viewDate
+    const current = todayLog?.date === date ? todayLog : allLogs.find(log => log.date === date)
+    if (!current) return
+    const nextLog = {
+      ...current,
+      planSnapshot: createPlanSnapshot({ date, log:current, setup:nextSetup, logs:allLogs, planSettings, zigzagSettings, source:'active-cut-schedule' }),
+    }
+    setTodayLog(nextLog)
+    setAllLogs(prev => prev.map(log => log.date === date ? nextLog : log))
+    pendingLogs.current[date] = nextLog
+    clearTimeout(logSaveTimers.current[date])
+    logSaveTimers.current[date] = setTimeout(() => {
+      delete logSaveTimers.current[date]
+      const payload = pendingLogs.current[date] || nextLog
+      delete pendingLogs.current[date]
+      persistLog(date, payload)
+    }, 0)
+  }
   const saveCustomFood = async food => {
     await store.addSharedFood(food)
     setCustomFoods(prev => [...prev.filter(f => f.id !== food.id), food])
@@ -2792,7 +2837,7 @@ export default function App() {
       <TabBar tab={tab} setTab={setTab}/>
       {/* keyed on tab so each switch replays the fade-up entrance */}
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
-        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} stepTarget={cutIntel?.stepGoal || setup.stepGoal} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} onSetActiveCut={saveActiveCutSchedule} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} planSettings={planSettings} zigzagSettings={zigzagSettings} stepTarget={cutIntel?.stepGoal || setup.stepGoal} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={allLogs} setup={setup} planSettings={planSettings} zigzagSettings={zigzagSettings} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
         {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} planSettings={planSettings} zigzagSettings={zigzagSettings} onSaveLog={saveTodayLog}/>}
         {tab==='plan'      && <PlanTab      dayPlan={dayPlan} planSettings={planSettings} onSavePlanSettings={savePlanSettings} adaptiveTDEE={adaptiveTDEE} setup={setup} zigzagSettings={zigzagSettings} onSaveZigzag={saveZigzagSettings}/>}
