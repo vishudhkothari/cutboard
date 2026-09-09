@@ -98,7 +98,6 @@ function getAdaptiveTDEE(setup, logs, planSettings = {}, asOfDate = todayStr()) 
     const fastComp   = !!planSettings.fastCompensation
     const approxTgt  = Math.max(bmr, formulaTDEE - (activeCut ? ACTIVE_DEFICIT : STD_DEFICIT))
     const est = estimateTDEE(scopedLogs, {
-      fastingDays: [],
       fastComp,
       fastKcal: fastComp ? Math.round(approxTgt * 0.25) : 0,
     })
@@ -155,7 +154,6 @@ function getPlanForDate({ date, log, setup, logs, planSettings = {}, zigzagSetti
     floor: tdee.bmr,
     regime: zigzagSettings.on ? 'zigzag' : 'steady',
     zigzag: { schedule: zigzagSettings.schedule || 1, mode: zigzagSettings.mode || 'weight' },
-    fastingDays: [],
     fastComp: !!planSettings.fastCompensation,
     manualFastToday: !!log?.fasting,
     overriddenToday: !!log?.fastingOverridden,
@@ -2565,7 +2563,7 @@ export default function App() {
   const [mealHistory,  setMealHistory]  = useState([])
   const [customFoods,  setCustomFoods]  = useState([])
   const [recipes,      setRecipes]      = useState([])
-  const [planSettings,   setPlanSettings]   = useState({ fastingDays:[], fastCompensation:false })
+  const [planSettings,   setPlanSettings]   = useState({ fastCompensation:false })
   const [zigzagSettings, setZigzagSettings] = useState({ on:false, schedule:1, mode:'weight' })
 
   useEffect(() => {
@@ -2589,7 +2587,7 @@ export default function App() {
         store.get('meal_history'), store.getSharedFoods(), store.get('recipes'),
         store.get('plan_settings'), store.get('zigzag_settings'),
       ])
-      const loadedPlanSettings = ps || { fastingDays:[], fastCompensation:false }
+      const loadedPlanSettings = ps || { fastCompensation:false }
       const loadedZigzagSettings = zs || { on:false, schedule:1, mode:'weight' }
       const hydratedLogs = rawLogs.map(log => log.planSnapshot ? log : {
         ...log,
@@ -2865,7 +2863,6 @@ export default function App() {
     floor:        dayTDEE.bmr,
     regime:       zigzagSettings?.on ? 'zigzag' : 'steady',
     zigzag:       { schedule: zigzagSettings?.schedule || 1, mode: zigzagSettings?.mode || 'weight' },
-    fastingDays:  [],
     fastComp:     !!planSettings?.fastCompensation,
     manualFastToday: !!todayLog.fasting,
     overriddenToday: !!todayLog.fastingOverridden,
