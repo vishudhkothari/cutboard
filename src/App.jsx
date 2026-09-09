@@ -340,6 +340,22 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
   return insights.slice(0, 6)
 }
 
+// A small, deterministic companion for the Coach panel. The quotes are
+// original, and songs are recommendations by title/artist only—no lyrics.
+function getCoachCompanion(date = todayStr()) {
+  const set = [
+    { quote:'Small promises kept become self-trust.', prompt:'What is the smallest useful action you can finish before your next meal?', song:'The Climb · Miley Cyrus' },
+    { quote:'You do not need a perfect day; you need a repeatable one.', prompt:'Which part of today can be made easier before it becomes difficult?', song:'Lose Yourself · Eminem' },
+    { quote:'Consistency is quiet progress becoming visible.', prompt:'What would “good enough” look like for today’s food and movement?', song:'Hall of Fame · The Script' },
+    { quote:'The next decision still counts, even when the last one was messy.', prompt:'What is one decision you can make now that your future self will thank you for?', song:'Eye of the Tiger · Survivor' },
+    { quote:'Discipline is care for the person you are becoming.', prompt:'What boundary would protect your energy tonight?', song:'Stronger · Kelly Clarkson' },
+    { quote:'A slower plan you can keep beats a heroic plan you abandon.', prompt:'Where can you choose a little less friction today?', song:'Unstoppable · Sia' },
+    { quote:'You are building evidence, not chasing a single perfect result.', prompt:'What did today’s data teach you that you can use tomorrow?', song:'Dog Days Are Over · Florence + The Machine' },
+  ]
+  const index = Math.abs([...date].reduce((sum, char) => sum + char.charCodeAt(0), 0)) % set.length
+  return set[index]
+}
+
 /* ═══════════════════════════════════════════════════════════════
    AUTH SCREEN
 ═══════════════════════════════════════════════════════════════ */
@@ -1287,6 +1303,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 
   const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData, viewDate === todayStr(), streaks),
     [setup, allLogs, local, adaptiveTDEE, regime, effectiveMacros, stepData, viewDate, streaks])
+  const coachCompanion = useMemo(() => getCoachCompanion(viewDate), [viewDate])
 
   const r1 = n => Math.round(n * 10) / 10
   const totalCals    = Math.round(local.meals.reduce((s, m) => s + (+m.cals || 0), 0))
@@ -1513,6 +1530,14 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
               <Icon name={coachOpen ? 'chevronLeft' : 'chevronRight'} size={13} />
             </button>
           )}
+          <div style={{ marginTop:5, padding:'13px 14px', borderRadius:12, background:'linear-gradient(135deg, rgba(167,139,250,0.10), rgba(95,184,154,0.08))', border:`1px solid ${C.accent}33` }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:7 }}>
+              <span style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase' }}>Daily anchor</span>
+              <span style={{ fontSize:11, color:C.textSub }}>Soundtrack · {coachCompanion.song}</span>
+            </div>
+            <div style={{ fontFamily:F.head, fontSize:14, fontWeight:700, color:C.text, lineHeight:1.4 }}>“{coachCompanion.quote}”</div>
+            <div style={{ fontSize:11.5, color:C.textSub, lineHeight:1.45, marginTop:7 }}>Try this: {coachCompanion.prompt}</div>
+          </div>
         </div>
       </div>
 
