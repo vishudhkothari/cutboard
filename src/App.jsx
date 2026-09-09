@@ -196,12 +196,15 @@ const ZIGZAG_LABELS = { mild: 'Mild (±9% swing)', weight: 'Standard (±15% swin
 /* ─── DYNAMIC STEP GOAL ──────────────────────────────────────────*/
 function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSettings = {}, prescribedSteps = null, currentLog = null, currentPlan = null) {
   const baseline = normalizeStepTarget(setup?.stepGoal, 10000)
-  const base = normalizeStepTarget(prescribedSteps || baseline, baseline)
+  const hasPrescribedTarget = prescribedSteps != null && Number.isFinite(+prescribedSteps)
+  const base = normalizeStepTarget(hasPrescribedTarget ? prescribedSteps : baseline, baseline)
   const baselineValues = logs.filter(l => Number.isFinite(+l.steps)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0, 14).map(l => +l.steps)
   const baselineStepAvg = baselineValues.length ? baselineValues.reduce((s,v)=>s+v,0) / baselineValues.length : baseline
   const maxStepBudget = setup?.userMaxStepBudget || ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET
   const stepCeiling = Math.min(maxStepBudget, baselineStepAvg + 4000)
-  const boundedBase = normalizeStepTarget(Math.min(base, stepCeiling), stepCeiling)
+  // An explicitly applied Cut IQ target is a user decision and must be
+  // respected. The adaptive ceiling only limits new automatic prescriptions.
+  const boundedBase = hasPrescribedTarget ? base : normalizeStepTarget(Math.min(base, stepCeiling), stepCeiling)
   const calPerStep = tdeeData.curW * 0.00061
   // Keep a rolling calorie debt. Over-target calories add to it; only steps
   // above the normal daily goal pay it down. This means completed compensation
@@ -258,7 +261,8 @@ function getDynamicStepGoal(setup, logs, tdeeData, planSettings = {}, zigzagSett
   if (debt <= 0) return { goal: boundedBase, extra: 0, reason: null }
   const maxExtra = Math.max(0, Math.floor(stepCeiling - baseline))
   const extra = Math.min(Math.ceil(debt / calPerStep), maxExtra)
-  return { goal: normalizeStepTarget(Math.min(stepCeiling, Math.max(boundedBase, baseline + extra)), stepCeiling), extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
+  const debtGoal = Math.max(boundedBase, baseline + extra)
+  return { goal: hasPrescribedTarget ? normalizeStepTarget(debtGoal, boundedBase) : normalizeStepTarget(Math.min(stepCeiling, debtGoal), stepCeiling), extra, reason: `+${extra.toLocaleString()} steps to clear ${Math.ceil(debt)} kcal of outstanding compensation` }
 }
 
 /* ─── STREAKS ────────────────────────────────────────────────────
