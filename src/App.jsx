@@ -340,20 +340,43 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
   return insights.slice(0, 6)
 }
 
-// A small, deterministic companion for the Coach panel. The quotes are
-// original, and songs are recommendations by title/artist only—no lyrics.
+// Original hard-hitting quotes for the Coach panel. Selection is deterministic
+// by date so the message changes without flickering during a session.
 function getCoachCompanion(date = todayStr()) {
   const set = [
-    { quote:'Small promises kept become self-trust.', prompt:'What is the smallest useful action you can finish before your next meal?', song:'The Climb · Miley Cyrus' },
-    { quote:'You do not need a perfect day; you need a repeatable one.', prompt:'Which part of today can be made easier before it becomes difficult?', song:'Lose Yourself · Eminem' },
-    { quote:'Consistency is quiet progress becoming visible.', prompt:'What would “good enough” look like for today’s food and movement?', song:'Hall of Fame · The Script' },
-    { quote:'The next decision still counts, even when the last one was messy.', prompt:'What is one decision you can make now that your future self will thank you for?', song:'Eye of the Tiger · Survivor' },
-    { quote:'Discipline is care for the person you are becoming.', prompt:'What boundary would protect your energy tonight?', song:'Stronger · Kelly Clarkson' },
-    { quote:'A slower plan you can keep beats a heroic plan you abandon.', prompt:'Where can you choose a little less friction today?', song:'Unstoppable · Sia' },
-    { quote:'You are building evidence, not chasing a single perfect result.', prompt:'What did today’s data teach you that you can use tomorrow?', song:'Dog Days Are Over · Florence + The Machine' },
+    'Nobody is coming to do the work for you. Start.',
+    'You do not need more motivation. You need one more kept promise.',
+    'The version of you that you want is built by what you repeat when nobody is watching.',
+    'Comfort is expensive when you keep paying for it with your goals.',
+    'Your excuses are asking for today. Your goals are asking for your life.',
+    'A bad meal is data. A bad day is a choice you can stop making right now.',
+    'The hardest part is not the workout. It is becoming the person who does not negotiate with it.',
+    'You cannot think your way into a changed body. You have to act your way there.',
+    'Every skipped promise teaches you something. Every kept promise changes you.',
+    'You are not stuck. You are repeating a pattern. Break it once today.',
+    'The scale reports a moment. Your habits write the outcome.',
+    'You do not rise to your goals. You fall to the standards you practice.',
+    'Stop waiting to feel ready. Readiness is usually what action creates.',
+    'The gap between wanting it and having it is filled with ordinary days done well.',
+    'You can have results or the reasons you keep protecting. Not both.',
+    'Your future body is being negotiated by your next decision.',
+    'Discipline is choosing what you want most over what you want now.',
+    'You are allowed to go slowly. You are not allowed to keep pretending you are moving.',
+    'The plan works when you work the plan, especially when the mood disappears.',
+    'One honest log is worth more than a perfect story.',
+    'You cannot punish yourself into consistency. You can train yourself into it.',
+    'The day is not lost because one choice was. Win the next choice.',
+    'Results do not care how convincing your intentions sounded this morning.',
+    'Make today so clear that your weaker habits have nowhere to hide.',
+    'You are building evidence, not chasing a miracle.',
+    'The body changes after the decision changes. Make the decision again.',
+    'Your standard is revealed by what you do on the days you feel ordinary.',
+    'Do the boring thing long enough for it to become your advantage.',
+    'You do not need permission to become harder to stop.',
+    'The next seven days will pass anyway. Give them something to show for it.',
   ]
   const index = Math.abs([...date].reduce((sum, char) => sum + char.charCodeAt(0), 0)) % set.length
-  return set[index]
+  return { quote:set[index] }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1531,12 +1554,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             </button>
           )}
           <div style={{ marginTop:5, padding:'13px 14px', borderRadius:12, background:'linear-gradient(135deg, rgba(167,139,250,0.10), rgba(95,184,154,0.08))', border:`1px solid ${C.accent}33` }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:7 }}>
-              <span style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase' }}>Daily anchor</span>
-              <span style={{ fontSize:11, color:C.textSub }}>Soundtrack · {coachCompanion.song}</span>
-            </div>
+            <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:7 }}>Daily anchor</div>
             <div style={{ fontFamily:F.head, fontSize:14, fontWeight:700, color:C.text, lineHeight:1.4 }}>“{coachCompanion.quote}”</div>
-            <div style={{ fontSize:11.5, color:C.textSub, lineHeight:1.45, marginTop:7 }}>Try this: {coachCompanion.prompt}</div>
           </div>
         </div>
       </div>
