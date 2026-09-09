@@ -318,6 +318,20 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, regime, macros, stepD
   if (todayLog.sleep > 0 && todayLog.sleep < 6.5) {
     insights.push({ color: C.bad, msg: `Only ${todayLog.sleep}h sleep. Low sleep raises cortisol and hunger, blunting fat loss. Aim for 7–8h tonight.` })
   }
+  if (todayProtein >= macros.proteinG && macros.proteinG > 0) {
+    insights.push({ color: C.good, msg: `Protein target hit — ${todayProtein}g logged against ${macros.proteinG}g. That is the muscle-preserving habit that matters most.` })
+  }
+  if (macros.calTarget > 0 && todayCals >= macros.calTarget * 0.9 && todayCals <= macros.calTarget + 75) {
+    insights.push({ color: C.good, msg: `Calories are landing inside today's target window (${todayCals}/${macros.calTarget} kcal). Close the day without chasing perfection.` })
+  }
+  if (todayLog.steps != null && stepData.goal > 0) {
+    if (todayLog.steps >= stepData.goal) {
+      insights.push({ color: C.good, msg: `Movement target hit — ${todayLog.steps.toLocaleString()} steps. Keep the rest of the day easy and recover.` })
+    } else if (isToday && new Date().getHours() >= 17) {
+      const remainingSteps = Math.max(0, stepData.goal - todayLog.steps)
+      insights.push({ color: C.orange, msg: `${remainingSteps.toLocaleString()} steps left to reach today's movement target. A short walk now is enough; do not turn it into punishment.` })
+    }
+  }
   // Weekly pace verdict — gated to 14 calendar days (water-clearance rule,
   // same as every Cut IQ surface) and computed over REAL weeks, not the last
   // N entries (sparse logging used to stretch "this week" over a month).
@@ -1540,9 +1554,15 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           {regime === 'zigzag' && <span style={{ background: 'rgba(167,139,250,0.12)', border: `1px solid ${C.accent}44`, color: C.accent, fontSize: 10, fontWeight: 700, padding: '4px 11px', borderRadius: 20, letterSpacing: '0.1em' }}>ZIGZAG</span>}
           {isPlannedFast && <span style={{ background: '#0e1e30', border: '1px solid #1a4a7a', color: C.blue, fontSize: 10, fontWeight: 700, padding: '4px 11px', borderRadius: 20, letterSpacing: '0.1em' }}>PLANNED FAST</span>}
         </div>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginTop:-8, marginBottom:12, fontSize:9.5, color:C.textFaint, fontFamily:F.mono }}>
+          <span><i style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:C.good,marginRight:4}} />on track</span>
+          <span><i style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:C.info,marginRight:4}} />info</span>
+          <span><i style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:C.orange,marginRight:4}} />nudge</span>
+          <span><i style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:C.bad,marginRight:4}} />needs action</span>
+        </div>
         <div style={{ display: 'grid', gap: 9 }}>
           {(coachOpen ? insights : insights.slice(0, 2)).map((ins, i) => (
-            <div key={i} style={{ display:'flex', gap:11, alignItems:'flex-start', background:`${ins.color}14`, borderRadius:12, padding:'12px 13px' }}>
+            <div key={i} style={{ display:'flex', gap:11, alignItems:'flex-start', background:`${ins.color}14`, borderLeft:`3px solid ${ins.color}`, borderRadius:12, padding:'12px 13px 12px 11px' }}>
               <span style={{ width:7, height:7, borderRadius:'50%', background:ins.color, flexShrink:0, marginTop:5 }} />
               <span style={{ fontSize:13, color:C.text, lineHeight:1.5 }}>{ins.msg}</span>
             </div>
