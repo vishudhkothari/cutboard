@@ -2072,6 +2072,7 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, planSettings
    WEEKLY REVIEW — auto digest of the last 7 full days
 ═══════════════════════════════════════════════════════════════ */
 function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, zigzagSettings = {} }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   // The current Sunday–Saturday window is live and grows one day at a time.
   // On Saturday it naturally reaches its final day and becomes locked; when
   // Sunday starts, a new live window takes its place while the prior week is
@@ -2180,6 +2181,10 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
           </div>
         ))}
       </div>
+      <button onClick={() => { setDetailsOpen(open => !open); buzz(8) }} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', marginTop:2, padding:'9px 0 1px', background:'none', border:'none', borderTop:`1px solid ${C.border}`, color:C.textSub, cursor:'pointer', fontFamily:F.body, fontSize:11, textAlign:'left' }}>
+        <span>{detailsOpen ? 'Hide extra details' : 'Show extra details'}</span><Icon name={detailsOpen ? 'chevronLeft' : 'chevronRight'} size={14} />
+      </button>
+      {detailsOpen && <>
       <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, display:'grid', gap:10 }}>
         <div style={{ ...LBL, marginBottom:0 }}>Week at a glance</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:5 }}>
@@ -2212,6 +2217,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
       <div style={{ marginTop:14, padding:'12px 14px', borderRadius:11, background:`${vColor}12`, borderLeft:`3px solid ${vColor}` }}><div style={{ fontSize:10, color:vColor, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5 }}>Next-week focus</div><div style={{ fontSize:12, color:C.text, lineHeight:1.5 }}>
         {onTarget < intakeDays.length - 1 ? 'Prioritize logging every meal and bring the weekly calorie average back toward target.' : avgProtein && avgProtein < (dayPlan?.proteinTarget || 0) * 0.9 ? 'Keep calories steady and make protein the first thing you add to each meal.' : weighIns < 3 ? 'Keep the plan steady and add a few more weigh-ins so the next trend verdict is more confident.' : 'The signal is clean this week. Repeat the same routine and let the trend compound.'}
       </div></div>
+      </>}
     </div>
   )
 }
