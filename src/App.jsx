@@ -2072,14 +2072,17 @@ function NutritionTab({ log, dayPlan, adaptiveTDEE, allLogs, setup, planSettings
    WEEKLY REVIEW — auto digest of the last 7 full days
 ═══════════════════════════════════════════════════════════════ */
 function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, zigzagSettings = {} }) {
-  // Keep the review static throughout the week: Sunday–Saturday, finalized
-  // when the next Sunday begins. Previously this used yesterday as the end,
-  // which made the seven-day window roll forward every day.
-  const latestEnd = addDaysStr(startOfWeekStr(), -1)
+  // The current Sunday–Saturday window is live and grows one day at a time.
+  // On Saturday it naturally reaches its final day and becomes locked; when
+  // Sunday starts, a new live window takes its place while the prior week is
+  // retained in history.
+  const currentWeekStart = startOfWeekStr()
+  const currentEnd = todayStr()
+  const latestEnd = addDaysStr(currentWeekStart, -1)
   const firstLogDate = logs.length ? logs.reduce((first, log) => log.date < first ? log.date : first, logs[0].date) : latestEnd
-  // A review is available for every completed Sunday–Saturday window. Skip
-  // sparse windows so cycling never lands on an empty/meaningless review.
-  const reviewEnds = []
+  const reviewEnds = [currentEnd]
+  // A historical review is available for each completed Sunday–Saturday
+  // window. Skip sparse historical windows so cycling stays meaningful.
   for (let end = latestEnd; end >= firstLogDate; end = addDaysStr(end, -7)) {
     const start = addDaysStr(end, -6)
     const intakeCount = logs.filter(l => l.date >= start && l.date <= end && ((l.meals && l.meals.length) || l.fasting)).length
@@ -2091,6 +2094,8 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
 
   const end   = reviewEnds[reviewIndex]
   const start = addDaysStr(end, -6)
+  const isLiveWeek = start === currentWeekStart
+  const isLockedWeek = isLiveWeek && end === addDaysStr(currentWeekStart, 6)
   const week  = logs.filter(l => l.date >= start && l.date <= end)
   const intakeDays = week.filter(l => (l.meals && l.meals.length) || l.fasting)
 
@@ -2102,8 +2107,8 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
   const dayCals = l => (l.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
   const targetFor = l => l.planSnapshot?.eatTarget ?? getPlanForDate({ date:l.date, log:l, setup, logs, planSettings, zigzagSettings }).eatTarget
   const onTarget   = intakeDays.filter(l => dayCals(l) <= targetFor(l) + 75).length
-  const avgIntake  = Math.round(intakeDays.reduce((s, l) => s + dayCals(l), 0) / intakeDays.length)
-  const avgTarget   = Math.round(intakeDays.reduce((s, l) => s + targetFor(l), 0) / intakeDays.length)
+  const avgIntake  = intakeDays.length ? Math.round(intakeDays.reduce((s, l) => s + dayCals(l), 0) / intakeDays.length) : 0
+  const avgTarget   = intakeDays.length ? Math.round(intakeDays.reduce((s, l) => s + targetFor(l), 0) / intakeDays.length) : 0
   const calorieDelta = avgIntake - avgTarget
   const calorieValues = intakeDays.map(dayCals)
   const calorieRange = calorieValues.length ? `${Math.min(...calorieValues).toLocaleString()}–${Math.max(...calorieValues).toLocaleString()}` : '—'
@@ -2143,7 +2148,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
         <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap' }}>
           <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15 }}><Icon name="flag" size={16} color={vColor} /> Weekly Review</div>
-          <span style={{ fontSize:11, color:C.textSub, fontFamily:F.mono }}>{fmtDate(start)} – {fmtDate(end)}</span>
+          <span style={{ fontSize:11, color:C.textSub, fontFamily:F.mono }}>{fmtDate(start)} – {fmtDate(end)}{isLiveWeek && <span style={{ color:isLockedWeek ? C.teal : C.accent, marginLeft:7 }}>{isLockedWeek ? '· LOCKED' : '· LIVE'}</span>}</span>
         </div>
         {reviewEnds.length > 1 && <div style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
           <button aria-label="Previous weekly review" title="Previous weekly review" disabled={reviewIndex >= reviewEnds.length - 1}
