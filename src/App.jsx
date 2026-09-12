@@ -2103,12 +2103,28 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
   const targetFor = l => l.planSnapshot?.eatTarget ?? getPlanForDate({ date:l.date, log:l, setup, logs, planSettings, zigzagSettings }).eatTarget
   const onTarget   = intakeDays.filter(l => dayCals(l) <= targetFor(l) + 75).length
   const avgIntake  = Math.round(intakeDays.reduce((s, l) => s + dayCals(l), 0) / intakeDays.length)
+  const avgTarget   = Math.round(intakeDays.reduce((s, l) => s + targetFor(l), 0) / intakeDays.length)
+  const calorieDelta = avgIntake - avgTarget
+  const calorieValues = intakeDays.map(dayCals)
+  const calorieRange = calorieValues.length ? `${Math.min(...calorieValues).toLocaleString()}–${Math.max(...calorieValues).toLocaleString()}` : '—'
   const protDays   = intakeDays.filter(l => l.meals && l.meals.length)
   const avgProtein = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.protein || 0), 0), 0) / protDays.length) : 0
+  const avgCarbs   = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.carbs || 0), 0), 0) / protDays.length) : 0
+  const avgFat     = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.fat || 0), 0), 0) / protDays.length) : 0
+  const avgFiber   = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.fiber || 0), 0), 0) / protDays.length) : 0
   const steps = week.filter(l => l.steps).map(l => l.steps)
   const avgSteps = steps.length ? Math.round(steps.reduce((s, x) => s + x) / steps.length) : null
   const sleeps = week.filter(l => l.sleep).map(l => l.sleep)
   const avgSleep = sleeps.length ? Math.round(sleeps.reduce((s, x) => s + x) / sleeps.length * 10) / 10 : null
+  const sleepQuality = ['Poor','OK','Good','Great'].map(label => ({ label, count: week.filter(l => l.sleepQuality === label).length }))
+  const weighIns = week.filter(l => l.weight != null).length
+  const cardioMinutes = week.reduce((sum, l) => sum + (+l.inclineMin || 0), 0)
+  const fastingDays = week.filter(l => l.fasting).length
+  const dataRows = [
+    { label:'Weight trend', value: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : 'Not enough weigh-ins', note:`${weighIns} weigh-in${weighIns === 1 ? '' : 's'} this week`, color:deltaKg != null && deltaKg <= 0 ? C.teal : C.orange },
+    { label:'Calorie adherence', value:`${onTarget}/${intakeDays.length} days`, note:`${calorieDelta > 0 ? '+' : ''}${calorieDelta.toLocaleString()} kcal/day vs target`, color:onTarget >= intakeDays.length - 1 ? C.teal : C.gold },
+    { label:'Protein consistency', value:avgProtein ? `${avgProtein} g/day` : 'No meal data', note:`Logged on ${protDays.length}/${intakeDays.length} intake days`, color:avgProtein ? C.orange : C.textSub },
+  ]
 
   const lost = deltaKg != null ? -deltaKg : null
   const curW = adaptiveTDEE.curW
@@ -2144,7 +2160,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
         </div>}
       </div>
       <div style={{ fontSize:13, color:vColor, fontWeight:600, marginBottom:14, lineHeight:1.45 }}>{verdict}</div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:10, marginBottom:14 }}>
         {[
           { label:'Trend change', val: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : '—', color: deltaKg != null && deltaKg < 0 ? C.teal : C.orange },
           { label:'Days on target', val:`${onTarget}/${intakeDays.length}`, color: onTarget >= intakeDays.length - 1 ? C.teal : C.gold },
@@ -2159,6 +2175,38 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
           </div>
         ))}
       </div>
+      <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, display:'grid', gap:10 }}>
+        <div style={{ ...LBL, marginBottom:0 }}>Week at a glance</div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:5 }}>
+          {Array.from({length:7}, (_, i) => {
+            const date = addDaysStr(start, i), log = week.find(l => l.date === date)
+            const calories = log ? dayCals(log) : null, target = log ? targetFor(log) : null
+            const hasIntake = !!(log && ((log.meals && log.meals.length) || log.fasting))
+            const tone = !hasIntake ? C.borderSoft : log.fasting ? C.blue : calories <= target + 75 ? C.teal : C.orange
+            return <div key={date} title={log ? `${fmtDate(date)} · ${log.fasting ? 'Fast' : `${calories.toLocaleString()} kcal`}` : `${fmtDate(date)} · No log`} style={{ minWidth:0, textAlign:'center' }}>
+              <div style={{ fontSize:9, color:C.textSub, marginBottom:5 }}>{DAY_NAMES[i]}</div><div style={{ height:7, borderRadius:4, background:tone, opacity:hasIntake ? 1 : 0.55 }} />
+              <div style={{ fontFamily:F.mono, fontSize:9, color:hasIntake ? tone : C.textFaint, marginTop:4 }}>{log?.fasting ? 'fast' : calories != null ? `${Math.round(calories / 100) / 10}k` : '—'}</div>
+            </div>
+          })}
+        </div>
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', color:C.textFaint, fontSize:10 }}>
+          {[['on target',C.teal],['over target',C.orange],['fast',C.blue],['no log',C.borderSoft]].map(([label,color]) => <span key={label}><i style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:color, marginRight:4 }} />{label}</span>)}
+        </div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:10, marginTop:14 }}>
+        {dataRows.map(row => <div key={row.label} style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'11px 12px' }}><div style={{ fontSize:10, color:C.textSub, marginBottom:5 }}>{row.label}</div><div style={{ fontFamily:F.mono, fontSize:15, fontWeight:700, color:row.color }}>{row.value}</div><div style={{ fontSize:10, color:C.textFaint, marginTop:4, lineHeight:1.35 }}>{row.note}</div></div>)}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:10, marginTop:10 }}>
+        <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'11px 12px' }}><div style={{ ...LBL, marginBottom:8 }}>Nutrition detail</div><div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'7px 12px', fontSize:11 }}>
+          <span style={{ color:C.textSub }}>Target avg <strong style={{ color:C.text }}>{avgTarget.toLocaleString()} kcal</strong></span><span style={{ color:C.textSub }}>Range <strong style={{ color:C.text }}>{calorieRange}</strong></span><span style={{ color:C.textSub }}>Carbs <strong style={{ color:C.text }}>{avgCarbs} g</strong></span><span style={{ color:C.textSub }}>Fat <strong style={{ color:C.text }}>{avgFat} g</strong></span><span style={{ color:C.textSub }}>Fiber <strong style={{ color:C.text }}>{avgFiber} g</strong></span><span style={{ color:C.textSub }}>Fast days <strong style={{ color:C.text }}>{fastingDays}</strong></span>
+        </div></div>
+        <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'11px 12px' }}><div style={{ ...LBL, marginBottom:8 }}>Recovery & movement</div><div style={{ display:'grid', gap:7, fontSize:11 }}>
+          <span style={{ color:C.textSub }}>Sleep quality <strong style={{ color:C.text }}>{sleepQuality.filter(x => x.count).map(x => `${x.label} ${x.count}`).join(' · ') || 'Not logged'}</strong></span><span style={{ color:C.textSub }}>Steps logged <strong style={{ color:C.text }}>{steps.length}/7 days</strong></span><span style={{ color:C.textSub }}>Incline walk <strong style={{ color:cardioMinutes ? C.purple : C.text }}>{cardioMinutes ? `${cardioMinutes} min` : 'None logged'}</strong></span>
+        </div></div>
+      </div>
+      <div style={{ marginTop:14, padding:'12px 14px', borderRadius:11, background:`${vColor}12`, borderLeft:`3px solid ${vColor}` }}><div style={{ fontSize:10, color:vColor, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5 }}>Next-week focus</div><div style={{ fontSize:12, color:C.text, lineHeight:1.5 }}>
+        {onTarget < intakeDays.length - 1 ? 'Prioritize logging every meal and bring the weekly calorie average back toward target.' : avgProtein && avgProtein < (dayPlan?.proteinTarget || 0) * 0.9 ? 'Keep calories steady and make protein the first thing you add to each meal.' : weighIns < 3 ? 'Keep the plan steady and add a few more weigh-ins so the next trend verdict is more confident.' : 'The signal is clean this week. Repeat the same routine and let the trend compound.'}
+      </div></div>
     </div>
   )
 }
