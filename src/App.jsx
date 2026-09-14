@@ -2078,10 +2078,10 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
   // Sunday starts, a new live window takes its place while the prior week is
   // retained in history.
   const currentWeekStart = startOfWeekStr()
-  const currentEnd = todayStr()
+  const currentWeekEnd = addDaysStr(currentWeekStart, 6)
   const latestEnd = addDaysStr(currentWeekStart, -1)
   const firstLogDate = logs.length ? logs.reduce((first, log) => log.date < first ? log.date : first, logs[0].date) : latestEnd
-  const reviewEnds = [currentEnd]
+  const reviewEnds = [currentWeekEnd]
   // A historical review is available for each completed Sunday–Saturday
   // window. Skip sparse historical windows so cycling stays meaningful.
   for (let end = latestEnd; end >= firstLogDate; end = addDaysStr(end, -7)) {
