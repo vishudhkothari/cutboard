@@ -2127,7 +2127,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
   const cardioMinutes = week.reduce((sum, l) => sum + (+l.inclineMin || 0), 0)
   const fastingDays = week.filter(l => l.fasting).length
   const dataRows = [
-    { label:'Weight trend', value: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : 'Not enough weigh-ins', note:`${weighIns} weigh-in${weighIns === 1 ? '' : 's'} this week`, color:deltaKg != null && deltaKg <= 0 ? C.teal : C.orange },
+    { label:'Weight trend', value: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : 'Not enough weigh-ins', note:`${weighIns} weigh-in${weighIns === 1 ? '' : 's'} this week`, color:deltaKg != null && deltaKg <= 0 ? C.teal : C.red },
     { label:'Calorie adherence', value:`${onTarget}/${intakeDays.length} days`, note:`${calorieDelta > 0 ? '+' : ''}${calorieDelta.toLocaleString()} kcal/day vs target`, color:onTarget >= intakeDays.length - 1 ? C.teal : C.gold },
     { label:'Protein consistency', value:avgProtein ? `${avgProtein} g/day` : 'No meal data', note:`Logged on ${protDays.length}/${intakeDays.length} intake days`, color:avgProtein ? C.orange : C.textSub },
   ]
@@ -2139,7 +2139,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
   let verdict, vColor
   if (adaptiveTDEE.phase === 'maintenance') { verdict = `Maintenance phase — the goal is a flat trend now${lost != null ? ` (moved ${deltaKg > 0 ? '+' : ''}${deltaKg}kg)` : ''}.`; vColor = C.teal }
   else if (lost == null)            { verdict = 'Weigh in more consistently to get a weekly verdict.'; vColor = C.textSub }
-  else if (lost < -0.1)             { verdict = `Trend went UP ${Math.abs(lost).toFixed(2)}kg this week — check Cut IQ.`; vColor = C.red }
+  else if (deltaKg > 0)             { verdict = `Trend went UP ${deltaKg.toFixed(2)}kg this week — check Cut IQ.`; vColor = C.red }
   else if (lost < healthyFloor)     { verdict = `Down ${lost.toFixed(2)}kg — slower than the healthy band. Cut IQ has the next lever.`; vColor = C.gold }
   else if (lost <= safeCeil)        { verdict = `Down ${lost.toFixed(2)}kg — right in the muscle-sparing band. Keep going.`; vColor = C.teal }
   else                              { verdict = `Down ${lost.toFixed(2)}kg — faster than safe. Consider easing the deficit.`; vColor = C.orange }
@@ -2168,7 +2168,7 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup, planSettings = {}, z
       <div style={{ fontSize:13, color:vColor, fontWeight:600, marginBottom:14, lineHeight:1.45 }}>{verdict}</div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:10, marginBottom:14 }}>
         {[
-          { label:'Trend change', val: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : '—', color: deltaKg != null && deltaKg < 0 ? C.teal : C.orange },
+          { label:'Trend change', val: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : '—', color: deltaKg != null && deltaKg < 0 ? C.teal : C.red },
           { label:'Days on target', val:`${onTarget}/${intakeDays.length}`, color: onTarget >= intakeDays.length - 1 ? C.teal : C.gold },
           { label:'Avg intake', val:`${avgIntake}`, unit:'kcal', color:C.accent },
           { label:'Avg protein', val:`${avgProtein}`, unit:'g', color:C.orange },
