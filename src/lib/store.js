@@ -65,14 +65,51 @@ const realStore = {
     }
   },
 
-  async clearAll() {
+  async clearAll({ preserveKeys = [] } = {}) {
     try {
       const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return false
+
+      const preserved = {}
+      if (preserveKeys.length) {
+        const { data, error: preserveError } = await supabase
+          .from('user_data')
+          .select('key, value')
+          .eq('user_id', user.id)
+          .in('key', preserveKeys)
+        if (preserveError) throw preserveError
+        for (const row of data ?? []) preserved[row.key] = row.value
+      }
+
       const { error } = await supabase
         .from('user_data')
         .delete()
         .eq('user_id', user.id)
       if (error) throw error
+
+      // Progress photos live in Storage rather than user_data, so remove
+      // the user's private folder as part of a complete fresh start.
+      const { data: photos, error: photoListError } = await supabase.storage
+        .from('progress-photos')
+        .list(user.id, { limit: 1000 })
+      if (photoListError) throw photoListError
+      const paths = (photos ?? [])
+        .filter(file => file.name)
+        .map(file => `${user.id}/${file.name}`)
+      if (paths.length) {
+        const { error: photoDeleteError } = await supabase.storage
+          .from('progress-photos')
+          .remove(paths)
+        if (photoDeleteError) throw photoDeleteError
+      }
+
+      for (const [key, value] of Object.entries(preserved)) {
+        const { error: restoreError } = await supabase
+          .from('user_data')
+          .insert({ user_id: user.id, key, value, updated_at: new Date().toISOString() })
+        if (restoreError) throw restoreError
+      }
+
       return true
     } catch (e) {
       console.error('store.clearAll error', e)

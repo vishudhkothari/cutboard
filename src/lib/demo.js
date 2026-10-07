@@ -141,7 +141,12 @@ export const demoStore = {
   async getByPrefix(prefix) {
     return [...mem.entries()].filter(([k]) => k.startsWith(prefix)).map(([, v]) => clone(v)).filter(Boolean)
   },
-  async clearAll() { mem.clear(); return true },
+  async clearAll({ preserveKeys = [] } = {}) {
+    const preserved = Object.fromEntries(preserveKeys.filter(key => mem.has(key)).map(key => [key, mem.get(key)]))
+    mem.clear()
+    Object.entries(preserved).forEach(([key, value]) => mem.set(key, value))
+    return true
+  },
   async getSharedFoods() { return [] },
   async addSharedFood() { return true },
   async uploadPhoto() { return null },

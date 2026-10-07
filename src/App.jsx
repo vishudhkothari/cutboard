@@ -587,7 +587,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
               <button style={{ ...btn(false), width: '100%', color: C.red, borderColor: `${C.red}44`, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8 }} onClick={onReset}>
                 <Icon name="ban" size={15} color={C.red} /> Reset all data & start fresh
               </button>
-              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 8, textAlign: 'center' }}>Wipes all logs, workouts, and settings. Cannot be undone.</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 8, textAlign: 'center' }}>Wipes logs, logged meals, meal history, workouts, settings, and progress photos. Saved recipes stay. Cannot be undone.</div>
             </div>
           )}
         </div>
@@ -2744,6 +2744,7 @@ export default function App() {
   const logSaveTimers = useRef({})
   const pendingLogs   = useRef({})   // date -> latest unsaved log payload
   const viewRequestRef = useRef(0)
+  const resetInProgress = useRef(false)
   const persistLog = useCallback(async (date, payload, attempt = 0) => {
     const saved = await store.set(`log:${date}`, payload)
     if (saved || attempt >= 3) {
@@ -2786,6 +2787,7 @@ export default function App() {
   // otherwise a weigh-in entered <600ms before backgrounding the PWA is lost.
   useEffect(() => {
     const flush = () => {
+      if (resetInProgress.current) return
       for (const date of Object.keys(pendingLogs.current)) {
         clearTimeout(logSaveTimers.current[date])
         delete logSaveTimers.current[date]
@@ -2803,6 +2805,24 @@ export default function App() {
       flush()
     }
   }, [persistLog])
+  const resetAllData = async () => {
+    if (!confirm('Delete ALL your data and start fresh? This cannot be undone.')) return
+
+    // Prevent debounced log writes and pagehide cleanup from recreating data
+    // after the reset has deleted it.
+    resetInProgress.current = true
+    Object.values(logSaveTimers.current).forEach(clearTimeout)
+    logSaveTimers.current = {}
+    pendingLogs.current = {}
+
+    const cleared = await store.clearAll({ preserveKeys: ['recipes'] })
+    if (!cleared) {
+      resetInProgress.current = false
+      alert('Your data could not be fully reset. Nothing was reloaded; please try again.')
+      return
+    }
+    location.reload()
+  }
   const saveCutIntel = async ci => {
     const normalized = ci ? { ...ci, stepGoal: ci.stepGoal == null ? ci.stepGoal : normalizeStepTarget(ci.stepGoal, setup?.stepGoal || 10000) } : ci
     await store.set('cut_intel', normalized); setCutIntel(normalized)
@@ -2936,11 +2956,7 @@ export default function App() {
   if (session===undefined) return <Spin msg='Loading…' />
   if (!session) return <AuthScreen/>
   if (!dataReady) return <Spin msg='Loading your data…' />
-  if (!setup||onboarding) return <Onboarding userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={()=>setOnboarding(false)} onExport={exportData} onReset={async()=>{
-    if(!confirm('Delete ALL your data and start fresh? This cannot be undone.')) return
-    await store.clearAll()
-    location.reload()
-  }}/>
+  if (!setup||onboarding) return <Onboarding userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={()=>setOnboarding(false)} onExport={exportData} onReset={resetAllData}/>
   if (!todayLog) return <Spin msg='Loading today…' />
 
   const latestWeight = allLogs.filter(l=>l.weight!=null).at(-1)?.weight ?? setup.startWeight
