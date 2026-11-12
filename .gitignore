@@ -4,3 +4,6 @@ dist
 .env.local
 .DS_Store
 artifacts/
+
+# Local archive of the replaced interface; previous commits preserve it too.
+rebuild/

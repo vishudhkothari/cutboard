@@ -1,148 +1,51 @@
-# CUTIQ v2 model and evidence
+# CUTIQ model and evidence
 
-Research reviewed 12 November 2026. Scientific evidence informs the model; explicit
-product heuristics fill the gaps. Tests establish software accounting consistency,
-not biological certainty. CUTIQ does not guarantee a body-composition result.
+Reviewed 12 November 2026. The original features remain active. This document describes the shared model behind them. Product heuristics are explicit; software consistency does not establish physiological certainty.
 
-## The invariant
+## Energy accounting
 
 ```
-estimated expenditure = baseline maintenance + step adjustment
-food target           = estimated expenditure - planned deficit
+estimated expenditure = baseline maintenance + completed movement credit
+food allowance        = baseline cut allowance + completed movement credit
+planned net deficit   = estimated expenditure - final food allowance
 ```
 
-An intake minimum can reduce the achievable deficit; the displayed deficit always
-equals expenditure minus the final target. It never keeps displaying the original
-deficit after raising food to the minimum.
+The chosen step coefficient is **40 kcal per 1,000 extra steps**, independent of body weight. Only the difference from the configured usual step count earns credit. Thus 10,000 baseline steps and a 2,000 kcal allowance become 2,200 kcal at 15,000 steps. With baseline expenditure of 2,600, that is 2,800 minus 2,200: the same 600 kcal planned deficit. It is a conservative product choice, not a measurement or universal physiological coefficient.
 
-For a supported 2,600 kcal baseline and a 600 kcal deficit, food is 2,000 kcal. If
-additional activity truly adds 250 kcal, the equivalent allowance is 2,250 kcal and
-the deficit remains 600 kcal. Five thousand extra steps are not universally 250 kcal.
-For example, the default level-walking heuristic estimates about 158 kcal at 85 kg
-and 180 cm. This is an estimate, not a measured expenditure.
+A live partial step count below baseline does not immediately debit food. An explicitly finalized count, or a recorded historical day, can have a negative adjustment. Missing steps are unknown. The intake floor takes precedence; the displayed deficit uses the final allowance when a floor prevents full compensation. Captured past prescriptions remain a record of what was shown then.
 
-## Initial maintenance and activity
+Incline walking uses a net heuristic of `0.08 * weightKg * completedMinutes`. Configured minutes alone earn nothing. Up to 90 steps/minute of the completed walk are assumed to overlap steps above baseline; their step credit is deducted from the incline credit. Speed, gradient and whether a device counted the walk are unknown, so this is deliberately an estimate. Zone 2 sessions remain a training/adherence feature; they do not create a second unmeasured calorie credit.
 
-Resting energy uses Mifflin–St Jeor. This predicts resting expenditure, rather than
-directly measuring BMR. The initial daily prior is resting energy × 1.2, plus net
-walking above 3,000 steps and averaged resistance-training energy. The 1.2 multiplier
-and 3,000 incidental steps are implementation assumptions, not a validated equation
-for every individual. A known maintenance setting replaces this prior and is anchored
-to start weight.
+Walking cost varies with mass, speed, gradient and economy. The [2024 Compendium](https://pacompendium.com/walking/) and [walking-energy model research](https://pubmed.ncbi.nlm.nih.gov/26679617/) describe that variability. [Careau et al.](https://pubmed.ncbi.nlm.nih.gov/34453886/) does not justify one universal compensation discount for every individual activity.
 
-Walking distance uses height × 0.414 per step; net energy uses 0.5 kcal/kg/km. The
-stride coefficient is a coarse anthropometric heuristic. The horizontal ACSM walking
-oxygen-cost term, converted at approximately 5 kcal/L oxygen, motivates the net
-distance cost. Actual walking economy depends on speed, grade and other factors.
-Only the difference from usual daily steps changes the allowance, so baseline steps
-are not counted again. An open day assumes at least baseline steps; marking the
-count final enables a negative adjustment. This prevents a morning's partial count
-from immediately reducing the food allowance, while making the assumption visible.
+## Baseline and pace
 
-Resistance training uses a 3.5 MET estimate minus the resting component, averaged
-over the configured weekly schedule. A training check-in is informational and never
-earns another food credit. Repeatedly missing training requires a baseline update.
-Walking/cardio sessions are not separately credited, so their steps cannot be paid
-twice.
+The familiar activity levels remain: resting energy multiplied by 1.15/1.3/1.45/1.6/1.75. This baseline includes the usual routine, baseline steps and gym; logging a workout does not pay for it again. Resting energy uses the original lean-mass equation when a valid body-fat anchor exists, otherwise [Mifflin-St Jeor](https://pubmed.ncbi.nlm.nih.gov/2305711/). Neither equation directly measures expenditure.
 
-Sources: [original resting-energy equation](https://pubmed.ncbi.nlm.nih.gov/2305711/),
-[2024 activity compendium](https://pacompendium.com/adult-compendium/),
-[walking-equation validation research](https://pmc.ncbi.nlm.nih.gov/articles/PMC7896743/).
+At weekly reviews, remaining scale-weight loss and calendar time imply a requested deficit using 7,700 kcal/kg. A scale goal takes precedence when configured; otherwise the original modeled body-fat goal derives an estimated goal weight. The 7,700 approximation is not a full dynamic body-weight model. See [NIDDK's planner](https://www.niddk.nih.gov/health-information/weight-management/body-weight-planner) for the dynamic context.
 
-## Pace and limits
+Automatic deficits are bounded by 25% of baseline expenditure, 0.75% body weight/week with the original leanness taper, and the food floor (1,500 male / 1,200 female). These are product limits, not universal clinical safety thresholds. An infeasible deadline is flagged. The original manual food target remains an explicit baseline override, subject to the food floor; completed extra movement still adjusts it.
 
-At each weekly review, remaining trend-weight loss and remaining calendar days imply
-a requested deficit, using 7,700 kcal/kg. This is a short-term approximation, not the
-NIH dynamic body-weight model. The baseline is recalculated with current weight and
-calibrated as evidence permits. Long-range dates are explicitly approximate.
+Protein retains the original dynamic default of 2 g/kg with 110-220 g bounds. Macros are allocated from the final allowance, so extra calories flow through the same macro helper. [Longland et al.](https://pubmed.ncbi.nlm.nih.gov/26817506/) supports higher protein with resistance exercise during restriction in its studied population; it does not establish a guaranteed individual outcome.
 
-The prescribed deficit is bounded by all three product rules:
+## Optional schedules and coaching
 
-- 0.75% body weight per week.
-- 25% of baseline maintenance.
-- Food not below 1,500 kcal for males or 1,200 for females.
+Steady and zigzag remain available. Zigzag redistributes the neutral weekly target with an exact integer weekly total, including floor clipping. Earned movement is added after that distribution. Optional full fasting or 25% compensation deliberately changes the allowance and deficit; it is an exception to an otherwise steady cutting plan. Logged meals survive all fasting toggles, and actual intake is never replaced by a fasting prescription.
 
-These are operational guardrails, not proven universal safe thresholds. BMR is not
-treated as a minimum allowable intake. The app rejects under-18 profiles and
-underweight BMI goals. It is not a clinical nutrition prescription.
+Pace, strength, composition and refeed features remain advisory. Initial pace/projection judgments wait for about two calendar weeks of weights. Strength changes can indicate fatigue or recovery issues; they do not measure muscle loss. Composition fractions and projected dates are model assumptions. Movement advice explicitly states that eating the full movement credit preserves the same deficit, so a higher step goal cannot promise faster loss at that allowance. Refeeds may support adherence/training; they are not promised hormone resets or fat-loss accelerators.
 
-Deadlines that exceed these bounds stay visibly infeasible. Passing a deadline
-continues the original bounded pace and offers maintenance or a revised date;
-remaining time never becomes a near-zero divisor that forces an escalating deficit.
-Twelve-week cuts and excessive observed loss prompt a recovery review.
+## Calibration
 
-Evidence supports avoiding unnecessarily rapid losses in athletes, but does not
-establish one perfect rate for everyone. [Garthe et al.'s original rate-comparison
-trial](https://pubmed.ncbi.nlm.nih.gov/21558571/) informs the conservative direction.
-[NIH's planner](https://www.niddk.nih.gov/health-information/weight-management/body-weight-planner)
-provides the relevant dynamic energy-balance context. CUTIQ does not claim to
-implement the full NIH model.
+Calibration is reviewed weekly, no earlier than day 28. It excludes the first seven cut days and uses up to 28 days of records with at least eight weights spanning 14 days. Morning weights bound the interval: intake includes the first morning's date and excludes the last morning's date.
 
-## Learning from observations
+Every intake day in that interval must be present. Explicitly incomplete food, missing meals, missing step counts and nonfast daily totals below 1,000 block calibration. Original logs do not contain whole-day confirmations; plausible meal totals are a compatibility assumption, not proof of completeness. Actual explicit fasting can be zero, and any meals on a fasting day are included. Missing days are never invented as zero intake.
 
-Weight display is the mean of available valid weigh-ins within a seven-calendar-day
-window. It never invents measurements between entries. Observed weekly loss uses a
-raw-weight regression over up to 14 days and requires at least six weigh-ins spanning
-ten days. This observed rate is feedback, not a second prescription controller.
+Baseline TDEE is inferred from actual average intake minus completed movement credit minus the weight-regression slope times 7,700. The observed estimate is blended conservatively with the formula, with measured weight at most 75% and total correction bounded to 20% of the prior. Changing baseline profile inputs restarts the learning window. This cannot distinguish underlogging from lower expenditure, or identify an individual's true step coefficient. Consistent weighing, food logging and activity remain necessary.
 
-Maintenance calibration starts at a weekly review after at least 28 calendar days:
+## Maintenance
 
-1. Discard the first seven cut days from the calibration window.
-2. Use up to 28 calendar days bounded by actual morning weigh-ins, requiring at
-   least eight weights spanning 14 days.
-3. Require every intake day in the interval to have complete food and final steps.
-4. Use intake from the first morning up to, but excluding, the last morning's date.
-5. Subtract each day's step adjustment from intake to normalize to baseline activity.
-6. Infer baseline maintenance from normalized intake minus weight slope × 7,700.
-7. Reject signals outside 65–135% of the formula prior. Otherwise blend conservatively,
-   with a maximum deviation of 100 kcal at the first review, increasing 100 kcal per
-   review and capped at 20% of the prior. Measured weight is at most 75% of the blend.
+A seven-day window containing at least three weights averaging at/below the scale goal can confirm goal attainment after the first cut week. Maintenance also starts when the configured cut window ends, preserving that scheduling feature; the interface distinguishes window expiry from goal confirmation. An attained goal is retained through ordinary weight rebound. A later cut requires changing the goal/start settings.
 
-The window, completeness requirement, bounds and blend are transparent engineering
-choices. They are not a clinically validated estimator. Calibration can be biased by
-systematic underlogging, water retention and the energy-density approximation. It
-refines a reference expenditure; it cannot independently identify a personalized
-step calorie coefficient from these data.
+Maintenance immediately removes the planned deficit. There is no mandatory slow calorie ramp. The preliminary [2025 randomized reverse-dieting study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12381988/) did not find a significant group difference in regain; its limited results do not establish equivalence or support requiring a slow ramp for everybody.
 
-Changing the baseline step count, training schedule, resting-equation inputs or known
-maintenance setting restarts this learning window. Historical facts remain stored,
-but the previous activity regime cannot immediately recalibrate the new baseline
-back to its old expenditure. A new start date begins a separate cut window.
-
-Activity compensation varies. The observational [Careau et al. study](https://pubmed.ncbi.nlm.nih.gov/34453886/)
-does not justify applying one fixed compensation percentage to every walk. The app
-therefore labels the credit an estimate and checks outcomes over time. [Wearable
-validation research](https://pubmed.ncbi.nlm.nih.gov/28538708/) also cautions against
-treating device calorie readings as exact measurements.
-
-## Protein and the end of the cut
-
-Protein guides use 2 g/kg during the cut and 1.8 g/kg during maintenance, applied to
-the smaller of current weight and 110% of goal weight. The guide is bounded to 40%
-of the calorie allowance so macros remain feasible. Fat uses 25% of the allowance;
-carbs fill the remaining energy, with small rounding differences. These allocation
-rules are practical defaults rather than claims of uniquely optimal macros.
-
-The [Longland controlled trial](https://pubmed.ncbi.nlm.nih.gov/26817506/) supports
-higher protein with resistance exercise during restriction, within its young male,
-short-duration experimental population. More recent [2026 resistance-trained
-participant research](https://pubmed.ncbi.nlm.nih.gov/41940947/) also investigates
-high-protein maintenance versus moderate restriction with lifting. Small studies do
-not establish a guaranteed individual response or justify extreme restriction.
-
-After the first week, a seven-day weight average with at least three measurements at
-or below goal triggers maintenance. The saved phase is latched; ordinary rebound
-cannot restart a cut. A user may also start maintenance deliberately. A later cut
-requires a new start date or goal in the profile.
-
-Maintenance removes the planned deficit immediately. No mandatory reverse-diet ramp
-keeps the user below maintenance. The [2025 randomized preliminary reverse-dieting
-study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12381988/) found no statistically
-significant group difference in regain; it is limited evidence and does not prove
-all approaches equivalent. It does not support requiring a slow ramp for everyone.
-
-The pre-maintenance estimate is held for four maintenance weeks to avoid learning
-from the initial water/glycogen rebound. Subsequent calibration excludes the first
-14 maintenance days. Continue stable activity, protein and logging. Compare 2–4-week
-trends, not a single rebound weigh-in. The app never automatically prescribes a new
-cut because a maintenance weigh-in is higher.
+Calibration holds the pre-maintenance learning window through the first four maintenance weeks. Later windows exclude the first 14 maintenance days to reduce water/glycogen contamination. Continue stable activity, protein, lifting and logging; assess several weeks of trend instead of one rebound weight. Optional fasting/zigzag remain user choices and their actual plan is displayed explicitly.

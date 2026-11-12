@@ -1,236 +1,312 @@
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
-import { addDays, today } from "../src/lib/cutEngine.js";
+import { mkdir } from "node:fs/promises";
+import { today, shiftDay } from "../src/lib/planEngine.js";
 
-// Run against a VITE_DEMO=1 dev server. Uses an isolated browser context;
-// never reads or writes the user's actual account or browser profile.
+// Isolated demo account: never visits the user's browser profile or cloud data.
+const date = today();
+const key = "cutboard:demo:v3";
+const setup = {
+  name: "Test",
+  age: 30,
+  height: 180,
+  sex: "male",
+  activity: "mod",
+  startWeight: 85,
+  startBF: 20,
+  goalBF: 12,
+  goalWeight: 79,
+  startDate: shiftDay(date, -15),
+  cutLength: 77,
+  stepGoal: 10000,
+  userMaxStepBudget: 14000,
+  manualCalTarget: 2000,
+  activeCut: false,
+  cardioMin: 35,
+};
+const seed = [
+  ["setup", setup],
+  ["recipes", []],
+  ["plan_settings", { fastCompensation: false }],
+  ["zigzag_settings", { on: false, schedule: 1, mode: "weight" }],
+  [
+    "routines",
+    [
+      {
+        id: "push",
+        name: "Push Day",
+        exercises: [
+          {
+            exerciseId: "bench_press",
+            name: "Bench Press",
+            cat: "Chest",
+            sets: 1,
+            repsTarget: 8,
+            restSeconds: 90,
+          },
+        ],
+      },
+    ],
+  ],
+  ["workout_history", []],
+  ...Array.from({ length: 16 }, (_, i) => {
+    const d = shiftDay(date, i - 15);
+    return [
+      `log:${d}`,
+      {
+        date: d,
+        weight: 85,
+        steps: 10000,
+        sleep: 7.5,
+        meals: [
+          {
+            name: "Original lunch",
+            cals: 500,
+            protein: 25,
+            carbs: 50,
+            fat: 20,
+            fiber: 5,
+          },
+        ],
+      },
+    ];
+  }),
+];
 const browser = await chromium.launch({
   channel: process.env.BROWSER_CHANNEL || "msedge",
   headless: true,
 });
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1100 },
-  acceptDownloads: true,
+  serviceWorkers: "block",
 });
+await context.addInitScript(
+  ({ key, seed }) => {
+    if (!localStorage.getItem(key))
+      localStorage.setItem(key, JSON.stringify(seed));
+  },
+  { key, seed },
+);
 const page = await context.newPage();
 const errors = [];
+page.setDefaultTimeout(10000);
 page.on("pageerror", (e) => errors.push(e.message));
-const url = process.env.TEST_URL || "http://127.0.0.1:5173";
+const nav = (name) =>
+  page.getByRole("button", { name, exact: true }).first().click();
+const stored = async (name) =>
+  page.evaluate(
+    ({ key, name }) => new Map(JSON.parse(localStorage.getItem(key))).get(name),
+    { key, name },
+  );
+const savedSteps = async (steps) =>
+  page.waitForFunction(
+    ({ key, date, steps }) =>
+      new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)
+        ?.steps === steps,
+    { key, date, steps },
+  );
 await mkdir("artifacts", { recursive: true });
 try {
-  await page.goto(url);
-  await page.getByLabel("Name", { exact: true }).fill("Test");
-  await page.getByLabel("Age", { exact: true }).fill("30");
-  await page.getByLabel("Height · cm").fill("180");
-  await page.getByLabel("Start weight · kg").fill("85");
-  await page.getByLabel("Goal weight · kg").fill("79");
-  await page.getByLabel("Goal date").fill(addDays(today(), 77));
-  await page.getByText("I already know my maintenance calories").click();
-  await page.getByLabel("Baseline maintenance · optional").fill("2600");
-  await page.getByRole("button", { name: "Save my plan" }).click();
-  await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
-  assert.match(await page.locator(".big-number").innerText(), /2,000/);
-  await page.getByLabel("Steps so far").fill("15000");
-  assert.match(await page.locator(".big-number").innerText(), /2,158/);
-  await page.getByLabel("Morning weight · kg").fill("85");
-  await page.getByRole("button", { name: "Add meal", exact: true }).click();
-  await page.getByLabel("Meal name", { exact: true }).fill("Lunch");
-  await page.getByLabel("Calories", { exact: true }).fill("500");
-  await page.getByLabel("Protein · g", { exact: true }).fill("25");
-  await page.getByRole("button", { name: "+ Add food", exact: true }).click();
-  await page.getByText("Food log includes the whole day").check();
-  await page.getByText("Step count is final for this day.").check();
-  await page.getByRole("button", { name: "Save day", exact: true }).click();
+  await page.goto(process.env.TEST_URL || "http://127.0.0.1:5173");
+  await page.getByText("of 2000 kcal", { exact: true }).waitFor();
+  await page.getByLabel("Steps", { exact: true }).fill("15000");
+  await page.getByText("of 2200 kcal", { exact: true }).waitFor();
+  await savedSteps(15000);
+  await page.getByRole("button", { name: "+ Add Meal", exact: true }).click();
+  await page.getByLabel("Food / Meal", { exact: true }).fill("Test dinner");
+  await page.getByLabel("Calories", { exact: true }).fill("700");
+  await page.getByLabel("Protein (g)", { exact: true }).fill("40");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.waitForFunction(
-    () =>
-      JSON.parse(localStorage.getItem("cutiq:v2:demo"))?.logs[0]?.foodComplete,
+    ({ key, date }) =>
+      new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)?.meals
+        .length === 2,
+    { key, date },
+  );
+  await page.getByRole("button", { name: "Fasting Day", exact: true }).click();
+  await page.getByText("0 kcal planned allowance", { exact: false }).waitFor();
+  await page.waitForFunction(
+    ({ key, date }) =>
+      new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)
+        ?.fasting === true,
+    { key, date },
+  );
+  assert.equal((await stored(`log:${date}`)).meals.length, 2);
+  await page.getByRole("button", { name: /Undo Fast/ }).click();
+  await page.getByText("of 2200 kcal", { exact: true }).waitFor();
+  await page.waitForFunction(
+    ({ key, date }) =>
+      new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)
+        ?.fasting === false,
+    { key, date },
   );
   await page.reload();
-  await page.getByText("Lunch", { exact: true }).waitFor();
-  assert.match(await page.locator(".big-number").innerText(), /2,158/);
-  await page.screenshot({
-    path: "artifacts/today-desktop.png",
-    fullPage: true,
-  });
+  await page.getByText("of 2200 kcal", { exact: true }).waitFor();
+  assert.equal((await stored(`log:${date}`)).meals.length, 2);
   console.log(
-    "PASS onboarding, exact energy balance, meal logging and reload persistence",
+    "PASS 40 kcal credit, food entry, fasting without losing meals, and reload persistence",
   );
 
-  await page.getByLabel("Steps so far").fill("16000");
-  page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("button", { name: "Progress", exact: true }).click();
-  assert.equal(await page.getByLabel("Steps so far").inputValue(), "16000");
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Progress", exact: true }).click();
-  await page.getByRole("heading", { name: "Weight over time." }).waitFor();
-  await page.screenshot({
-    path: "artifacts/progress-desktop.png",
-    fullPage: true,
-  });
-  await page.getByRole("button", { name: "Today", exact: true }).click();
-  assert.equal(await page.getByLabel("Steps so far").inputValue(), "15000");
-  console.log("PASS unsaved-change protection and trend view");
-
-  // Editing to a final low-step day reduces the food allowance, not the deficit.
-  await page.getByLabel("Steps so far").fill("5000");
-  assert.match(await page.locator(".big-number").innerText(), /1,842/);
-  await page.getByRole("button", { name: "Save day", exact: true }).click();
-  await page.waitForFunction(
-    () =>
-      JSON.parse(localStorage.getItem("cutiq:v2:demo"))?.logs[0]?.steps ===
-      5000,
-  );
-  const second = await context.newPage();
-  await second.goto(url);
-  await second.getByLabel("Steps so far").waitFor();
-  await page.getByLabel("Steps so far").fill("10000");
-  await page.getByRole("button", { name: "Save day", exact: true }).click();
-  await page.waitForFunction(
-    () =>
-      JSON.parse(localStorage.getItem("cutiq:v2:demo"))?.logs[0]?.steps ===
-      10000,
-  );
-  await second.getByLabel("Steps so far").fill("12000");
-  await second.getByRole("button", { name: "Save day", exact: true }).click();
-  await second
-    .getByRole("alert")
-    .filter({ hasText: "another tab or device" })
-    .waitFor();
-  assert.equal(await second.getByLabel("Steps so far").inputValue(), "12000");
-  assert.equal(
-    await page.evaluate(
-      () => JSON.parse(localStorage.getItem("cutiq:v2:demo")).logs[0].steps,
-    ),
-    10000,
-  );
-  const draftDownload = second.waitForEvent("download");
-  await second.getByRole("button", { name: "Export data" }).click();
-  const draftBackup = JSON.parse(
-    await readFile(await (await draftDownload).path(), "utf8"),
-  );
-  assert.equal(draftBackup.logs[0].steps, 12000);
-  await second.close();
+  await nav("Schedule");
+  await page.getByText("+200 kcal", { exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: "Turn on today", exact: true })
+    .click();
+  await page.getByText("+0 kcal", { exact: true }).waitFor();
+  await nav("Today");
+  await page.getByText("of 2200 kcal", { exact: true }).waitFor();
+  await page.getByLabel("Incline walk", { exact: true }).fill("35");
+  await page.getByText("of 2312 kcal", { exact: true }).waitFor();
+  await nav("Schedule");
+  await page.getByRole("button", { name: /^Zigzag/ }).click();
+  await page.getByText("This Week", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /^Steady/ }).click();
+  await page.getByText("2312 kcal", { exact: true }).waitFor();
   console.log(
-    "PASS low-activity adjustment and conflict protection without losing the draft",
+    "PASS completed incline, overlap adjustment, Active Cut and zigzag toggles",
   );
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "artifacts/today-mobile.png", fullPage: true });
+  await nav("Nutrition");
+  await page
+    .getByRole("button", { name: "+ Build a Meal", exact: true })
+    .click();
   assert.ok(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-    "Mobile content must not overflow horizontally",
+    (await page.getByPlaceholder(/meal name|name your|e.g./i).count()) ||
+      (await page.getByText("Build a Meal", { exact: false }).count()),
   );
-  await page.getByRole("button", { name: "Progress", exact: true }).click();
-  await page.screenshot({
-    path: "artifacts/progress-mobile.png",
-    fullPage: true,
-  });
-  assert.ok(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
+  await page
+    .getByRole("button", { name: /Cancel|Close/ })
+    .last()
+    .click();
+  await nav("Progress");
+  await page.getByText("Weekly Review", { exact: true }).waitFor();
+  await page.getByText("Sunday body measurements", { exact: true }).waitFor();
+  await page.getByText("Progress Photos", { exact: true }).waitFor();
+  await nav("Cut IQ");
+  await page.getByText("Weekly Strength Check-in", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /^Holding/ }).click();
+  assert.equal((await stored("cut_intel")).strengthSignal, "same");
+  console.log(
+    "PASS nutrition, recipe builder, measurements, photos and strength check-in",
   );
-  await page.getByRole("button", { name: "Plan", exact: true }).click();
-  await page.getByText("Evidence and model limits").click();
-  await page.screenshot({ path: "artifacts/plan-mobile.png", fullPage: true });
-  assert.ok(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  );
-  await page.getByRole("button", { name: "Start maintenance today" }).click();
-  await page.locator(".phase.maintenance").waitFor();
-  await page.getByRole("button", { name: "Today", exact: true }).click();
-  assert.match(await page.locator(".big-number").innerText(), /2,600/);
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export data" }).click();
-  const download = await downloadPromise;
-  assert.ok(download.suggestedFilename().startsWith("cutiq-"));
-  await page.reload();
-  await page.locator(".phase.maintenance").waitFor();
-  assert.match(await page.locator(".big-number").innerText(), /2,600/);
+
+  await nav("Workout");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await page.locator('input[type="number"]').nth(0).fill("80");
+  await page.locator('input[type="number"]').nth(1).fill("8");
+  await page.getByRole("button", { name: "\u2713", exact: true }).click();
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await page.getByText("Start a Workout", { exact: true }).waitFor();
   assert.equal(
-    await page.getByRole("button", { name: /workout|fasting/i }).count(),
-    0,
+    (await stored("workout_history"))[0].exercises[0].sets[0].weight,
+    "80",
+  );
+  console.log("PASS workout routine, set logging and history persistence");
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByLabel("Target Scale Weight (kg)", { exact: true })
+    .fill("78.5");
+  await page.getByRole("button", { name: "Save Changes", exact: true }).click();
+  await page.getByRole("button", { name: "Schedule", exact: true }).waitFor();
+  assert.equal((await stored("setup")).goalWeight, 78.5);
+  console.log("PASS profile edit and numeric scale-goal persistence");
+
+  for (const viewport of [
+    { width: 1440, height: 1100 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    for (const tab of [
+      "Today",
+      "Nutrition",
+      "Progress",
+      "Cut IQ",
+      "Schedule",
+      "Workout",
+    ]) {
+      await nav(tab);
+      await page.waitForTimeout(150);
+      assert.doesNotMatch(
+        await page.locator("body").innerText(),
+        /NaN|undefined|Infinity/,
+      );
+      assert.ok(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        `${tab} overflows at ${viewport.width}px`,
+      );
+      await page.screenshot({
+        path: `artifacts/restored-${tab.replace(" ", "-")}-${viewport.width}.png`,
+        fullPage: true,
+      });
+    }
+  }
+  const bridgeContext = await browser.newContext({ serviceWorkers: "block" });
+  const document = {
+    version: 2,
+    profile: {
+      name: "Scale goal",
+      age: 30,
+      height: 180,
+      sex: "male",
+      startWeight: 85,
+      goalWeight: 79,
+      startDate: setup.startDate,
+      goalDate: shiftDay(setup.startDate, 77),
+      baselineSteps: 10000,
+      gymDays: 5,
+    },
+    logs: seed
+      .filter(([key]) => key.startsWith("log:"))
+      .map(([, value]) => ({
+        ...value,
+        foodComplete: false,
+        activityComplete: false,
+      })),
+  };
+  await bridgeContext.addInitScript(
+    (document) =>
+      localStorage.setItem("cutiq:v2:demo", JSON.stringify(document)),
+    document,
+  );
+  const bridgePage = await bridgeContext.newPage();
+  bridgePage.on("pageerror", (error) => errors.push(error.message));
+  await bridgePage.goto(process.env.TEST_URL || "http://127.0.0.1:5173");
+  await bridgePage.getByLabel("Steps", { exact: true }).waitFor();
+  for (const tab of [
+    "Today",
+    "Nutrition",
+    "Progress",
+    "Cut IQ",
+    "Schedule",
+    "Workout",
+  ]) {
+    await bridgePage
+      .getByRole("button", { name: tab, exact: true })
+      .first()
+      .click();
+    assert.doesNotMatch(
+      await bridgePage.locator("body").innerText(),
+      /NaN|undefined|Infinity/,
+    );
+  }
+  await bridgeContext.close();
+  console.log(
+    "PASS v2-only scale-goal restoration without a body-fat anchor across all six tabs",
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS mobile layout, maintenance persistence, backup export, and no runtime errors",
+    "PASS all six tabs on desktop/mobile, no runtime errors or horizontal overflow",
   );
-
-  // A goal-reaching draft and its header must use exactly the same live plan.
-  const goalContext = await browser.newContext({
-    viewport: { width: 390, height: 844 },
+} catch (error) {
+  console.log((await page.locator("body").innerText()).slice(-4500));
+  await page.screenshot({
+    path: "artifacts/browser-failure.png",
+    fullPage: true,
   });
-  await goalContext.addInitScript(
-    ({ start, goal, previous }) => {
-      if (!localStorage.getItem("cutiq:v2:demo"))
-        localStorage.setItem(
-          "cutiq:v2:demo",
-          JSON.stringify({
-            version: 2,
-            profile: {
-              name: "Goal",
-              age: 30,
-              height: 180,
-              sex: "male",
-              startWeight: 85,
-              goalWeight: 79,
-              startDate: start,
-              goalDate: goal,
-              baselineSteps: 10000,
-              gymDays: 5,
-              gymMinutes: 60,
-              maintenanceOverride: 2600,
-            },
-            logs: previous.map((date, i) => ({
-              date,
-              weight: 78.8 + i * 0.1,
-              steps: null,
-              meals: [],
-              foodComplete: false,
-              activityComplete: false,
-              trained: false,
-              notes: "",
-            })),
-          }),
-        );
-    },
-    {
-      start: addDays(today(), -14),
-      goal: addDays(today(), 63),
-      previous: [addDays(today(), -2), addDays(today(), -1)],
-    },
-  );
-  const goalPage = await goalContext.newPage();
-  await goalPage.goto(url);
-  await goalPage.locator(".phase.cut").waitFor();
-  await goalPage.getByLabel("Morning weight · kg").fill("79");
-  await goalPage.locator(".phase.maintenance").waitFor();
-  await goalPage.getByText("MAINTENANCE ALLOWANCE", { exact: true }).waitFor();
-  assert.equal(
-    await goalPage.evaluate(
-      () =>
-        JSON.parse(localStorage.getItem("cutiq:v2:demo")).profile
-          .maintenanceSince,
-    ),
-    undefined,
-  );
-  await goalPage.getByRole("button", { name: "Save day", exact: true }).click();
-  await goalPage.waitForFunction(
-    () =>
-      !!JSON.parse(localStorage.getItem("cutiq:v2:demo")).profile
-        .maintenanceSince,
-  );
-  await goalPage.reload();
-  await goalPage.locator(".phase.maintenance").waitFor();
-  await goalContext.close();
-  console.log(
-    "PASS goal-reaching draft, shared phase display, saved maintenance latch and draft backup",
-  );
+  throw error;
 } finally {
   await browser.close();
 }

@@ -8,7 +8,7 @@ import reactHooks from "eslint-plugin-react-hooks";
    identifiers, unused vars, bad hook deps — without a heavy style ruleset. */
 export default [
   {
-    ignores: ["dist", "artifacts/**", "legacy/**", "public/sw.js", "*.dc.html"],
+    ignores: ["dist", "artifacts/**", "legacy/**", "rebuild/**", "public/sw.js", "*.dc.html"],
   },
   js.configs.recommended,
   {

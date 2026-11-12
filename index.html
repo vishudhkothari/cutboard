@@ -4,19 +4,36 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0a0a0c" />
+    <meta name="theme-color" content="#070809" />
     <meta name="description" content="Your transformation, tracked. Calories, macros, weight trend and adaptive cut coaching." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="CUTIQ" />
-    <title>CUTIQ · A clearer cut</title>
+    <meta name="apple-mobile-web-app-title" content="Cutboard" />
+    <title>Cutboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      /* clip (not hidden) prevents sideways bleed WITHOUT making html a scroll
+         container — overflow-x:hidden on html killed vertical scrolling. */
+      body { background: #070809; -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; overscroll-behavior-y: contain; overflow-x: clip; }
+      input, textarea, select, button { -webkit-appearance: none; font-size: 16px; }
+      @media (min-width: 768px) { input, textarea, select, button { font-size: inherit; } }
+      ::-webkit-scrollbar { width: 7px; height: 7px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #21242e; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #2d3140; }
+      button:active { transform: scale(0.97); }
+      @keyframes fadeUp { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes shimmer { 0% { background-position: 130% 0; } 100% { background-position: -90% 0; } }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
