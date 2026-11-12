@@ -10,10 +10,10 @@ export default function PlanDetails({
     <>
       <section className="grid two">
         <article className="panel">
-          <p className="eyebrow">YOUR BASELINE</p>
-          <h2>
+          <h2>Baseline maintenance</h2>
+          <div className="baseline-value">
             {fmt(plan.baselineMaintenance)} <small>kcal / day</small>
-          </h2>
+          </div>
           <dl>
             <div>
               <dt>Resting energy estimate</dt>
@@ -44,47 +44,45 @@ export default function PlanDetails({
           <button onClick={onEdit}>Edit plan</button>
         </article>
         <article className="panel">
-          <p className="eyebrow">THE RULE</p>
-          <h2>
-            Move more. Eat more.
-            <br />
-            Keep the deficit.
-          </h2>
+          <h2>Your daily target</h2>
+          <div className="baseline-value">
+            {fmt(plan.target)} <small>kcal</small>
+          </div>
           <p>
             Food target = baseline maintenance + step adjustment − planned
             deficit.
           </p>
-          <p>
-            Only steps above or below your baseline change this allowance. Gym
-            sessions are averaged into baseline maintenance once. The training
-            check-in never adds a second calorie credit.
-          </p>
-          <p>
-            The baseline assumes your usual steps until the day is marked
-            complete. Then a shortfall lowers the allowance, subject to the food
-            minimum.
-          </p>
-          <p className="muted">
-            Step calories are estimates based on body weight, height and level
-            walking. Inclines, running, carried weight and individual efficiency
-            vary. Calibration adjusts baseline expenditure; it cannot measure
-            the exact burn of an extra walk.
-          </p>
+          <details>
+            <summary>How activity changes your allowance</summary>
+            <p>
+              Only steps above or below your baseline change this allowance. Gym
+              sessions are averaged into baseline maintenance once. The training
+              check-in never adds a second calorie credit.
+            </p>
+            <p>
+              The baseline assumes your usual steps until the day is marked
+              complete. Then a shortfall lowers the allowance, subject to the
+              food minimum.
+            </p>
+            <p className="muted">
+              Step calories are estimates based on body weight, height and level
+              walking. Inclines, running, carried weight and individual
+              efficiency vary. Calibration adjusts baseline expenditure; it
+              cannot measure the exact burn of an extra walk.
+            </p>
+          </details>
         </article>
       </section>
       <section className="panel">
-        <p className="eyebrow">AFTER THE CUT</p>
-        <h2>Maintenance is part of the plan.</h2>
+        <h2>After your cut</h2>
         <p>
-          A seven-day average with at least three weigh-ins at or below your
-          goal ends the cut after the first week. The app moves directly to
-          estimated maintenance and keeps that phase active as weight
-          fluctuates. Keep logging to refine the estimate over the following
-          weeks.
+          Once your weight trend confirms the goal, your target moves to
+          estimated maintenance. Keep your activity and protein consistent while
+          it settles.
         </p>
         <p>
-          Reaching the deadline alone does not mean the goal was achieved. If
-          needed, extend it or start maintenance deliberately.
+          A missed deadline calls for a review, rather than a bigger deficit.
+          You can also start maintenance whenever you need a break.
         </p>
         {plan.phase !== "maintenance" && (
           <button disabled={saving} onClick={onMaintenance}>

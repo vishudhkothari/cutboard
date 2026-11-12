@@ -29,11 +29,12 @@ try {
   await page.getByText("I already know my maintenance calories").click();
   await page.getByLabel("Baseline maintenance · optional").fill("2600");
   await page.getByRole("button", { name: "Save my plan" }).click();
-  await page.getByRole("heading", { name: "Test, your daily plan." }).waitFor();
+  await page.getByRole("heading", { name: "Today", exact: true }).waitFor();
   assert.match(await page.locator(".big-number").innerText(), /2,000/);
   await page.getByLabel("Steps so far").fill("15000");
   assert.match(await page.locator(".big-number").innerText(), /2,158/);
   await page.getByLabel("Morning weight · kg").fill("85");
+  await page.getByRole("button", { name: "Add meal", exact: true }).click();
   await page.getByLabel("Meal name", { exact: true }).fill("Lunch");
   await page.getByLabel("Calories", { exact: true }).fill("500");
   await page.getByLabel("Protein · g", { exact: true }).fill("25");
@@ -58,16 +59,16 @@ try {
 
   await page.getByLabel("Steps so far").fill("16000");
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("button", { name: "progress", exact: true }).click();
+  await page.getByRole("button", { name: "Progress", exact: true }).click();
   assert.equal(await page.getByLabel("Steps so far").inputValue(), "16000");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "progress", exact: true }).click();
+  await page.getByRole("button", { name: "Progress", exact: true }).click();
   await page.getByRole("heading", { name: "Weight over time." }).waitFor();
   await page.screenshot({
     path: "artifacts/progress-desktop.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "today", exact: true }).click();
+  await page.getByRole("button", { name: "Today", exact: true }).click();
   assert.equal(await page.getByLabel("Steps so far").inputValue(), "15000");
   console.log("PASS unsaved-change protection and trend view");
 
@@ -122,7 +123,7 @@ try {
     ),
     "Mobile content must not overflow horizontally",
   );
-  await page.getByRole("button", { name: "progress", exact: true }).click();
+  await page.getByRole("button", { name: "Progress", exact: true }).click();
   await page.screenshot({
     path: "artifacts/progress-mobile.png",
     fullPage: true,
@@ -132,7 +133,7 @@ try {
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   );
-  await page.getByRole("button", { name: "plan", exact: true }).click();
+  await page.getByRole("button", { name: "Plan", exact: true }).click();
   await page.getByText("Evidence and model limits").click();
   await page.screenshot({ path: "artifacts/plan-mobile.png", fullPage: true });
   assert.ok(
@@ -142,7 +143,7 @@ try {
   );
   await page.getByRole("button", { name: "Start maintenance today" }).click();
   await page.locator(".phase.maintenance").waitFor();
-  await page.getByRole("button", { name: "today", exact: true }).click();
+  await page.getByRole("button", { name: "Today", exact: true }).click();
   assert.match(await page.locator(".big-number").innerText(), /2,600/);
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export data" }).click();

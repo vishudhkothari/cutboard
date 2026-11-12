@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { FOOD_DB, mealFromFood } from "../lib/foodDB";
+import CalorieRing from "./CalorieRing";
+import Icon from "./Icon";
+import MealEntry from "./MealEntry";
 
 const fmt = (n) => Math.round(n).toLocaleString("en-IN");
 export default function DayEditor({
@@ -13,19 +15,12 @@ export default function DayEditor({
   onDirty,
 }) {
   const [saved, setSaved] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(original);
   useEffect(() => {
     onDirty(dirty);
   }, [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
-  const change = (key, value) => {
-    setSaved(false);
-    setDraft((d) => ({
-      ...d,
-      [key]: value,
-      ...(key === "steps" && value == null ? { activityComplete: false } : {}),
-    }));
-  };
   useEffect(() => {
     const handler = (e) => {
       if (dirty) {
@@ -36,159 +31,247 @@ export default function DayEditor({
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
-  const consumedProtein = draft.meals.reduce(
-    (s, m) => s + (+m.protein || 0),
-    0,
-  );
-  const percent = Math.min(100, (plan.consumed / plan.target) * 100);
+  const change = (key, value) => {
+    setSaved(false);
+    setDraft((d) => ({
+      ...d,
+      [key]: value,
+      ...(key === "steps" && value == null ? { activityComplete: false } : {}),
+    }));
+  };
+  const macroTotal = (key) =>
+    draft.meals.every(
+      (m) => m[key] != null && m[key] !== "" && Number.isFinite(+m[key]),
+    )
+      ? draft.meals.reduce((sum, m) => sum + +m[key], 0)
+      : null;
+  const stepProgress =
+    profile.baselineSteps > 0 && draft.steps != null
+      ? Math.min(100, (draft.steps / profile.baselineSteps) * 100)
+      : 0;
   return (
     <form
+      className="day-editor"
       onSubmit={async (e) => {
         e.preventDefault();
         if (await onSave(draft)) setSaved(true);
       }}
     >
       <fieldset disabled={busy}>
-        <section className="hero-grid">
-          <article className="panel calorie-hero">
-            <p className="eyebrow">
-              {plan.phase === "maintenance"
-                ? "MAINTENANCE ALLOWANCE"
-                : "YOUR FOOD TARGET"}
-            </p>
-            <div className="big-number">
-              {fmt(plan.target)}
-              <span>kcal</span>
+        <div className="today-grid">
+          <section
+            className="panel calorie-hero full-width"
+            aria-label="Calorie and macro summary"
+          >
+            <div className="hero-heading">
+              <span className="eyebrow">
+                {plan.phase === "maintenance"
+                  ? "MAINTENANCE ALLOWANCE"
+                  : "DAILY NUTRITION"}
+              </span>
+              <span className={`phase ${plan.phase}`}>{plan.phase}</span>
             </div>
-            <p className="hero-caption">
-              {plan.activity > 0
-                ? `Includes ${fmt(plan.activity)} kcal from extra steps.`
-                : plan.activity < 0
-                  ? `${fmt(-plan.activity)} kcal less for a lower-step day.`
-                  : "At your usual activity baseline."}
-            </p>
-            <div className="progress-track">
-              <span style={{ width: `${percent}%` }} />
-            </div>
-            <div className="between">
-              <span>{fmt(plan.consumed)} eaten</span>
-              <strong>
-                {fmt(Math.abs(plan.remaining))}{" "}
-                {plan.remaining >= 0 ? "left" : "over"}
-              </strong>
-            </div>
-            <div className="macro-row">
-              <div>
-                <strong>
-                  {fmt(consumedProtein)} / {plan.protein} g
-                </strong>
-                <span>protein</span>
-              </div>
-              <div>
-                <strong>{plan.carbs} g</strong>
-                <span>carb guide</span>
-              </div>
-              <div>
-                <strong>{plan.fat} g</strong>
-                <span>fat guide</span>
+            <div className="hero-body">
+              <CalorieRing consumed={plan.consumed} target={plan.target} />
+              <div className="hero-nutrition">
+                <div className="target-heading">
+                  <span>Today's target</span>
+                  <div className="big-number">
+                    {fmt(plan.target)}
+                    <small> kcal</small>
+                  </div>
+                </div>
+                <MacroBar
+                  label="Protein"
+                  value={macroTotal("protein")}
+                  target={plan.protein}
+                  tone="protein"
+                />
+                <MacroBar
+                  label="Carbs"
+                  value={macroTotal("carbs")}
+                  target={plan.carbs}
+                  tone="carbs"
+                />
+                <MacroBar
+                  label="Fat"
+                  value={macroTotal("fat")}
+                  target={plan.fat}
+                  tone="fat"
+                />
               </div>
             </div>
-          </article>
-          <article className="panel balance">
-            <p className="eyebrow">THE ENERGY BALANCE</p>
-            <dl>
+            <div className="hero-footer">
+              <span
+                className={
+                  plan.activity > 0
+                    ? "positive"
+                    : plan.activity < 0
+                      ? "warning-text"
+                      : "muted"
+                }
+              >
+                <Icon name="steps" size={14} />
+                {plan.activity > 0
+                  ? `+${fmt(plan.activity)} kcal earned from extra steps`
+                  : plan.activity < 0
+                    ? `${fmt(Math.abs(plan.activity))} kcal less for today's steps`
+                    : `${fmt(profile.baselineSteps)} steps included in your baseline`}
+              </span>
+              <span className="muted">
+                {plan.provisional
+                  ? "Activity provisional"
+                  : "Final steps applied"}
+              </span>
+            </div>
+          </section>
+
+          {plan.warnings.length > 0 && (
+            <div className="full-width notices">
+              {plan.warnings.map((w) => (
+                <p className="notice" key={w}>
+                  {w}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <section className="panel coach-panel">
+            <div className="section-heading">
+              <h2>
+                <Icon name="sparkle" className="accent" />
+                Coach
+              </h2>
+              <span className="subtle-tag">
+                {plan.calibration.source === "calibrated"
+                  ? "Calibrated"
+                  : "Learning"}
+              </span>
+            </div>
+            <div className="coach-insight">
+              <span className="status-dot" />
+              <p>
+                {plan.phase === "maintenance"
+                  ? "Maintenance is active. Keep your usual activity and watch the trend over the next few weeks."
+                  : plan.activity > 0
+                    ? `Your extra steps raise today's food target. The planned deficit is ${fmt(plan.deficit)} kcal.`
+                    : plan.provisional
+                      ? "Your target assumes your usual activity. Extra steps increase your allowance as you log them."
+                      : `Today's final step count is included in your ${fmt(plan.target)} kcal target.`}
+              </p>
+            </div>
+            <div className="balance-summary">
               <div>
-                <dt>Baseline maintenance</dt>
-                <dd>{fmt(plan.baselineMaintenance)}</dd>
+                <span>Expenditure</span>
+                <strong>{fmt(plan.maintenance)}</strong>
               </div>
+              <span className="equation-symbol">−</span>
               <div>
-                <dt>Step adjustment</dt>
-                <dd className="accent">
-                  {plan.activity >= 0 ? "+" : "−"}
-                  {fmt(Math.abs(plan.activity))}
-                </dd>
+                <span>Food target</span>
+                <strong>{fmt(plan.target)}</strong>
               </div>
-              <div className="subtotal">
-                <dt>Estimated expenditure</dt>
-                <dd>{fmt(plan.maintenance)}</dd>
-              </div>
+              <span className="equation-symbol">=</span>
               <div>
-                <dt>Food target</dt>
-                <dd>−{fmt(plan.target)}</dd>
-              </div>
-              <div className="total">
-                <dt>
-                  {plan.deficit >= 0
-                    ? "Planned net deficit"
-                    : "Estimated surplus"}
-                </dt>
-                <dd>
+                <span>{plan.deficit >= 0 ? "Net deficit" : "Surplus"}</span>
+                <strong className="accent">
                   {fmt(Math.abs(plan.deficit))}
-                  <small> kcal</small>
-                </dd>
+                </strong>
               </div>
-            </dl>
-            <p className="muted">
-              {plan.provisional
-                ? "Provisional: your usual steps are assumed until you finish the day. Extra steps already logged raise the target."
-                : "Final step count applied. A completed day can adjust the target down as well as up."}
-            </p>
-            <p className="muted">
-              Deficit is a plan, not a measured burn. All calories shown are
-              estimates.
-            </p>
-          </article>
-        </section>
-        {plan.warnings.map((w) => (
-          <p className="notice" key={w}>
-            {w}
-          </p>
-        ))}
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">THE DAILY CHECK-IN</p>
-              <h2>Keep the inputs simple.</h2>
             </div>
-            <span className="muted">
-              {dirty ? "Unsaved changes" : saved ? "Saved" : "Saved values"}
-            </span>
-          </div>
-          <div className="grid three">
-            <label>
-              Morning weight · kg
-              <input
-                type="number"
-                min="35"
-                max="350"
-                step="0.1"
-                placeholder="Optional"
-                value={draft.weight ?? ""}
-                onChange={(e) =>
-                  change(
-                    "weight",
-                    e.target.value === "" ? null : +e.target.value,
-                  )
-                }
-              />
-            </label>
-            <label>
-              Steps so far
-              <input
-                type="number"
-                min="0"
-                max="100000"
-                step="1"
-                placeholder={`Baseline ${profile.baselineSteps}`}
-                value={draft.steps ?? ""}
-                onChange={(e) =>
-                  change(
-                    "steps",
-                    e.target.value === "" ? null : +e.target.value,
-                  )
-                }
-              />
-            </label>
+            <details className="balance-details">
+              <summary>See calorie calculation</summary>
+              <dl>
+                <div>
+                  <dt>Baseline maintenance</dt>
+                  <dd>{fmt(plan.baselineMaintenance)} kcal</dd>
+                </div>
+                <div>
+                  <dt>Step adjustment</dt>
+                  <dd>
+                    {plan.activity >= 0 ? "+" : "−"}
+                    {fmt(Math.abs(plan.activity))} kcal
+                  </dd>
+                </div>
+                <div>
+                  <dt>Estimated expenditure</dt>
+                  <dd>{fmt(plan.maintenance)} kcal</dd>
+                </div>
+                <div>
+                  <dt>Food target</dt>
+                  <dd>{fmt(plan.target)} kcal</dd>
+                </div>
+              </dl>
+              <p className="muted">{plan.calibration.reason}</p>
+              <p className="muted">
+                Activity burn is estimated. Mark your steps final to apply a
+                lower-step day too.
+              </p>
+            </details>
+          </section>
+
+          <section className="panel vitals-panel">
+            <div className="section-heading">
+              <h2>Today's vitals</h2>
+              <span className={`save-state ${dirty ? "unsaved" : ""}`}>
+                {dirty ? "Unsaved" : saved ? "Saved" : "Daily check-in"}
+              </span>
+            </div>
+            <div className="vital-rows">
+              <label className="vital-row">
+                <Icon name="scale" />
+                <span>Morning weight</span>
+                <input
+                  aria-label="Morning weight · kg"
+                  type="number"
+                  inputMode="decimal"
+                  min="35"
+                  max="350"
+                  step="0.1"
+                  placeholder="—"
+                  value={draft.weight ?? ""}
+                  onChange={(e) =>
+                    change(
+                      "weight",
+                      e.target.value === "" ? null : +e.target.value,
+                    )
+                  }
+                />
+                <small>kg</small>
+              </label>
+              <label className="vital-row">
+                <Icon name="steps" />
+                <span>Steps</span>
+                <input
+                  aria-label="Steps so far"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  max="100000"
+                  step="1"
+                  placeholder="—"
+                  value={draft.steps ?? ""}
+                  onChange={(e) =>
+                    change(
+                      "steps",
+                      e.target.value === "" ? null : +e.target.value,
+                    )
+                  }
+                />
+                <small />{" "}
+              </label>
+            </div>
+            <div className="step-progress">
+              <div>
+                <span>Daily baseline</span>
+                <span>
+                  {draft.steps == null ? "—" : fmt(draft.steps)}{" "}
+                  <span className="muted">/ {fmt(profile.baselineSteps)}</span>
+                </span>
+              </div>
+              <div className="progress-track">
+                <span style={{ width: `${stepProgress}%` }} />
+              </div>
+            </div>
             <label className="check training">
               <input
                 type="checkbox"
@@ -196,269 +279,175 @@ export default function DayEditor({
                 onChange={(e) => change("trained", e.target.checked)}
               />
               <span>
-                I trained today<small>Included in the weekly baseline</small>
+                I trained today<small>Included in your weekly baseline</small>
               </span>
             </label>
-          </div>
-          <p className="muted">
-            Weigh under similar conditions, ideally after waking and using the
-            bathroom. A seven-day average reduces scale noise.
-          </p>
-        </section>
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">FOOD LOG</p>
-              <h2>Everything you ate.</h2>
+          </section>
+
+          <section className="panel meals-panel full-width">
+            <div className="section-heading">
+              <h2>Meals</h2>
+              <div className="meal-actions">
+                <button
+                  type="button"
+                  className={addOpen ? "small-button" : "primary small-button"}
+                  aria-expanded={addOpen}
+                  onClick={() => setAddOpen((open) => !open)}
+                >
+                  <Icon name={addOpen ? "close" : "plus"} size={15} />
+                  {addOpen ? "Close" : "Add meal"}
+                </button>
+              </div>
             </div>
-            <strong>{fmt(plan.consumed)} kcal</strong>
-          </div>
-          {draft.meals.length ? (
-            <ul className="meal-list">
-              {draft.meals.map((m, i) => (
-                <li key={m.id || i}>
-                  <div>
-                    <strong>{m.name}</strong>
-                    <small>{fmt(m.protein || 0)} g protein</small>
-                  </div>
-                  <span>{fmt(m.cals)} kcal</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${m.name}`}
-                    onClick={() => {
-                      change(
-                        "meals",
-                        draft.meals.filter((_, j) => i !== j),
-                      );
-                      change("foodComplete", false);
-                    }}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="empty">
-              No food logged yet. A blank log is unknown intake, not zero
-              calories.
-            </p>
-          )}
-          <MealEntry
-            onAdd={(m) => {
-              setSaved(false);
-              setDraft((d) => ({
-                ...d,
-                foodComplete: false,
-                meals: [...d.meals, { ...m, id: crypto.randomUUID() }],
-              }));
-            }}
-          />
-        </section>
-        <section className="panel">
-          <h2>Finish the day.</h2>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={draft.foodComplete}
-              onChange={(e) => change("foodComplete", e.target.checked)}
-            />
-            Food log includes the whole day, including oils, drinks and snacks.
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={draft.activityComplete}
-              disabled={draft.steps == null}
-              onChange={(e) => change("activityComplete", e.target.checked)}
-            />
-            Step count is final for this day.
-          </label>
-          <label>
-            Notes · optional
-            <textarea
-              rows="2"
-              maxLength={2000}
-              placeholder="Anything affecting weight, appetite or recovery?"
-              value={draft.notes}
-              onChange={(e) => change("notes", e.target.value)}
-            />
-          </label>
-          <div className="actions">
-            <button className="primary">{busy ? "Saving…" : "Save day"}</button>
-            <span className="muted" role="status">
-              {dirty
-                ? "Save before switching day or tab."
-                : saved
-                  ? "Day saved."
-                  : "Only complete days inform calibration."}
-            </span>
-          </div>
-        </section>
+            {draft.meals.length ? (
+              <details className="meal-history" open={draft.meals.length < 3}>
+                <summary>
+                  <strong>
+                    {draft.meals.length}{" "}
+                    {draft.meals.length === 1 ? "item" : "items"}
+                  </strong>
+                  <span>{fmt(plan.consumed)} kcal</span>
+                  <Icon name="chevronRight" size={14} />
+                </summary>
+                <ul className="meal-list">
+                  {draft.meals.map((m, i) => (
+                    <li key={m.id || i}>
+                      <div className="meal-marker">
+                        <Icon name="clipboard" size={17} />
+                      </div>
+                      <div className="meal-description">
+                        <strong>{m.name}</strong>
+                        <small>
+                          {m.protein != null
+                            ? `${fmt(m.protein)} g protein`
+                            : "Protein not recorded"}
+                        </small>
+                      </div>
+                      <span>
+                        {fmt(m.cals)}
+                        <small> kcal</small>
+                      </span>
+                      <button
+                        className="icon-button remove-meal"
+                        type="button"
+                        aria-label={`Remove ${m.name}`}
+                        onClick={() => {
+                          setSaved(false);
+                          setDraft((d) => ({
+                            ...d,
+                            meals: d.meals.filter((_, index) => index !== i),
+                            foodComplete: false,
+                          }));
+                        }}
+                      >
+                        <Icon name="close" size={15} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : (
+              <div className="empty">
+                <Icon name="clipboard" size={25} />
+                <p>
+                  No meals yet.
+                  <span>Add your first meal to start tracking today.</span>
+                </p>
+              </div>
+            )}
+            {addOpen && (
+              <MealEntry
+                onAdd={(m) => {
+                  setSaved(false);
+                  setDraft((d) => ({
+                    ...d,
+                    foodComplete: false,
+                    meals: [...d.meals, { ...m, id: crypto.randomUUID() }],
+                  }));
+                }}
+              />
+            )}
+          </section>
+
+          <section className="panel day-completion full-width">
+            <div className="section-heading">
+              <h2>Finish your day</h2>
+              <span className="muted">Complete logs help your plan learn.</span>
+            </div>
+            <div className="completion-checks">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={draft.foodComplete}
+                  onChange={(e) => change("foodComplete", e.target.checked)}
+                />
+                Food log includes the whole day, including oils, drinks and
+                snacks.
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={draft.activityComplete}
+                  disabled={draft.steps == null}
+                  onChange={(e) => change("activityComplete", e.target.checked)}
+                />
+                Step count is final for this day.
+              </label>
+            </div>
+            <details className="notes-entry">
+              <summary>Add a note</summary>
+              <label>
+                Notes · optional
+                <textarea
+                  rows="2"
+                  maxLength={2000}
+                  placeholder="Appetite, recovery or anything worth remembering…"
+                  value={draft.notes}
+                  onChange={(e) => change("notes", e.target.value)}
+                />
+              </label>
+            </details>
+            <div className="actions">
+              <span className="muted" role="status">
+                {dirty
+                  ? "You have unsaved changes."
+                  : saved
+                    ? "Day saved."
+                    : "Complete days help refine your plan."}
+              </span>
+              <button className="primary">
+                <Icon name="check" size={16} />
+                {busy ? "Saving…" : "Save day"}
+              </button>
+            </div>
+          </section>
+        </div>
       </fieldset>
     </form>
   );
 }
 
-function MealEntry({ onAdd }) {
-  const [mode, setMode] = useState("quick"),
-    [query, setQuery] = useState(""),
-    [foodId, setFoodId] = useState(""),
-    [amount, setAmount] = useState("100");
-  const [name, setName] = useState(""),
-    [calories, setCalories] = useState(""),
-    [protein, setProtein] = useState("");
-  const [error, setError] = useState("");
-  const matches = FOOD_DB.filter((f) =>
-    f.name.toLowerCase().includes(query.toLowerCase()),
-  );
-  const food = FOOD_DB.find((f) => f.id === foodId);
-  function add() {
-    setError("");
-    if (mode === "food") {
-      if (
-        !food ||
-        !Number.isFinite(+amount) ||
-        +amount <= 0 ||
-        +amount > 10000
-      ) {
-        setError("Choose a food and enter a valid amount.");
-        return;
-      }
-      onAdd(mealFromFood(food, +amount));
-      return;
-    }
-    if (
-      !name.trim() ||
-      calories === "" ||
-      !Number.isFinite(+calories) ||
-      +calories < 0 ||
-      +calories > 10000 ||
-      !Number.isFinite(+protein) ||
-      +protein < 0 ||
-      +protein > 1000 ||
-      +protein * 4 > +calories + 10
-    ) {
-      setError(
-        "Enter a meal name, valid calories, and protein consistent with those calories.",
-      );
-      return;
-    }
-    onAdd({ name: name.trim(), cals: +calories, protein: +protein });
-    setName("");
-    setCalories("");
-    setProtein("");
-  }
+function MacroBar({ label, value, target, tone }) {
+  const known = value != null;
   return (
-    <div className="meal-entry">
-      <div className="mode-switch">
-        <button
-          type="button"
-          className={mode === "quick" ? "selected" : ""}
-          onClick={() => setMode("quick")}
+    <div className={`macro-bar ${tone}`}>
+      <div>
+        <span>{label}</span>
+        <span
+          className="macro-value"
+          title={known ? undefined : "Not recorded for every meal"}
         >
-          Quick entry
-        </button>
-        <button
-          type="button"
-          className={mode === "food" ? "selected" : ""}
-          onClick={() => setMode("food")}
-        >
-          Food library
-        </button>
+          {known ? fmt(value) : "—"}
+          <small> / {target} g</small>
+        </span>
       </div>
-      {mode === "quick" ? (
-        <div className="grid three">
-          <label>
-            Meal name
-            <input
-              value={name}
-              maxLength={120}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Lunch, snack, recipe…"
-            />
-          </label>
-          <label>
-            Calories
-            <input
-              type="number"
-              min="0"
-              max="10000"
-              value={calories}
-              onChange={(e) => setCalories(e.target.value)}
-            />
-          </label>
-          <label>
-            Protein · g
-            <input
-              type="number"
-              min="0"
-              max="1000"
-              step="0.1"
-              value={protein}
-              onChange={(e) => setProtein(e.target.value)}
-              placeholder="0"
-            />
-          </label>
-        </div>
-      ) : (
-        <>
-          <div className="grid three">
-            <label>
-              Search foods
-              <input
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setFoodId("");
-                }}
-                placeholder="Rice, paneer, whey…"
-              />
-            </label>
-            <label>
-              Choose food
-              <select
-                value={foodId}
-                onChange={(e) => {
-                  setFoodId(e.target.value);
-                  const f = FOOD_DB.find((f) => f.id === e.target.value);
-                  setAmount(f?.unit === "g" || f?.unit === "ml" ? "100" : "1");
-                }}
-              >
-                <option value="">Select…</option>
-                {matches.map((f) => (
-                  <option value={f.id} key={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Amount · {food?.unit || "g"}
-              <input
-                type="number"
-                min="0.1"
-                max="10000"
-                step="0.1"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </label>
-          </div>
-          <p className="muted">
-            Use the raw / dry weight unless the food name specifies cooked. Food
-            values are estimates; use package values when available.
-          </p>
-        </>
-      )}
-      {error && (
-        <p role="alert" className="notice danger">
-          {error}
-        </p>
-      )}
-      <button type="button" onClick={add}>
-        + Add food
-      </button>
+      <div className="macro-track">
+        <span
+          style={{
+            width: `${known && target > 0 ? Math.min(100, (value / target) * 100) : 0}%`,
+          }}
+        />
+      </div>
     </div>
   );
 }

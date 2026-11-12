@@ -122,7 +122,8 @@ try {
   await page.waitForFunction(() =>
     document
       .querySelector('.actions [role="status"]')
-      ?.textContent.includes("complete days"),
+      ?.textContent.toLowerCase()
+      .includes("complete days"),
   );
   assert.equal(
     rows.find((r) => r.key === "cutiq:v2").value.logs[0].steps,

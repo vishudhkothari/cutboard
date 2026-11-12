@@ -40,7 +40,7 @@ export default function Progress({ profile, logs, date, plan }) {
     <>
       <section className="grid three stats">
         <article className="panel">
-          <p className="eyebrow">SEVEN-DAY AVERAGE</p>
+          <p className="eyebrow">WEIGHT TREND</p>
           <h2>
             {fmt(plan.currentWeight)} <small>kg</small>
           </h2>
@@ -51,13 +51,18 @@ export default function Progress({ profile, logs, date, plan }) {
           </p>
         </article>
         <article className="panel">
-          <p className="eyebrow">OBSERVED LOSS</p>
-          <h2>
-            {plan.observedWeeklyLoss == null
-              ? "Learning"
-              : `${fmt(plan.observedWeeklyLoss)} kg/wk`}
+          <p className="eyebrow">WEEKLY PACE</p>
+          <h2 className={plan.observedWeeklyLoss == null ? "stat-word" : ""}>
+            {plan.observedWeeklyLoss == null ? (
+              "Learning"
+            ) : (
+              <>
+                {fmt(plan.observedWeeklyLoss)}
+                <small> kg/wk</small>
+              </>
+            )}
           </h2>
-          <p className="muted">Raw-weight regression over up to 14 days</p>
+          <p className="muted">Based on recent weigh-ins</p>
         </article>
         <article className="panel">
           <p className="eyebrow">GOAL WEIGHT</p>
@@ -76,10 +81,10 @@ export default function Progress({ profile, logs, date, plan }) {
       <section className="panel chart" ref={chartRef}>
         <div className="section-heading">
           <div>
-            <p className="eyebrow">PROGRESS, WITHOUT THE DAILY NOISE</p>
+            <p className="eyebrow">WEIGHT HISTORY</p>
             <h2>Weight over time.</h2>
           </div>
-          <span className="muted">Pale: scale · Green: seven-day average</span>
+          <span className="muted">Grey: scale · Purple: seven-day average</span>
         </div>
         {data.length ? (
           <svg
@@ -98,7 +103,7 @@ export default function Progress({ profile, logs, date, plan }) {
               x2={chartWidth - 18}
               y1={y(+profile.goalWeight)}
               y2={y(+profile.goalWeight)}
-              stroke="#567469"
+              stroke="#494352"
               strokeDasharray="5 6"
             />
             <text
@@ -111,13 +116,13 @@ export default function Progress({ profile, logs, date, plan }) {
             <polyline
               points={raw}
               fill="none"
-              stroke="#64716e"
+              stroke="#686876"
               strokeWidth="1.5"
             />
             <polyline
               points={trend}
               fill="none"
-              stroke="#b6ed91"
+              stroke="var(--accent)"
               strokeWidth="3"
             />
             {data.map((p) => (
@@ -126,7 +131,7 @@ export default function Progress({ profile, logs, date, plan }) {
                 cx={x(p.date)}
                 cy={y(p.raw)}
                 r="3"
-                fill="#64716e"
+                fill="#868694"
               >
                 <title>
                   {p.date}: {p.raw} kg; average {fmt(p.trend)} kg
@@ -152,7 +157,7 @@ export default function Progress({ profile, logs, date, plan }) {
       </section>
       <section className="grid two">
         <article className="panel">
-          <h2>Enough data to learn?</h2>
+          <h2>Logging consistency</h2>
           <dl>
             <div>
               <dt>Complete food logs · past 14 days</dt>
@@ -195,7 +200,7 @@ export default function Progress({ profile, logs, date, plan }) {
           <h2>
             {plan.phase === "maintenance"
               ? "Protect the result."
-              : "What matters next."}
+              : "Next check-in"}
           </h2>
           <p>
             {plan.phase === "maintenance"
