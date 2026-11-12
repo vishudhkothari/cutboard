@@ -5,7 +5,7 @@
    - Hashed build assets (/assets/*): cache-first — their names change
      every build, so they are immutable by construction.
    Data (Supabase) is never intercepted. */
-const CACHE = 'cutboard-v4'
+const CACHE = 'cutboard-v5'
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['/'])))

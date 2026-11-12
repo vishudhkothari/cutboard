@@ -5,12 +5,19 @@ import { createCloudData } from './cloudData.js'
 // Drop-in replacement for the window.storage API used in the artifact.
 // Keys are scoped per user automatically via Supabase RLS policies.
 
-const realStore = {
-  ...createCloudData(supabase),
+function createRealStore(userId) {
+  const requireUser = async () => {
+    const {data:{user},error}=await supabase.auth.getUser()
+    if (error) throw error
+    if (!user || (userId && user.id!==userId)) throw new Error('The account changed before this operation finished.')
+    return user
+  }
+  const realStore = {
+  ...createCloudData(supabase,userId),
 
   async clearAll({ preserveKeys = [] } = {}) {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = await requireUser()
       if (!user) return false
 
       await realStore.drain()
@@ -72,13 +79,13 @@ const realStore = {
       return data?.map(r => r.food) ?? []
     } catch (e) {
       console.error('store.getSharedFoods error', e)
-      return []
+      throw e
     }
   },
 
   async addSharedFood(food) {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = await requireUser()
       const { error } = await supabase
         .from('shared_foods')
         .upsert({ id: food.id, food, created_by: user.id }, { onConflict: 'id' })
@@ -93,7 +100,7 @@ const realStore = {
   // ── Progress photos (private per-user storage bucket) ──
   async uploadPhoto(blob, dateStr) {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = await requireUser()
       const path = `${user.id}/${dateStr}_${Date.now()}.jpg`
       const { error } = await supabase.storage
         .from('progress-photos')
@@ -108,7 +115,7 @@ const realStore = {
 
   async listPhotos() {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = await requireUser()
       const { data, error } = await supabase.storage
         .from('progress-photos')
         .list(user.id, { sortBy: { column: 'name', order: 'asc' } })
@@ -116,12 +123,14 @@ const realStore = {
       return (data ?? []).filter(f => f.name).map(f => `${user.id}/${f.name}`)
     } catch (e) {
       console.error('store.listPhotos error', e)
-      return []
+      throw e
     }
   },
 
   async photoUrl(path) {
     try {
+      const user = await requireUser()
+      if (!path.startsWith(`${user.id}/`)) throw new Error('This photo belongs to a different account.')
       const { data, error } = await supabase.storage
         .from('progress-photos')
         .createSignedUrl(path, 3600)
@@ -135,6 +144,8 @@ const realStore = {
 
   async deletePhoto(path) {
     try {
+      const user = await requireUser()
+      if (!path.startsWith(`${user.id}/`)) throw new Error('This photo belongs to a different account.')
       const { error } = await supabase.storage.from('progress-photos').remove([path])
       if (error) throw error
       return true
@@ -146,4 +157,10 @@ const realStore = {
 }
 
 // Demo builds (VITE_DEMO=1) swap in an in-memory seeded store; production is untouched.
-export const store = DEMO ? demoStore : realStore
+  return realStore
+}
+
+export const createAccountStore = userId => {
+  if (!userId) throw new Error("An authenticated account is required.")
+  return DEMO ? demoStore : createRealStore(userId)
+}

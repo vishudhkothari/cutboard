@@ -3,9 +3,9 @@ import { Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Refere
 import { C, F, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
 import { Icon } from './lib/icons'
 import {
-  trendWeight, currentTrendWeight,
-  inferBodyComp, projectGoal, paceController, suggestRefeed, LEARN_DAYS,
-  proteinTargetForWeight, isAdjustmentEligible, evaluateMuscleRisk, objectiveE1rmTrend, normalizeStepTarget, ENGINE_CONST,
+  trendWeight,
+  suggestRefeed, LEARN_DAYS,
+  proteinTargetForWeight, normalizeStepTarget,
 } from './lib/cutEngine'
 import { hasSteps } from './lib/planEngine'
 import { FOOD_DB } from './lib/foodDB'
@@ -32,7 +32,7 @@ const STRENGTH_OPTS = [
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
 ]
 
-export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseAutomatic, cutData, workoutHistory = [], onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseAutomatic, cutData, onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
   // cutData = { anchor, strengthSignal, strengthWeek, cardioMin } — owned by
   // App (single source of truth: the anchor also drives Header/Progress)
   const mobile = useIsMobile()
@@ -42,101 +42,23 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
   const save = next => onSaveCutData?.(next)
 
   // ── derived model outputs ──────────────────────────────────
-  const trend       = useMemo(()=>trendWeight(allLogs), [allLogs])
-  const trendNow    = useMemo(()=>currentTrendWeight(allLogs), [allLogs])
-  const weeksIntoCut= setup?.startDate ? daysBetween(setup.startDate) / 7 : 0
-  const objectiveE1rm = useMemo(() => objectiveE1rmTrend(workoutHistory, localDateStr()), [workoutHistory])
-  const muscleRisk = useMemo(() => evaluateMuscleRisk({ strengthReports: cutData?.strengthReports || [], e1rmTrend: objectiveE1rm }), [cutData?.strengthReports, objectiveE1rm])
-  const tdeeEst = adaptiveTDEE?.estimate
-
-  const anchor = useMemo(() => cutData?.anchor || (setup ? {
-    date: setup.startDate, weight: setup.startWeight, bf: setup.startBF
-  } : null), [cutData?.anchor, setup])
-
-  const modeledStrengthSignal = cutData?.strengthSignal === 'down' && !muscleRisk.confirmed ? null : cutData?.strengthSignal
-  const bodyComp = useMemo(()=> setup && anchor ? inferBodyComp({
-    logs:allLogs, anchor, strengthSignal:modeledStrengthSignal, startDate:setup.startDate
-  }) : null, [allLogs, anchor, modeledStrengthSignal, setup])
-
-  const currentBF = bodyComp?.bf ?? anchor?.bf
-  const leanMass  = bodyComp?.leanMass ?? (anchor?.bf > 0 ? anchor.weight * (1 - anchor.bf/100) : null)
-  const curWeight = trendNow ?? setup?.startWeight
-  const baselineSteps = normalizeStepTarget(setup?.stepGoal, 10000)
-  const currentSteps = normalizeStepTarget(cutData?.stepGoal || baselineSteps, baselineSteps)
-  const recentMovement = useMemo(() => {
-    const end = localDateStr()
-    const startDate = new Date(end + 'T12:00:00')
-    startDate.setDate(startDate.getDate() - 6)
-    const start = localDateStr(startDate)
-    const logs = allLogs.filter(l => l.date >= start && l.date <= end && hasSteps(l))
-    return { days:logs.length, average:logs.length ? logs.reduce((sum,l) => sum + +l.steps, 0) / logs.length : null }
-  }, [allLogs])
-  const zone2Progress = useMemo(() => {
-    const now = new Date()
-    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
-    const start = localDateStr(weekStart)
-    const sessions = allLogs.filter(l => l.date >= start && l.date <= localDateStr() && Array.isArray(l.zone2Sessions))
-      .reduce((sum,l) => sum + l.zone2Sessions.filter(s => (typeof s === 'number' ? s : s?.minutes) > 0).length, 0)
-    const plan = cutData?.cardioPlan
-    return { sessions, required:plan?.sessionsPerWeek || 0 }
-  }, [allLogs, cutData?.cardioPlan])
-  const stepGoalChangedAt = cutData?.stepGoalChangedAt
-  const stepAdjustmentEligible = !stepGoalChangedAt || Math.floor((Date.now() - new Date(stepGoalChangedAt + 'T12:00:00')) / 86400000) >= 7
-
-  const projection = useMemo(()=> setup && (leanMass || setup.goalWeight) && (currentBF || setup.goalWeight) ? projectGoal({
-    logs:allLogs, currentBF, goalBF:setup.goalBF, currentWeight:curWeight, leanMass, targetWeight:adaptiveTDEE.goalWeight
-  }) : null, [allLogs, currentBF, setup, curWeight, leanMass, adaptiveTDEE.goalWeight])
-
-  const cutLen   = setup?.cutLength || 60
-  // Keep this in lockstep with App's header/plan timeline: the start date is
-  // day 1, so a 60-day cut has 59 days left on its start day.
-  const daysLeft = setup?.startDate ? Math.max(0, cutLen - (daysBetween(setup.startDate) + 1)) : cutLen
-  const inMaintenance = adaptiveTDEE?.phase === 'maintenance'
-
-  // 14-day learning gate is a water-clearance CLOCK — measure the calendar
-  // span of weigh-ins, not how many entries exist
-  const dataSpanDays = useMemo(()=>{
-    const w = allLogs.filter(l=>l.weight!=null).sort((a,b)=>a.date.localeCompare(b.date))
-    if (!w.length) return 0
-    return Math.round((new Date(w[w.length-1].date+'T12:00:00') - new Date(w[0].date+'T12:00:00'))/86400000) + 1
-  }, [allLogs])
-
-  const baselineStepAvg = useMemo(() => {
-    const values = allLogs.filter(l => l.date <= localDateStr() && hasSteps(l))
-      .sort((a,b)=>a.date.localeCompare(b.date)).slice(0, 14).map(l => +l.steps)
-    return values.length ? values.reduce((s,v)=>s+v,0) / values.length : baselineSteps
-  }, [allLogs, baselineSteps])
-  const movementAdherence = useMemo(() => {
-    const end = localDateStr()
-    const start = addDays(end, -13)
-    const window = Array.from({ length: 14 }, (_, i) => addDays(start, i))
-    const byDate = Object.fromEntries(allLogs.map(l => [l.date, l]))
-    const days = window.map(date => byDate[date])
-    if (days.some(l => !l || !Number.isFinite(+l.steps))) return 0
-    const stepOk = days.every(l => +l.steps >= currentSteps * 0.95)
-    const required = cutData?.cardioPlan?.sessionsPerWeek || 0
-    const sessions = days.reduce((sum, l) => sum + (Array.isArray(l.zone2Sessions) ? l.zone2Sessions.filter(s => (typeof s === 'number' ? s : s?.minutes) > 0).length : 0), 0)
-    return stepOk && sessions >= required * 2 ? 1 : 0
-  }, [allLogs, currentSteps, cutData?.cardioPlan?.sessionsPerWeek])
-  const pace = useMemo(()=> setup && (leanMass || setup.goalWeight) ? paceController({
-    currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, targetWeight:adaptiveTDEE.goalWeight, daysLeft,
-    actualWeeklyRateKg: projection?.meanRateKg ?? tdeeEst?.weeklyRateKg ?? 0,
-    currentSteps,
-    baselineSteps,
-    baselineStepAvg,
-    userMaxStepBudget: cutData?.userMaxStepBudget || setup?.userMaxStepBudget || ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET,
-    currentCardioMin: cutData?.cardioMin || 0,
-    strengthSignal: cutData?.strengthSignal,
-    muscleRisk,
-    dataDays: dataSpanDays,
-    hasRate: !!tdeeEst || Number.isFinite(projection?.meanRateKg),
-    recentAvgSteps: recentMovement.average,
-    recentStepDays: recentMovement.days,
-    zone2CompletedSessions: zone2Progress.sessions,
-    requiredZone2Sessions: zone2Progress.required,
-    stepAdjustmentEligible,
-    calorieAdjustmentEligible: isAdjustmentEligible(cutData?.lastCalorieChangeAt, localDateStr(), 7),
-  }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, projection, adaptiveTDEE.goalWeight, cutData, muscleRisk, dataSpanDays, currentSteps, baselineSteps, baselineStepAvg, recentMovement, zone2Progress, stepAdjustmentEligible])
+  const trend=useMemo(()=>trendWeight(allLogs),[allLogs])
+  const weeksIntoCut=setup?.startDate?daysBetween(setup.startDate)/7:0
+  const tdeeEst=adaptiveTDEE.estimate
+  const bodyComp=adaptiveTDEE.bodyComp
+  const currentBF=adaptiveTDEE.currentBF
+  const curWeight=adaptiveTDEE.currentWeight
+  const currentSteps=adaptiveTDEE.stepGoal
+  const projection=adaptiveTDEE.projection
+  const pace=adaptiveTDEE.review
+  const daysLeft=adaptiveTDEE.daysLeft
+  const inMaintenance=adaptiveTDEE.phase==='maintenance'
+  const movementAdherence=useMemo(()=>{
+    const end=localDateStr(),start=addDays(end,-13)
+    const byDate=new Map(allLogs.map(log=>[log.date,log]))
+    const days=Array.from({length:14},(_,i)=>byDate.get(addDays(start,i)))
+    return days.every(log=>log&&hasSteps(log)&&log.activityComplete===true&&log.steps>=currentSteps*.95)?1:0
+  },[allLogs,currentSteps])
 
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
   const refeed = useMemo(() => !inMaintenance && adaptiveTDEE.isDataDriven ? suggestRefeed({
@@ -146,8 +68,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
   }) : null, [allLogs, weeksIntoCut, adaptiveTDEE.isDataDriven, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance, curWeight, movementAdherence])
 
   // weekly strength check-in due?
-  const thisWeek = Math.floor(weeksIntoCut)
-  const checkInDue = cutData?.strengthWeek !== thisWeek
+  const thisWeek = Math.max(0,Math.floor(weeksIntoCut))
+  const checkInDue = !adaptiveTDEE.strengthSignal
   const nutritionFoods = useMemo(() => {
     const map = Object.fromEntries(FOOD_DB.map(f => [f.id, f]))
     customFoods.forEach(f => { map[f.id] = f })
@@ -185,7 +107,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
                 Building your projection
               </div>
               <div style={{ fontSize:12.5, color:C.textSub, marginTop:8, lineHeight:1.5 }}>
-                Early weight changes are mostly water and glycogen. I need about two weeks of trend data before projecting a goal date — sooner than that would be guessing.
+                {projection.reason||'Record enough recent weigh-ins before a goal date can be estimated.'}
               </div>
             </div>
             <div style={{ display:'grid', gap:8 }}>
@@ -213,7 +135,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
               {fmtD(projection.dateMid)} <span style={{ fontSize:15, color:C.textSub, fontWeight:600 }}>· in {projection.weeksMid} weeks</span>
             </div>
             <div style={{ fontSize:11.5, color:C.textFaint, marginBottom:16 }}>
-              Range {fmtD(projection.dateFast)} – {fmtD(projection.dateSlow)} · goal {projection.goalWeight} kg
+              Scenarios {fmtD(projection.dateFast)} – {fmtD(projection.dateSlow)} · goal {projection.goalWeight} kg
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:9 }}>
               {[
@@ -249,7 +171,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
             <span style={{ color:C.orange }}>{g.label} · {g.consumed} {g.unit} / {g.target} {g.unit} · {g.percentage}%</span>
             <span style={{ color:C.textSub, textAlign:'right' }}>{g.suggestions[0]?.food.name || 'Add a mapped food'}</span>
           </div>
-        )) : <div style={{ fontSize:12, color:C.teal }}>No tracked micronutrient gaps in today’s mapped foods.</div>}
+        )) : <div style={{ fontSize:12, color:C.teal }}>{dayNutrition.mealsWithData?'No tracked gaps in the mapped foods; unmapped meals remain unknown.':'Map food entries in Nutrition before assessing micronutrient gaps.'}</div>}
       </div>
 
       {/* ─── COACH: maintenance mode after the cut window ─── */}
@@ -257,7 +179,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
         <div style={card({ borderLeft:`3px solid ${C.teal}` })}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10 }}>
             <Icon name="flag" size={16} color={C.teal} style={{marginTop:1}} />
-            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.teal }}>Goal confirmed — maintenance mode</div>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.teal }}>{adaptiveTDEE.phaseReason==='goal'?'Goal confirmed':'Saved maintenance phase'} — maintenance mode</div>
           </div>
           <div style={{ display:'grid', gap:7 }}>
             {[
@@ -282,11 +204,11 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
             <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:STATUS_COLOR[pace.status]||C.accent }}>{pace.headline}</div>
           </div>
 
-          {pace.goalTooAggressive && !pace.learning && (
+          {pace.goalTooAggressive && !pace.learning && !adaptiveTDEE.deadlineMissed && (
             <div style={{ background:'rgba(240,86,111,0.1)', border:`1px solid ${C.red}33`, borderRadius:11, padding:'11px 14px', fontSize:12.5, color:C.text, lineHeight:1.55, margin:'10px 0' }}>
               <strong style={{ color:C.red }}>Honest take:</strong> hitting {goalLabel} in {daysLeft} days needs {pace.requiredPct}%/wk —
-              above the planning ceiling (~0.75%/wk). The engine limits the deficit; the deadline may need to move.
-              The projection above shows your realistic clean-cut date.
+              beyond the current calorie or rate limit. The deficit stays bounded; review the timeline.
+              A projected date is an estimate from recent scale changes.
             </div>
           )}
 
@@ -333,9 +255,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
           {/* rate readout — only once we have a real measured rate */}
           {!pace.learning && (
             <div style={{ display:'flex', gap:14, marginTop:14, paddingTop:14, borderTop:`1px solid ${C.borderSoft}`, fontSize:11, color:C.textSub, flexWrap:'wrap' }}>
-              <span>Need: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.requiredRateKg} kg/wk</strong></span>
+              {pace.requiredRateKg!=null?<span>Need: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.requiredRateKg} kg/wk</strong></span>:<span>Original deadline passed</span>}
               {pace.actualRateKg != null && <span>Actual: <strong style={{ color:C.teal, fontFamily:F.mono }}>{pace.actualRateKg} kg/wk</strong></span>}
-              <span>Safe max: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.safeRateKg} kg/wk</strong></span>
+              <span>Planning max: <strong style={{ color:C.text, fontFamily:F.mono }}>{pace.safeRateKg} kg/wk</strong></span>
             </div>
           )}
         </div>
@@ -371,9 +293,9 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
         <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr 1fr':'repeat(4,1fr)', gap:8 }}>
           {STRENGTH_OPTS.map(o=>(
             <button key={o.id} onClick={()=>{ buzz(12); const report={ weekKey:thisWeek, signal:o.id, recordedAt:localDateStr() }; save({ ...cutData, strengthSignal:o.id, strengthWeek:thisWeek, strengthReports:[...(cutData?.strengthReports||[]).filter(r=>r.weekKey!==thisWeek), report] }) }}
-              style={{ ...btn(cutData?.strengthSignal===o.id,true), flexDirection:'column', display:'flex', alignItems:'center', gap:3, padding:'12px 6px', textAlign:'center' }}>
+              style={{ ...btn(adaptiveTDEE.strengthSignal===o.id,true), flexDirection:'column', display:'flex', alignItems:'center', gap:3, padding:'12px 6px', textAlign:'center' }}>
               <span style={{ fontWeight:700 }}>{o.label}</span>
-              <span style={{ fontSize:10, color:cutData?.strengthSignal===o.id?'#0a0612':C.textSub }}>{o.desc}</span>
+              <span style={{ fontSize:10, color:adaptiveTDEE.strengthSignal===o.id?'#0a0612':C.textSub }}>{o.desc}</span>
             </button>
           ))}
         </div>
@@ -382,7 +304,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
       {/* ─── Trend weight chart ─── */}
       <div style={card()}>
         <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:4 }}>Weight Trend</div>
-        <div style={{ fontSize:12, color:C.textSub, marginBottom:14 }}>Faint = daily scale · Bold = smoothed trend (ignores water noise)</div>
+        <div style={{ fontSize:12, color:C.textSub, marginBottom:14 }}>Faint = daily scale · Bold = smoothed trend (smooths normal fluctuations)</div>
         {chartData.length > 1 ? (
           <ResponsiveContainer width="100%" height={210}>
             <ComposedChart data={chartData} margin={{ top:5, right:8, bottom:5, left:-18 }}>
@@ -422,7 +344,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
             </div>
             <div style={{ fontSize:11.5, color:C.textFaint, lineHeight:1.5 }}>
               Of {bodyComp.massLost} kg lost since anchor, ~{Math.round(bodyComp.fatFractionUsed*100)}% modelled as fat
-              {cutData?.strengthSignal ? ` (from your "${STRENGTH_OPTS.find(o=>o.id===cutData.strengthSignal)?.label}" strength signal)` : ' (default — log a strength check-in to refine)'}.
+              {adaptiveTDEE.strengthSignal ? ` (from your "${STRENGTH_OPTS.find(o=>o.id===adaptiveTDEE.strengthSignal)?.label}" strength signal)` : ' (default — log a strength check-in to refine)'}.
               Scales lie day-to-day; re-anchor from a progress photo or your Realme reading when you trust it.
             </div>
           </>
@@ -440,8 +362,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
             <div style={{ display:'flex', gap:8 }}>
               <button style={btn(true,true)} onClick={()=>{
                 if(!anchorForm.weight||!anchorForm.bf) return
-                if(+anchorForm.bf < 3 || +anchorForm.bf > 70){ alert('Body fat % must be between 3 and 70.'); return }
-                if(+anchorForm.weight < 30 || +anchorForm.weight > 300){ alert('Weight must be in kilograms (30–300).'); return }
+                if(!Number.isFinite(+anchorForm.bf) || +anchorForm.bf < 3 || +anchorForm.bf > 65){ alert('Body fat % must be between 3 and 65.'); return }
+                if(!Number.isFinite(+anchorForm.weight) || +anchorForm.weight < 35 || +anchorForm.weight > 350){ alert('Weight must be in kilograms (35–350).'); return }
                 save({ ...cutData, anchor:{ date:localDateStr(), weight:+anchorForm.weight, bf:+anchorForm.bf } })
                 setEditAnchor(false)
               }}>Save Anchor</button>

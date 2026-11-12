@@ -77,7 +77,8 @@ const preserved = structuredClone(
 );
 let writes = 0,
   rejectSave = false,
-  rejectRead = false;
+  rejectRead = false,
+  rejectFoods = false;
 const token = [
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
   Buffer.from(
@@ -107,7 +108,7 @@ await context.route("**/*", async (route) => {
     });
   if (u.pathname.endsWith("/auth/v1/user")) return reply(200, user);
   if (u.pathname.endsWith("/auth/v1/logout")) return reply(200, {});
-  if (u.pathname.endsWith("/rest/v1/shared_foods")) return reply(200, []);
+  if (u.pathname.endsWith("/rest/v1/shared_foods")) return rejectFoods?reply(503,{message:"Simulated food library failure"}):reply(200, []);
   if (u.pathname.endsWith("/rest/v1/user_data")) {
     const method = req.method();
     if (method === "GET" && rejectRead)
@@ -169,12 +170,14 @@ try {
     .getByRole("button", { name: "Sign In", exact: true })
     .last()
     .click();
-  await page.getByText("of 2080 kcal", { exact: true }).waitFor();
+  await page.getByText("of 2000 kcal", { exact: true }).waitFor();
   assert.equal(
     await page.getByLabel("Sleep", { exact: true }).inputValue(),
     "8",
   );
   assert.equal(writes, 0, "Loading existing data must not rewrite it");
+  await page.getByRole("button", {name:"Confirm reviewed day",exact:true}).click();
+  await page.getByText("of 2080 kcal", { exact: true }).waitFor();
   console.log(
     "PASS production auth and read-only bridge preserving classic and newer facts",
   );
@@ -226,6 +229,14 @@ try {
   console.log(
     "PASS read errors stay visible, never become an empty account, and recover on retry",
   );
+  rejectFoods=true;
+  await page.reload();
+  await page.getByRole("alert").filter({hasText:"Simulated food library failure"}).waitFor();
+  await page.getByRole("button",{name:"Sign Out",exact:true}).waitFor();
+  rejectFoods=false;
+  await page.getByRole("button",{name:"Retry loading",exact:true}).click();
+  await page.getByText("of 2240 kcal",{exact:true}).waitFor();
+  console.log("PASS shared-food read failures cannot silently remove the saved food library");
   await page.getByLabel("Steps", { exact: true }).fill("16500");
   await page.getByRole("button", { name: "Sign Out", exact: true }).click();
   await page.getByPlaceholder("you@email.com").waitFor();

@@ -119,7 +119,7 @@ test("a partial low count does not debit food; finalized lower steps do", () => 
     plan(day({ date: yesterday, steps: 5000 }), {
       setup: { ...setup, startDate: yesterday },
     }).eatTarget,
-    1800,
+    2000,
   );
   assert.equal(
     plan(day({ date: yesterday, steps: 5000, activityComplete: false }), {
@@ -206,7 +206,7 @@ test("baseline food and expenditure hold steady between weekly reviews", () => {
 });
 test("an aggressive timeline is flagged and cannot force an extreme automatic deficit", () => {
   const result = getAdaptiveTDEE(
-    { ...setup, manualCalTarget: "", goalWeight: 60, cutLength: 3 },
+    { ...setup, manualCalTarget: "", goalWeight: 60, cutLength: 14 },
     [],
     date,
   );
@@ -238,7 +238,7 @@ test("a confirmed scale goal returns directly to maintenance and ordinary reboun
   assert.equal(reached.target, reached.base);
   const latched = getAdaptiveTDEE(
     { ...s, maintenanceSince: shiftDay(date, -1) },
-    [day({ weight: 80 })],
+    [...logs.map(l=>({...l,date:shiftDay(l.date,-1)})),day({ weight: 80 })],
     date,
   );
   assert.equal(latched.phase, "maintenance");
@@ -368,7 +368,7 @@ test("a future maintenance latch cannot contaminate earlier learning", () => {
   assert.equal(result.phase, "cut");
   assert.equal(result.estimate, null);
 });
-test("step compensation counts movement in the allowance once and respects the movement ceiling", () => {
+test("old food targets cannot create punishment movement or calorie debt", () => {
   const old = shiftDay(date, -1),
     logs = [
       full({
@@ -385,10 +385,11 @@ test("step compensation counts movement in the allowance once and respects the m
     null,
     logs[1],
   );
-  assert.equal(result.outstandingKcal, 200);
-  assert.equal(result.capped, true);
+  assert.equal(result.outstandingKcal, 0);
+  assert.equal(result.goal, setup.stepGoal);
+  assert.equal(result.capped, false);
 });
-test("partial or missing food cannot clear compensation from earlier completed days", () => {
+test("partial or missing food never raises a saved fitness goal", () => {
   const old = shiftDay(date, -2),
     logs = [
       full({
@@ -402,7 +403,7 @@ test("partial or missing food cannot clear compensation from earlier completed d
   assert.equal(
     getDynamicStepGoal({ ...setup, startDate: old }, logs, null, logs[2])
       .outstandingKcal,
-    300,
+    0,
   );
 });
 test("consecutive strength weeks sort numerically and missing BF cannot invent composition", () => {
@@ -464,6 +465,7 @@ test("restoration preserves original-only fields, newer facts and past prescript
   assert.equal(log.sleep, 8);
   assert.equal(log.steps, 15000);
   assert.equal(log.planSnapshot, null);
+  assert.equal(log.recordNeedsReview, true);
   rows[0].value.planSnapshot = { modelVersion: 4, eatTarget: 1900 };
   assert.equal(restoredLogs(rows, newer)[0].steps, 8000);
 });

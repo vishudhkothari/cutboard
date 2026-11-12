@@ -72,6 +72,14 @@ const seed = [
     ];
   }),
 ];
+const sunday=shiftDay(date,-new Date(`${date}T12:00:00`).getDay());
+const priorSunday=shiftDay(sunday,-7);
+const oldSunday=seed.find(([key])=>key===`log:${priorSunday}`)?.[1];
+if(oldSunday)oldSunday.measurements={waistIn:34};
+if(sunday!==date){
+  const index=seed.findIndex(([key])=>key===`log:${sunday}`);
+  if(index>=0)seed.splice(index,1);
+}
 const browser = await chromium.launch({
   channel: process.env.BROWSER_CHANNEL || "msedge",
   headless: true,
@@ -163,7 +171,7 @@ try {
     .getByRole("button", { name: "Use adaptive target", exact: true })
     .click();
   await page.getByText("FORMULA ESTIMATE", { exact: true }).waitFor();
-  assert.equal((await stored("setup")).manualCalTarget, "");
+  assert.equal((await stored("setup")).manualCalTarget, null);
   assert.equal((await stored(`log:${date}`)).steps, 15000);
   console.log(
     "PASS Schedule removed, live strategy moved to Cut IQ, fixed/manual override can return to adaptive",
@@ -185,6 +193,20 @@ try {
   await page.getByText("Weekly Review", { exact: true }).waitFor();
   await page.getByText("Sunday body measurements", { exact: true }).waitFor();
   await page.getByText("Progress Photos", { exact: true }).waitFor();
+  await page.getByLabel(/^Waist/).fill("33");
+  await page.waitForFunction(({key,sunday})=>new Map(JSON.parse(localStorage.getItem(key))).get(`log:${sunday}`)?.measurements?.waistIn===33,{key,sunday});
+  if(sunday!==date){
+    const measured=await stored(`log:${sunday}`);
+    assert.equal(measured.weight,null);
+    assert.equal(measured.steps,null);
+    assert.deepEqual(measured.meals,[]);
+    assert.equal(measured.foodComplete,false);
+    assert.equal((await stored(`log:${priorSunday}`)).measurements.waistIn,34);
+  }
+  await nav("Today");
+  assert.equal(await page.getByLabel("Steps",{exact:true}).inputValue(),"15000");
+  assert.equal(await page.getByLabel("Weight",{exact:true}).inputValue(),"85");
+  console.log("PASS Sunday measurements cannot fabricate old food/weight/steps or replace the day open in Today");
   await nav("Cut IQ");
   await page.getByText("Weekly Strength Check-in", { exact: true }).waitFor();
   await page.getByRole("button", { name: /^Holding/ }).click();
@@ -217,6 +239,21 @@ try {
     .waitFor();
   assert.equal((await stored("setup")).goalWeight, 78.5);
   console.log("PASS profile edit and numeric scale-goal persistence");
+  await page.getByRole("button",{name:"Settings",exact:true}).click();
+  const downloading=page.waitForEvent("download");
+  await page.getByRole("button",{name:/Full backup \(JSON\)/}).click();
+  const download=await downloading,stream=await download.createReadStream(),chunks=[];
+  for await(const chunk of stream)chunks.push(chunk);
+  const backup=JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  assert.equal(backup.diagnostics.modelVersion,5);
+  assert.equal(backup.diagnostics.asOfDate,date);
+  assert.equal(backup.diagnostics.goalWeight,78.5);
+  assert.equal(backup.diagnostics.phase,"cut");
+  assert.equal(backup.diagnostics.stepCredit,200);
+  assert.equal(backup.diagnostics.plannedDeficit,backup.diagnostics.baselineTDEE+200-backup.diagnostics.eatTarget);
+  assert.equal(backup.logs.find(log=>log.date===date).steps,15000);
+  await page.getByRole("button",{name:"Cancel",exact:true}).click();
+  console.log("PASS full backup includes the exact displayed model inputs, outputs, version and local date for replay");
 
   for (const viewport of [
     { width: 1440, height: 1100 },
@@ -273,6 +310,8 @@ try {
   const bridgePage = await bridgeContext.newPage();
   bridgePage.on("pageerror", (error) => errors.push(error.message));
   await bridgePage.goto(process.env.TEST_URL || "http://127.0.0.1:5173");
+  await bridgePage.getByRole("button", {name:/Moderate/}).click();
+  await bridgePage.getByRole("button", {name:"Save Changes",exact:true}).click();
   await bridgePage.getByLabel("Steps", { exact: true }).waitFor();
   for (const tab of ["Today", "Nutrition", "Progress", "Cut IQ", "Workout"]) {
     await bridgePage

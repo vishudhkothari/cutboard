@@ -41,13 +41,13 @@ npm.cmd run test:browser
 
 The browser check expects the demo server at port 5173 and uses a fresh headless Edge context. Set `BROWSER_CHANNEL` or `TEST_URL` if needed. Screenshots go to ignored `artifacts/`.
 
-`npm.cmd run test:cloud` expects an account-mode production preview at port 5174. Build with `VITE_DEMO=0`, `VITE_SUPABASE_URL=https://cutiq-test.invalid` and `VITE_SUPABASE_ANON_KEY=fixture-key`, then run `npm.cmd run preview -- --host 127.0.0.1 --port 5174`. Every external request is intercepted; authentication and storage are fixtures. This does not test live RLS or modify real account data.
+`npm.cmd run test:cloud` expects an account-mode production preview at port 5174. Build with `VITE_DEMO=0`, `VITE_SUPABASE_URL=https://cutiq-test.invalid` and `VITE_SUPABASE_ANON_KEY=fixture-key`, then run `npm.cmd run preview -- --host 127.0.0.1 --port 5174`. Every external request is intercepted; authentication and storage are fixtures. This does not test live RLS or modify real account data. `npm.cmd run test:accounts` uses the same preview with two separate fixture IDs and JWT-aware request checks; it exercises switching accounts during delayed reads/writes, profile conflicts and recovery of an interrupted edit.
 
 ## Code and data
 
-`src/lib/planEngine.js` resolves the baseline, movement, phase and final daily plan. `cutEngine.js` retains trend, macro, zigzag, projection and coaching helpers. `App.jsx`, `CutIQTab.jsx` and `WorkoutTab.jsx` retain the original interface. `cloudData.js` handles scoped, ordered, revision-checked persistence; `compatData.js` bridges the temporary v2 document back into the original rows without rewriting data on load.
+`src/lib/planEngine.js` resolves the baseline, movement, fixed goal, phase, pace, projection and final plan from `modelInputs.js` validation. `cutEngine.js` retains pure trend, macro, calibration and advisory helpers; older controller exports are not active target setters. `App.jsx`, `CutIQTab.jsx` and `WorkoutTab.jsx` retain the original interface. `cloudData.js` handles scoped, ordered, revision-checked persistence; `compatData.js` bridges the temporary v2 document back into the original rows without rewriting data on load.
 
-Original recipes, workouts, sleep, measurements and photos remain available. Newer v2 facts merge by revision while classic-only fields survive. Original source is preserved under `legacy/`; the replaced interface is also preserved in Git history.
+Original recipes, workouts, sleep, measurements and photos remain available. Conflicting old profile/day versions require visible review; a whole-document timestamp cannot silently select a profile. Identical facts preserve historical targets and classic-only fields survive. Account-bound stores and keyed workspaces isolate sessions; revision-checked writes and account-scoped recovery drafts protect interrupted edits. Original source is preserved under `legacy/`; the replaced interface is also preserved in Git history.
 
 See [audit](docs/REBUILD-AUDIT.md) and [model/evidence](docs/MODEL.md). Software tests verify consistent accounting, not exact biological expenditure or guaranteed fat loss.
 

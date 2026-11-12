@@ -6,16 +6,18 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine
 } from 'recharts'
 import { supabase } from './lib/supabase'
-import { store } from './lib/store'
+import { AccountStoreProvider, useAccountStore } from './lib/AccountStore'
+import { normalizeProfile, normalizeLog, numeric } from './lib/modelInputs'
+import { createLogDrafts } from './lib/logDrafts'
 import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
 import CutIQTab from './CutIQTab'
-import { trendWeight, inferBodyComp, evaluateMuscleRisk, normalizeStepTarget, ENGINE_CONST } from './lib/cutEngine'
+import { trendWeight, normalizeStepTarget, ENGINE_CONST } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
-import { estimateRFM, BODY_MEASUREMENTS, isSunday, normalizeMeasurements } from './lib/bodyFat'
-import { getAdaptiveTDEE, getPlanForDate, createPlanSnapshot, getDynamicStepGoal, stepCalories, STEP_KCAL_PER_1000, completeFood, hasSteps } from './lib/planEngine'
+import { estimateRFM, BODY_MEASUREMENTS, normalizeMeasurements } from './lib/bodyFat'
+import { getAdaptiveTDEE, getPlanForDate, createPlanSnapshot, MODEL_VERSION, STEP_KCAL_PER_1000, completeFood, hasSteps } from './lib/planEngine'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -88,10 +90,6 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, macros, stepData, isT
     }
   }
   if (tdeeData.stepCredit > 0) insights.push({ color:C.teal, msg:`Extra steps add ${tdeeData.stepCredit} kcal to estimated expenditure at ${STEP_KCAL_PER_1000} kcal per 1,000 above baseline. Your food allowance increases by the same amount, subject to its minimum.` })
-  if (stepData.extra > 0) {
-    const kcal = stepData.outstandingKcal ?? stepCalories(stepData.extra)
-    insights.push({ color: C.orange, msg: `${kcal} kcal above your logged allowances. ${stepData.capped ? 'The movement limit is reached; review intake without chasing more steps.' : `Extra movement can help at ${STEP_KCAL_PER_1000} kcal per 1,000 steps; your updated food budget already includes steps completed.`}` })
-  }
   if (macros.calTarget > 0 && todayCals > macros.calTarget * 0.4) {
     const short = Math.round((macros.proteinG - todayProtein) * 10) / 10
     if (short > 20) insights.push({ color: C.bad, msg: `Protein is ${short}g short of today's ${macros.proteinG}g target. Add a protein source to your next meal.` })
@@ -113,25 +111,7 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, macros, stepData, isT
       insights.push({ color: C.orange, msg: `${remainingSteps.toLocaleString()} steps left to reach today's movement target. A short walk now is enough; do not turn it into punishment.` })
     }
   }
-  // Weekly pace verdict — gated to 14 calendar days (water-clearance rule,
-  // same as every Cut IQ surface) and computed over REAL weeks, not the last
-  // N entries (sparse logging used to stretch "this week" over a month).
-  const wLogs = logs.filter(l => l.weight != null).sort((a, b) => a.date.localeCompare(b.date))
-  if (wLogs.length >= 8 && daysBetween(wLogs[0].date, todayStr()) + 1 >= 14) {
-    const cut7  = addDaysStr(todayStr(), -7)
-    const cut14 = addDaysStr(todayStr(), -14)
-    const r7 = wLogs.filter(l => l.date > cut7).map(l => l.weight)
-    const p7 = wLogs.filter(l => l.date > cut14 && l.date <= cut7).map(l => l.weight)
-    if (r7.length >= 3 && p7.length >= 3) {
-      const rAvg = r7.reduce((s, x) => s + x) / r7.length
-      const pAvg = p7.reduce((s, x) => s + x) / p7.length
-      const wkLoss = pAvg - rAvg
-      if (wkLoss < -0.15)    insights.push({ color: C.bad, msg: `Weight is up ${Math.abs(wkLoss).toFixed(2)}kg vs last week. Check the Cut IQ tab — something needs tightening.` })
-      else if (wkLoss < 0.2) insights.push({ color: C.orange, msg: `Only ${wkLoss.toFixed(2)}kg lost this week. Check the Cut IQ tab — it'll tell you which lever to pull.` })
-      else if (wkLoss > 1.2) insights.push({ color: C.info, msg: `Losing ${wkLoss.toFixed(1)}kg/wk — faster than ideal. Cut IQ may suggest easing the deficit to protect muscle.` })
-      else                   insights.push({ color: C.accent, msg: `Down ${wkLoss.toFixed(2)}kg this week — right on target. Stay consistent.` })
-    }
-  }
+  if(tdeeData.review && tdeeData.phase==='cut')insights.push({color:tdeeData.review.status==='on_track'?C.teal:C.textSub,msg:tdeeData.review.headline})
   return insights.slice(0, 6)
 }
 
@@ -232,7 +212,7 @@ function AuthScreen() {
 /* ═══════════════════════════════════════════════════════════════
    ONBOARDING
 ═══════════════════════════════════════════════════════════════ */
-function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }) {
+function Onboarding({ issues=[], userEmail, onSave, existing, onCancel, onLogout, onReset, onExport }) {
   const [f, setF] = useState({
     ...existing,
     name: existing?.name ?? userEmail?.split('@')[0] ?? '', age: existing?.age ?? '', height: existing?.height ?? '',
@@ -251,6 +231,7 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
       <div style={{ maxWidth: 640, margin: '0 auto' }}>
         <div style={{ fontFamily: F.head, fontSize: 28, fontWeight: 800, marginBottom: 6 }}>{existing ? 'Edit Profile' : 'Setup Your Profile'}</div>
         <div style={{ color: C.textSub, fontSize: 14, marginBottom: 36 }}>These numbers power your adaptive TDEE and coaching.</div>
+        {issues.length>0&&existing&&<div role="alert" style={{...card(),color:C.orange,marginBottom:20}}>{issues.join(' ')}</div>}
         <div style={{ display: 'grid', gap: 24 }}>
           <div><label style={LBL}>Your Name</label><input style={inp({ maxWidth: 260 })} value={f.name} placeholder="Vishudh" onChange={e => set('name', e.target.value)} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(100px,1fr))', gap: 14 }}>
@@ -267,13 +248,13 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
           </div>
           {goalW && (
             <div style={card({ background: '#0a1209', borderColor: '#1a2f12', display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', textAlign: 'center', gap: 12 })}>
-              {[{val:goalW,unit:'kg',label:'Goal Weight',color:C.accent},{val:fatLose,unit:'kg',label:'Fat to Lose',color:C.orange},{val:lbm?.toFixed(1),unit:'kg',label:'Lean Mass',color:C.blue},{val:wkRate,unit:'kg/wk',label:'Target Rate',color:C.purple}].map(({val,unit,label,color}) => (
+              {[{val:goalW,unit:'kg',label:'Goal Weight',color:C.accent},{val:fatLose,unit:'kg',label:'Weight to Lose',color:C.orange},{val:lbm?.toFixed(1),unit:'kg',label:'Lean Mass',color:C.blue},{val:wkRate,unit:'kg/wk',label:'Target Rate',color:C.purple}].map(({val,unit,label,color}) => (
                 <div key={label}><div style={{fontFamily:F.mono,fontSize:22,fontWeight:700,color,lineHeight:1}}>{val}</div><div style={{fontSize:10,color:C.textSub,marginTop:3,textTransform:'uppercase',letterSpacing:'0.08em'}}>{unit}</div><div style={{fontSize:11,color:C.textSub,marginTop:5}}>{label}</div></div>
               ))}
             </div>
           )}
-          <div style={{ maxWidth: 240 }}><label style={LBL}>Base Daily Step Goal</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.stepGoal} placeholder="10000" onChange={e => set('stepGoal', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Extra steps added automatically when you overeat</div></div>
-          <div style={{ maxWidth: 240 }}><label style={LBL}>Maximum Step Budget</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.userMaxStepBudget} placeholder="14000" onChange={e => set('userMaxStepBudget', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Also capped at baseline average + 4,000.</div></div>
+          <div style={{ maxWidth: 240 }}><label style={LBL}>Base Daily Step Goal</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.stepGoal} placeholder="10000" onChange={e => set('stepGoal', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Use your usual daily steps as the baseline; extra completed steps earn food</div></div>
+          <div style={{ maxWidth: 240 }}><label style={LBL}>Maximum Step Budget</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.userMaxStepBudget} placeholder="14000" onChange={e => set('userMaxStepBudget', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Fitness goals are capped here and at 4,000 above the usual baseline.</div></div>
           <div style={card({ background: '#0c0e14' })}>
             <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Manual Calorie Target</div>
             <div style={{ fontSize: 12, color: C.textSub, marginBottom: 14 }}>Override adaptive TDEE with a fixed number. Leave blank to use the calculated target.</div>
@@ -289,24 +270,10 @@ function Onboarding({ userEmail, onSave, existing, onCancel, onReset, onExport }
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <button style={{ ...btn(true), flex: 1, fontSize: 15, padding: '13px 0' }} onClick={() => {
-              if (!f.age || !f.height || !f.startWeight || (!f.startBF && !f.goalWeight)) {
-                alert('Fill in Age, Height, Starting Weight, and either body fat or a target scale weight.')
-                return
-              }
-              // sanity-check the numbers — goalBF >= startBF or extreme values
-              // turn the goal-weight math (lean / (1 - bf)) into garbage/Infinity
-              if (f.age < 10 || f.age > 100)            { alert('Age looks off — enter a value between 10 and 100.'); return }
-              if (f.height < 100 || f.height > 250)     { alert('Height looks off — enter centimetres (100–250).'); return }
-              if (f.startWeight < 30 || f.startWeight > 300) { alert('Start weight looks off — enter kilograms (30–300).'); return }
-              if (f.startBF && (f.startBF < 3 || f.startBF > 70)) { alert('Starting body fat % must be between 3 and 70.'); return }
-              if (!f.goalBF || f.goalBF < 3 || f.goalBF > 60) { alert('Goal body fat % must be between 3 and 60.'); return }
-              if (!f.goalWeight && +f.goalBF >= +f.startBF) { alert('Goal body fat % must be LOWER than your starting body fat %.'); return }
-              if (f.goalWeight && (+f.goalWeight < 35 || +f.goalWeight >= +f.startWeight)) { alert('Target scale weight must be at least 35 kg and below starting weight.'); return }
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(f.startDate) || !Number.isFinite(Date.parse(f.startDate))) { alert('Choose a valid cut start date.'); return }
-              if (!f.cutLength || f.cutLength < 14 || f.cutLength > 365) { alert('Cut length must be between 14 and 365 days.'); return }
               onSave(f)
             }}>{existing ? 'Save Changes' : 'Start My Cut'}</button>
-            {existing && <button style={btn()} onClick={onCancel}>Cancel</button>}
+            {existing && onCancel && <button style={btn()} onClick={onCancel}>Cancel</button>}
+            {!onCancel && onLogout && <button style={btn()} onClick={onLogout}>Sign Out</button>}
           </div>
           {existing && onExport && (
             <div style={{ marginTop: 8, paddingTop: 16, borderTop: `1px solid ${C.borderSoft}` }}>
@@ -1025,7 +992,7 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, stepTarget, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
@@ -1064,10 +1031,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }, [customFoods])
   const recipeById = useMemo(() => Object.fromEntries(recipes.map(r => [r.id, r])), [recipes])
 
-  const stepData  = useMemo(() => viewDate === todayStr()
-    ? getDynamicStepGoal(setup, allLogs, stepTarget, local)
-    : { goal: setup?.stepGoal || 10000, extra: 0, reason: null },
-  [setup, allLogs, stepTarget, local, viewDate])
+  const stepData = adaptiveTDEE.stepPlan
   const zone2Sessions = Array.isArray(local.zone2Sessions) ? local.zone2Sessions : []
   const zone2WeekStart = (() => {
     const d = new Date(viewDate + 'T12:00:00')
@@ -1197,6 +1161,10 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 
   return (
     <div style={{ padding: mobile ? 12 : 20, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 10 : 16, maxWidth: 980, margin: '0 auto' }}>
+      {local.recordNeedsReview && <div role="alert" style={{...card(),gridColumn:'1/-1',color:C.orange}}>
+        Saved versions disagree on {(local.recordReviewFields||[]).join(', ')} for this day. Review the entries below. Disputed facts are excluded from estimates until confirmed.
+        <button style={{...btn(false,true),marginTop:10,display:'block'}} onClick={()=>{const next={...local,recordNeedsReview:false};delete next.recordReviewFields;setLocal(next);onSave(next)}}>Confirm reviewed day</button>
+      </div>}
 
       {/* Date navigator */}
       <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, position:'relative' }}>
@@ -1307,9 +1275,9 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             <span style={{fontSize:12,color:C.textSub}}>Step goal today</span>
             <span style={{fontFamily:F.mono,fontSize:14,color:stepData.extra>0?C.orange:C.accent}}>{stepData.goal.toLocaleString()} steps</span>
           </div>
-          {stepData.extra > 0 && <div style={{fontSize:11,color:C.orange,background:'rgba(240,150,77,0.1)',borderRadius:8,padding:'7px 11px',borderLeft:`3px solid ${C.orange}`,marginBottom:6}}>{stepData.reason}</div>}
+          {stepData.reason && <div style={{fontSize:11,color:C.orange,background:'rgba(240,150,77,0.1)',borderRadius:8,padding:'7px 11px',borderLeft:`3px solid ${C.orange}`,marginBottom:6}}>{stepData.reason}</div>}
           {local.steps != null && <>
-            <div style={{height:4,background:C.border,borderRadius:2}}><div style={{height:'100%',width:`${Math.min((local.steps/stepData.goal)*100,100)}%`,background:local.steps>=stepData.goal?C.accent:C.purple,borderRadius:2}} /></div>
+            <div style={{height:4,background:C.border,borderRadius:2}}><div style={{height:'100%',width:`${(stepData.goal>0?Math.min((local.steps/stepData.goal)*100,100):100)}%`,background:local.steps>=stepData.goal?C.accent:C.purple,borderRadius:2}} /></div>
             <div style={{fontSize:11,color:C.textSub,marginTop:4,textAlign:'right'}}>{local.steps.toLocaleString()} / {stepData.goal.toLocaleString()}</div>
           </>}
         </div>
@@ -1783,18 +1751,9 @@ function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup }) {
     { label:'Protein consistency', value:avgProtein ? `${avgProtein} g/day` : 'No meal data', note:`Logged on ${protDays.length}/${intakeDays.length} intake days`, color:avgProtein ? C.orange : C.textSub },
   ]
 
-  const lost = deltaKg != null ? -deltaKg : null
-  const curW = adaptiveTDEE.curW
-  const healthyFloor = curW * ENGINE_CONST.IDEAL_RATE * 0.6
-  const safeCeil     = curW * ENGINE_CONST.SAFE_RATE * 1.1
-  let verdict, vColor
-  if (adaptiveTDEE.phase === 'maintenance') { verdict = `Maintenance phase — the goal is a flat trend now${lost != null ? ` (moved ${deltaKg > 0 ? '+' : ''}${deltaKg}kg)` : ''}.`; vColor = C.teal }
-  else if (daysBetween(setup.startDate,todayStr())<14) { verdict='Early weight changes include water. Keep logging; pace is reviewed after two weeks.'; vColor=C.textSub }
-  else if (lost == null)            { verdict = 'Weigh in more consistently to get a weekly verdict.'; vColor = C.textSub }
-  else if (deltaKg > 0)             { verdict = `Trend went UP ${deltaKg.toFixed(2)}kg this week — check Cut IQ.`; vColor = C.red }
-  else if (lost < healthyFloor)     { verdict = `Down ${lost.toFixed(2)}kg — slower than the planning band. Cut IQ has the next lever.`; vColor = C.gold }
-  else if (lost <= safeCeil)        { verdict = `Down ${lost.toFixed(2)}kg — inside the planning band. Keep going.`; vColor = C.teal }
-  else                              { verdict = `Down ${lost.toFixed(2)}kg — faster than safe. Consider easing the deficit.`; vColor = C.orange }
+  const reviewEnergy=isLiveWeek?adaptiveTDEE:getAdaptiveTDEE(setup,logs,end)
+  const verdict=reviewEnergy.review.headline
+  const vColor=({reached:C.teal,on_track:C.teal,gaining:C.red,too_fast:C.orange,too_slow:C.gold,calorie_hold:C.orange})[reviewEnergy.review.status]||C.textSub
 
   return (
     <div style={card({ borderLeft: `3px solid ${vColor}` })}>
@@ -1890,20 +1849,27 @@ async function resizeImage(file, maxDim = 1280) {
 }
 
 function ProgressPhotos() {
+  const store = useAccountStore()
   const mobile = useIsMobile()
   const [photos, setPhotos] = useState(null)   // [{path, date, url}]
   const [viewer, setViewer] = useState(null)   // {url, date}
   const [busy,   setBusy]   = useState(false)
+  const [photoError,setPhotoError]=useState('')
   const fileRef = useRef(null)
 
-  useEffect(() => { (async () => {
-    const paths = await store.listPhotos()
-    const items = (await Promise.all(paths.map(async p => {
-      const url = await store.photoUrl(p)
-      return url ? { path: p, date: p.split('/')[1]?.slice(0, 10), url } : null
-    }))).filter(Boolean)
-    setPhotos(items)
-  })() }, [])
+  const loadPhotos=useCallback(async()=>{
+    setPhotoError('')
+    try {
+      const paths=await store.listPhotos()
+      const items=await Promise.all(paths.map(async p=>{
+        const url=await store.photoUrl(p)
+        if(!url)throw new Error('A saved photo preview could not be loaded. Retry loading photos.')
+        return {path:p,date:p.split('/')[1]?.slice(0,10),url}
+      }))
+      setPhotos(items)
+    }catch(error){setPhotoError(error.message||'Progress photos could not be loaded.')}
+  },[store])
+  useEffect(()=>{loadPhotos()},[loadPhotos])
 
   const addPhoto = async file => {
     if (!file) return
@@ -1912,7 +1878,8 @@ function ProgressPhotos() {
     const path = await store.uploadPhoto(blob, todayStr())
     if (path) {
       const url = await store.photoUrl(path)
-      setPhotos(p => [...(p || []), { path, date: todayStr(), url }])
+      if(url)setPhotos(p => [...(p || []), { path, date: todayStr(), url }])
+      else setPhotoError('The photo was saved, but its preview could not be loaded. Retry loading photos.')
     } else {
       alert('Upload failed — make sure the progress-photos bucket exists (re-run supabase_schema.sql).')
     }
@@ -1940,7 +1907,9 @@ function ProgressPhotos() {
         {daysSinceLast != null && daysSinceLast >= 7 && <strong style={{ color:C.orange }}> Last photo was {daysSinceLast} days ago — take one today.</strong>}
       </div>
 
-      {photos === null ? (
+      {photoError&&<div role="alert" style={{fontSize:12,color:C.orange,marginBottom:12}}>{photoError}<button style={{...btn(false,true),marginLeft:10}} onClick={loadPhotos}>Retry photos</button></div>}
+
+      {photoError&&photos===null?null:photos === null ? (
         <div style={{ textAlign:'center', padding:'24px 0', color:C.textSub, fontSize:13 }}>Loading photos…</div>
       ) : photos.length === 0 ? (
         <div style={{ textAlign:'center', padding:'24px 0', color:C.textSub, fontSize:13 }}>No photos yet — take your day-1 photo now. You'll thank yourself at week 6.</div>
@@ -1990,11 +1959,10 @@ function ProgressPhotos() {
 /* ═══════════════════════════════════════════════════════════════
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
-function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE, onSaveLog }) {
+function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE, onSaveLog }) {
   const mobile = useIsMobile()
   const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
-  const latestSunday = [...logs].filter(l => l.measurements && isSunday(l.date)).at(-1)
-  const sundayLog = logs.find(l => l.date === sundayDate) || latestSunday
+  const sundayLog = rawLogs.find(l => l.date === sundayDate)
   const [measurementForm, setMeasurementForm] = useState(() => normalizeMeasurements(sundayLog?.measurements || {}))
   useEffect(() => setMeasurementForm(normalizeMeasurements(sundayLog?.measurements || {})), [sundayLog?.date, sundayLog?.measurements])
   const latestWeight=logs.filter(l=>l.weight!=null).at(-1)?.weight??setup.startWeight
@@ -2019,7 +1987,7 @@ function ProgressTab({ logs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
       <WeeklyReview logs={logs} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} setup={setup}/>
       <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
-        {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:`${latestBF}`,unit:'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
+        {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:latestBF??'\u2014',unit:latestBF==null?'':'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
         ))}
       </div>
@@ -2114,8 +2082,26 @@ const Spin = ({ msg }) => (
 )
 
 export default function App() {
+  const [session,setSession]=useState(undefined)
+  useEffect(()=>{
+    if(DEMO){setSession(demoSession);return}
+    let active=true
+    supabase.auth.getSession().then(({data,error})=>{if(active)setSession(error?null:data.session)})
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,next)=>setSession(next))
+    return()=>{active=false;subscription.unsubscribe()}
+  },[])
+  if(session===undefined)return <Spin msg="Loading account..." />
+  if(!session)return <AuthScreen />
+  return <AccountStoreProvider key={session.user.id} userId={session.user.id}><AccountWorkspace session={session}/></AccountStoreProvider>
+}
+
+function AccountWorkspace({session}) {
+  const store=useAccountStore()
+  const drafts=useMemo(()=>{let storage;try{storage=window.localStorage}catch{storage=null}return createLogDrafts(storage,session.user.id)},[session.user.id])
+  const [recoveryLogs,setRecoveryLogs]=useState([])
+  const loadedForRef=useRef(session.user.id)
+  const [liveDate,setLiveDate]=useState(todayStr())
   const mobile = useIsMobile()
-  const [session,      setSession]      = useState(undefined)
   const [tab,          setTab]          = useState('today')
   const [setup,        setSetup]        = useState(null)
   const [dataReady,    setDataReady]    = useState(false)
@@ -2131,46 +2117,40 @@ export default function App() {
   const [recipes,      setRecipes]      = useState([])
   const [workoutHistory, setWorkoutHistory] = useState([])
 
-  useEffect(() => {
-    if (DEMO) { setSession(demoSession); return }   // skip auth in demo builds
-    supabase.auth.getSession().then(({data:{session}}) => setSession(session))
-    const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s) => setSession(s))
-    return () => subscription.unsubscribe()
-  }, [])
-
   const emptyLog = (date = todayStr()) => ({ date, weight:null, sleep:null, sleepQuality:null, steps:null, meals:[], notes:'', foodComplete:false, activityComplete:false })
 
   // Prefer the single-round-trip loader, but retain the older key-by-key path
   // as a compatibility fallback. A failed bulk query used to return [] and
   // make Cut IQ/Progress look like only today had been logged.
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     const bulk = await store.getByPrefix('log:')
     if (bulk.length) return bulk.sort((a,b)=>a.date.localeCompare(b.date))
     const keys = await store.list('log:')
     return (await Promise.all(keys.map(k => store.get(k))))
       .filter(Boolean)
       .sort((a,b)=>a.date.localeCompare(b.date))
-  }
+  }, [store])
 
   const loadData = useCallback(async () => {
     setDataError('')
     setDataReady(false)
     const owner = loadedForRef.current
-    const s = await store.get('setup')
-    if (s) {
-      const [td, rawLogs, ci, mh, cf, rs, wh] = await Promise.all([
-        store.get(`log:${todayStr()}`), loadLogs(), store.get('cut_intel'),
+      const [s, rawLogs, ci, mh, cf, rs, wh] = await Promise.all([
+        store.get('setup'), loadLogs(), store.get('cut_intel'),
         store.get('meal_history'), store.getSharedFoods(), store.get('recipes'),
         store.get('workout_history'),
       ])
       if (owner !== loadedForRef.current) return
       const loadedCutIntel = ci
-        ? { ...ci, stepGoal: ci.stepGoal == null ? ci.stepGoal : normalizeStepTarget(ci.stepGoal, s.stepGoal || 10000) }
+        ? { ...ci, stepGoal: ci.stepGoal == null ? ci.stepGoal : normalizeStepTarget(ci.stepGoal, s?.stepGoal ?? 10000) }
         : { anchor: null, strengthSignal: null, strengthWeek: null, strengthReports: [], cardioMin: 0, userMaxStepBudget: ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET, proteinFactor: ENGINE_CONST.PROTEIN_CONFIG.factor }
-      const sourceLogs = rawLogs.some(log => log.date === todayStr()) || !td
-        ? rawLogs
-        : [...rawLogs, td]
-      const hydratedLogs = sourceLogs
+      const hydratedLogs = rawLogs
+      const unsaved=drafts.list().filter(draft=>{
+        const cloud=rawLogs.find(l=>l.date===draft.date)
+        if(JSON.stringify(cloud)===JSON.stringify(draft)){drafts.acknowledge(draft);return false}
+        return true
+      })
+      setRecoveryLogs(unsaved)
       const todayLoaded = hydratedLogs.find(log => log.date === todayStr()) || emptyLog()
       setTodayLog(todayLoaded)
       setAllLogs(hydratedLogs)
@@ -2180,45 +2160,35 @@ export default function App() {
       setRecipes(rs || [])
       setWorkoutHistory(wh || [])
 
-    } else {
-      const preservedRecipes = await store.get('recipes')
-      if (owner !== loadedForRef.current) return
-      setRecipes(preservedRecipes || [])
-    }
     if (owner !== loadedForRef.current) return
     setSetup(s)
     setDataReady(true)
-  }, [])
+  }, [store,loadLogs,drafts])
 
-  const loadedForRef = useRef(null)
-  useEffect(() => {
-    if (session && session.user.id !== loadedForRef.current) {
-      Object.values(logSaveTimers.current).forEach(clearTimeout)
-      logSaveTimers.current = {}
-      pendingLogs.current = {}
-      latestLogs.current = {}
-      logOwners.current = {}
-      setSetup(null); setTodayLog(null); setAllLogs([]); setViewDate(todayStr())
-      setMealHistory([]); setRecipes([]); setCustomFoods([]); setWorkoutHistory([])
-      setCutIntel({anchor:null,strengthReports:[],cardioMin:0})
-      loadedForRef.current = session.user.id
-      store.useUser?.(session.user.id)
-      loadData().catch(error => { if (session.user.id === loadedForRef.current) setDataError(error.message || 'Unable to load your saved data. Please retry.') })
-    }
-    if (!session) { loadedForRef.current = null; store.useUser?.(null); setDataReady(false) }
-  }, [session, loadData])
+  useEffect(()=>{
+    loadedForRef.current=session.user.id
+    loadData().catch(error=>{if(loadedForRef.current===session.user.id)setDataError(error.message||'Unable to load your saved data.')})
+    return()=>{loadedForRef.current=null}
+  },[loadData,session.user.id])
 
   const saveSetup = async s => {
-    const normalizedSetup = { ...s, modelVersion:4, goalWeight:s.goalWeight ? +s.goalWeight : null, stepGoal: normalizeStepTarget(s.stepGoal, 10000), userMaxStepBudget: normalizeStepTarget(s.userMaxStepBudget, ENGINE_CONST.DEFAULT_MAX_STEP_BUDGET) }
-    const changedGoal = ['startDate','startWeight','goalWeight','goalBF'].some(key => String(s[key] ?? '') !== String(setup?.[key] ?? ''))
-    const changedBaseline = setup && ['age','height','sex','startBF','activity','stepGoal'].some(key => String(s[key] ?? '') !== String(setup[key] ?? ''))
+    const reviewed={...s}
+    delete reviewed.profileNeedsReview
+    delete reviewed.profileReviewIssues
+    const validated=normalizeProfile(reviewed)
+    if(validated.errors.length){alert(validated.errors.join(' '));return}
+    const normalizedSetup={...validated.value,modelVersion:MODEL_VERSION}
+    const previous=normalizeProfile(setup).value
+    normalizedSetup.activityReferenceSteps=adaptiveTDEE.valid?(previous?.activityReferenceSteps??validated.value.stepGoal):validated.value.stepGoal
+    const changedGoal = ['startDate','startWeight','goalWeight'].some(key => String(validated.value[key] ?? '') !== String(previous?.[key] ?? ''))
+    const changedBaseline = setup && ['age','height','sex','activity'].some(key => String(validated.value[key] ?? '') !== String(previous[key] ?? ''))
     if (changedBaseline) normalizedSetup.calibrationSince = todayStr()
-    if (changedGoal) delete normalizedSetup.maintenanceSince
+    if (changedGoal) { delete normalizedSetup.maintenanceSince; normalizedSetup.goalChangedAt=todayStr() }
     if (!changedGoal && setup?.maintenanceSince) normalizedSetup.maintenanceSince = setup.maintenanceSince
     if (!await store.set('setup', normalizedSetup)) { alert('Unable to save your profile. Your changes remain here; please retry.'); return }
     setSetup(normalizedSetup); setOnboarding(false)
     if (!todayLog) {
-      setTodayLog(emptyLog()); setAllLogs([])
+      setTodayLog(emptyLog())
     }
     // Profile changes recompute the plan from current in-memory facts. Do not
     // reload over a log whose debounced write may still be pending.
@@ -2251,6 +2221,7 @@ export default function App() {
   const persistLog = useCallback(async (date, payload, attempt = 0, userId = logOwners.current[date]) => {
     if (resetInProgress.current || userId !== loadedForRef.current) return false
     const saved = await store.set(`log:${date}`, payload, userId)
+    if(saved){drafts.acknowledge(payload);setRecoveryLogs(previous=>previous.filter(l=>l.date!==date))}
     if (saved || attempt >= 3) {
       if (!saved) setSaveError('Your latest edits are still on screen but could not be saved. Export a backup and retry before closing.')
       else setSaveError('')
@@ -2258,29 +2229,27 @@ export default function App() {
     }
     await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
     return persistLog(date, latestLogs.current[date] || payload, attempt + 1, userId)
-  }, [])
+  }, [store,drafts])
   const saveTodayLog = log => {
+    const checked=normalizeLog({...log,date:log.date||viewDate})
+    if(checked.errors.length){setSaveError(checked.errors.join(' '));return}
+    log=checked.value
     const date = log.date || viewDate
     logOwners.current[date] = loadedForRef.current
     let nextLog = log
     {
       nextLog = {
         ...log,
-        planSnapshot: createPlanSnapshot({ date, log, setup, logs:allLogs, cutIntel }),
+        planSnapshot: date < todayStr() && log.planSnapshot?.source !== 'reconstructed' && numeric(log.planSnapshot?.eatTarget)!=null
+          ? log.planSnapshot
+          : createPlanSnapshot({ date, log, setup, logs:allLogs, cutIntel, source:date<todayStr()?'reconstructed':'captured' }),
       }
     }
-    if (date === todayStr() && !setup.maintenanceSince) {
-      const model = getAdaptiveTDEE(setup,[...allLogs.filter(l=>l.date!==date),nextLog],date,cutIntel)
-      if (model.phase === 'maintenance' && model.reachedDate) {
-        const nextSetup = {...setup,maintenanceSince:model.reachedDate}
-        const owner = loadedForRef.current
-        store.set('setup',nextSetup,owner).then(saved=>{ if (saved && owner===loadedForRef.current) setSetup(nextSetup) })
-      }
-    }
-    setTodayLog(nextLog)
+    if (date === viewDateRef.current) setTodayLog(nextLog)
     setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?nextLog:l); return [...prev,nextLog].sort((a,b)=>a.date.localeCompare(b.date)) })
     latestLogs.current[date] = nextLog
     pendingLogs.current[date] = nextLog
+    if(!drafts.put(nextLog))setSaveError('A recovery copy could not be stored on this device. Keep the app open until the cloud save succeeds.')
     clearTimeout(logSaveTimers.current[date])
     logSaveTimers.current[date] = setTimeout(() => {
       delete logSaveTimers.current[date]
@@ -2328,6 +2297,7 @@ export default function App() {
       alert('Your data could not be fully reset. Nothing was reloaded; please try again.')
       return
     }
+    drafts.list().forEach(log=>drafts.discard(log.date))
     location.reload()
   }
   const saveCutIntel = async ci => {
@@ -2371,16 +2341,17 @@ export default function App() {
       })
       dl(rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n'), `cutboard_logs_${todayStr()}.csv`, 'text/csv')
     } else {
-      const [workouts, routines] = await Promise.all([store.get('workout_history'), store.get('routines')])
-      dl(JSON.stringify({ exportedAt: new Date().toISOString(), setup, logs: allLogs, recipes, mealHistory, cutIntel, customFoods, workouts, routines }, null, 2),
+      const [workouts, routines, legacyDocument] = await Promise.all([store.get('workout_history'), store.get('routines'), store.get('cutiq:v2')])
+      const energy=currentPlan.energy
+      const diagnostics={modelVersion:MODEL_VERSION,asOfDate:liveDate,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,valid:energy.valid,inputIssues:energy.inputIssues,goalWeight:energy.goalWeight,phase:energy.phase,bmr:energy.bmr,baselineTDEE:energy.base,baselineFood:energy.target,stepCredit:energy.stepCredit,eatTarget:currentPlan.eatTarget,plannedDeficit:currentPlan.deficit,calibration:energy.calibration,review:energy.review}
+      dl(JSON.stringify({ exportedAt: new Date().toISOString(), diagnostics, setup, logs: allLogs, unsyncedDrafts:drafts.list(), recipes, mealHistory, cutIntel, customFoods, workouts, routines, legacyDocument }, null, 2),
         `cutboard_backup_${todayStr()}.json`, 'application/json')
     }
   }
 
-  const adaptiveTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, todayStr(), cutIntel), [setup, allLogs, cutIntel])
-  // Historical views must use the model state available on that date. A saved
-  // snapshot is preferred because it preserves the exact target shown then.
-  const historicalTDEE = useMemo(() => getAdaptiveTDEE(setup, allLogs, viewDate, cutIntel), [setup, allLogs, viewDate, cutIntel])
+  const currentPlan=useMemo(()=>getPlanForDate({date:liveDate,log:allLogs.find(log=>log.date===liveDate),setup,logs:allLogs,cutIntel,workoutHistory}),[liveDate,setup,allLogs,cutIntel,workoutHistory])
+  const adaptiveTDEE=currentPlan.energy
+  const selectedPlan=useMemo(()=>viewDate===liveDate?currentPlan:getPlanForDate({date:viewDate,log:todayLog,setup,logs:allLogs,cutIntel,workoutHistory}),[viewDate,liveDate,currentPlan,todayLog,setup,allLogs,cutIntel,workoutHistory])
   const streaks      = useMemo(() => getStreaks(allLogs, adaptiveTDEE.curW ? Math.min(ENGINE_CONST.PROTEIN_CONFIG.max, Math.max(ENGINE_CONST.PROTEIN_CONFIG.min, Math.round(adaptiveTDEE.curW * (cutIntel?.proteinFactor || 2)))) : ENGINE_CONST.PROTEIN_CONFIG.min), [allLogs, adaptiveTDEE.curW, cutIntel?.proteinFactor])
 
   // Midnight rollover: if the app stays open past midnight while viewing
@@ -2392,6 +2363,7 @@ export default function App() {
     const check = () => {
       const t = todayStr()
       if (t !== last) {
+        setLiveDate(t)
         if (viewDateRef.current === last) changeViewDateRef.current?.(t)
         last = t
       }
@@ -2402,34 +2374,24 @@ export default function App() {
     return () => { clearInterval(iv); window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check) }
   }, [])
 
-  if (session===undefined) return <Spin msg='Loading…' />
-  if (!session) return <AuthScreen/>
-  if (dataError) return <div role="alert" style={{...card(),margin:24,color:C.red}}>{dataError}<button style={btn()} onClick={()=>loadData().catch(error=>setDataError(error.message))}>Retry loading</button></div>
+  if (dataError) return <div role="alert" style={{...card(),margin:24,color:C.red}}>{dataError}<button style={btn()} onClick={()=>loadData().catch(error=>setDataError(error.message))}>Retry loading</button><button style={btn()} onClick={logout}>Sign Out</button></div>
   if (!dataReady || loadedForRef.current !== session.user.id) return <Spin msg='Loading your data…' />
-  if (!setup||onboarding) return <Onboarding userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={()=>setOnboarding(false)} onExport={exportData} onReset={resetAllData}/>
+  if (!setup||onboarding||!adaptiveTDEE.valid) return <Onboarding issues={adaptiveTDEE.inputIssues} userEmail={session.user.email} onSave={saveSetup} existing={setup} onCancel={onboarding&&adaptiveTDEE.valid?()=>setOnboarding(false):null} onLogout={DEMO?null:logout} onExport={exportData} onReset={resetAllData}/>
   if (!todayLog) return <Spin msg='Loading today…' />
 
-  const latestWeight = allLogs.filter(l=>l.weight!=null).at(-1)?.weight ?? setup.startWeight
-  // The Cut IQ anchor is THE source of lean mass — a re-anchor (e.g. honest
-  // Realme BF reading) must move goal weight everywhere, not just in Cut IQ.
-  const cutAnchor    = cutIntel?.anchor || { date: setup.startDate, weight: setup.startWeight, bf: setup.startBF }
-  const anchorLbm    = cutAnchor.weight * (1 - cutAnchor.bf / 100)
-  const strengthRisk = evaluateMuscleRisk({ strengthReports: cutIntel?.strengthReports || [] })
-  const modeledStrengthSignal = cutIntel?.strengthSignal === 'down' && !strengthRisk.confirmed ? null : cutIntel?.strengthSignal
-  const bodyComp     = inferBodyComp({ logs: allLogs, anchor: cutAnchor, strengthSignal: modeledStrengthSignal, startDate: setup.startDate })
-  const lbm          = bodyComp?.leanMass ?? anchorLbm
-  const goalWeight   = +setup.goalWeight || adaptiveTDEE.goalWeight || lbm / (1 - setup.goalBF / 100)
-  const currentBF    = bodyComp?.bf ?? cutAnchor.bf
-  const cutLength    = setup.cutLength || 60
-  const dayCount     = daysBetween(setup.startDate, todayStr()) + 1
-  // days remaining so that dayCount + daysLeft === cutLength (matches the design)
-  const daysLeft     = Math.max(0, cutLength - dayCount)
-
-  // ★ THE SINGLE SOURCE OF TRUTH — computed once, passed read-only everywhere ★
-  const currentPlan = getPlanForDate({date:todayStr(),log:allLogs.find(l=>l.date===todayStr()),setup,logs:allLogs,cutIntel})
-  const dayPlan = getPlanForDate({ date:viewDate, log:todayLog, setup, logs:allLogs, cutIntel })
-  const pastSnapshot = viewDate < todayStr() && todayLog?.planSnapshot?.source !== 'reconstructed' ? todayLog?.planSnapshot : null
-  const dayTDEE = pastSnapshot ? {...historicalTDEE,...pastSnapshot,effMaint:dayPlan.maintenance,deficit:dayPlan.deficit,stepCredit:pastSnapshot.stepCredit||0} : historicalTDEE
+  const displaySetup=adaptiveTDEE.profile
+  const scopedLogs=adaptiveTDEE.records
+  const latestWeight=adaptiveTDEE.latestWeight
+  const goalWeight=adaptiveTDEE.goalWeight
+  const currentBF=adaptiveTDEE.currentBF
+  const cutLength=displaySetup.cutLength
+  const dayCount=adaptiveTDEE.dayCount
+  const daysLeft=adaptiveTDEE.daysLeft
+  const dayPlan=selectedPlan
+  const dayTDEE=selectedPlan.energy
+  const inputIssues=[...new Set(adaptiveTDEE.inputIssues)]
+  const viewedLogs=dayTDEE.records
+  const editorLog=normalizeLog(todayLog).value||emptyLog(viewDate)
 
   return (
     <div style={{background:`radial-gradient(ellipse 120% 80% at 50% -20%, #14101e 0%, ${C.bg} 55%)`,minHeight:'100vh',fontFamily:F.body,color:C.text,
@@ -2439,12 +2401,22 @@ export default function App() {
       <TabBar tab={tab} setTab={setTab}/>
       {/* keyed on tab so each switch replays the fade-up entrance */}
       <div key={tab} style={{ animation: 'fadeUp 0.22s ease' }}>
+        {recoveryLogs.length>0&&<div role="alert" style={{...card(),margin:16,color:C.orange,fontSize:13}}>
+          Unsynced edits remain on this device. Review the saved day before restoring a draft over the cloud version.
+          {recoveryLogs.map(draft=>{const cloud=allLogs.find(l=>l.date===draft.date);const facts=l=>`${l?.weight??'\u2014'} kg, ${l?.steps??'\u2014'} steps, ${(l?.meals||[]).length} meals`;return <div key={draft.date} style={{marginTop:12,lineHeight:1.6}}>
+            <strong>{draft.date}</strong><div>Cloud: {facts(cloud)}<br/>Draft: {facts(draft)}</div>
+            <button style={{...btn(false,true),marginRight:8}} onClick={()=>{setTab('today');viewDateRef.current=draft.date;setViewDate(draft.date);saveTodayLog(draft)}}>Restore draft for {draft.date}</button>
+            <button style={btn(false,true)} onClick={()=>{drafts.discard(draft.date);setRecoveryLogs(previous=>previous.filter(l=>l.date!==draft.date))}}>Keep cloud version</button>
+          </div>})}
+        </div>}
+        {inputIssues.length>0 && <div role="alert" style={{...card(),color:C.orange}}>{inputIssues.join(' ')} Stored records are preserved; correct these entries in Today.</div>}
+        {adaptiveTDEE.excludedWeights.length>0 && <div role="status" style={{...card(),color:C.textSub,fontSize:12}}>Unusual weigh-ins on {adaptiveTDEE.excludedWeights.join(', ')} are kept in your logs and excluded from estimates. Check those entries in Today.</div>}
         {saveError && <div role="alert" style={{...card(),color:C.red}}>{saveError}<button style={btn()} onClick={()=>Object.entries(latestLogs.current).forEach(([date,log])=>persistLog(date,log))}>Retry saves</button></div>}
-        {tab==='today'     && <TodayTab     log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={setup} allLogs={allLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} stepTarget={cutIntel?.stepGoal || setup.stepGoal} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
-        {tab==='nutrition' && <NutritionTab log={todayLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={allLogs} setup={setup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
-        {tab==='progress'  && <ProgressTab  logs={allLogs} setup={setup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSaveLog={saveTodayLog}/>}
+        {tab==='today'     && <TodayTab     log={editorLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={displaySetup} allLogs={viewedLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='nutrition' && <NutritionTab log={dayTDEE.records.find(log=>log.date===viewDate)||emptyLog(viewDate)} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={dayTDEE.records} setup={displaySetup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
+        {tab==='progress'  && <ProgressTab  logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSaveLog={saveTodayLog}/>}
         {tab==='workout'   && <WorkoutTab onHistoryChange={setWorkoutHistory} />}
-        {tab==='cutiq'     && <CutIQTab dayPlan={currentPlan} onUseAutomatic={()=>saveSetup({...setup,manualCalTarget:''})} setup={setup} allLogs={allLogs} adaptiveTDEE={adaptiveTDEE} cutData={cutIntel} workoutHistory={workoutHistory} onSaveCutData={saveCutIntel} todayLog={allLogs.find(l=>l.date===todayStr())||emptyLog()} recipes={recipes} customFoods={customFoods}/>}
+        {tab==='cutiq'     && <CutIQTab dayPlan={currentPlan} onUseAutomatic={()=>saveSetup({...setup,manualCalTarget:''})} setup={displaySetup} allLogs={scopedLogs} adaptiveTDEE={adaptiveTDEE} cutData={cutIntel} workoutHistory={workoutHistory} onSaveCutData={saveCutIntel} todayLog={scopedLogs.find(l=>l.date===liveDate)||emptyLog(liveDate)} recipes={recipes} customFoods={customFoods}/>}
       </div>
     </div>
   )

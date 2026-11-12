@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { C, F, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/theme'
 import { Icon } from './lib/icons'
-import { store } from './lib/store'
+import { useAccountStore } from './lib/AccountStore'
 
 /* ═══════════════════════════════════════════════════════════════
    EXERCISE DATABASE
@@ -684,6 +684,7 @@ function ProgressCharts({ history, onClose }) {
    MAIN WORKOUT TAB
 ═══════════════════════════════════════════════════════════════ */
 export default function WorkoutTab({ onHistoryChange }) {
+  const store=useAccountStore()
   const mobile = useIsMobile()
   const [routines,       setRoutines]       = useState([])
   const [history,        setHistory]        = useState([])
@@ -699,7 +700,7 @@ export default function WorkoutTab({ onHistoryChange }) {
     Promise.all([store.get('routines'),store.get('workout_history')]).then(([r,h])=>{
       setRoutines(r||[]); setHistory(h||[]); setLoaded(true)
     }).catch(error=>setLoadError(error.message || 'Unable to load workouts.'))
-  },[])
+  },[store])
 
   useEffect(()=>{ if (loaded) onHistoryChange?.(history) },[history,loaded,onHistoryChange])
 

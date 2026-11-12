@@ -2,12 +2,15 @@ import { restoredSetup, restoredLogs } from "./compatData.js";
 
 // Per-user reads, paginated history, ordered writes and optimistic revisions.
 // A read failure must never look like a new account or an empty history.
-export function createCloudData(client) {
+export function createCloudData(client, userId = null) {
+  const boundUserId = userId;
   let activeUser = null;
   const revisions = new Map();
   const queues = new Map();
+  const localWrites = new Map();
   const documents = new Map();
   const owner = async () => {
+    if (userId) return userId;
     if (activeUser) return activeUser;
     const { data, error } = await client.auth.getUser();
     if (error) throw error;
@@ -37,8 +40,9 @@ export function createCloudData(client) {
     return documents.get(userId);
   };
   const core = {
-    useUser(userId) {
-      activeUser = userId || null;
+    useUser(nextUser) {
+      if (userId && nextUser !== userId) throw new Error("An account-bound store cannot change users.");
+      activeUser = nextUser || null;
       documents.clear();
     },
     async get(key) {
@@ -103,12 +107,21 @@ export function createCloudData(client) {
       if (expectedUser && expectedUser !== userId) return false;
       const id = `${userId}:${key}`;
       const captured = JSON.parse(JSON.stringify(value));
+      const expectedRevision = revisions.get(id) ?? null;
+      const localVersion = localWrites.get(id)?.version ?? 0;
       const previous = queues.get(id) || Promise.resolve();
       const next = previous
         .then(async () => {
-          if (expectedUser && activeUser !== expectedUser) return false;
-          if (!revisions.has(id)) await read(userId, key);
-          const revision = revisions.get(id);
+          if (!userId || (expectedUser && userId !== expectedUser)) return false;
+          if (!boundUserId && activeUser && activeUser !== userId) return false;
+          if (client.auth.getSession) {
+            const { data, error } = await client.auth.getSession();
+            if (error || data?.session?.user?.id !== userId) return false;
+          }
+          // A later read cannot bless an earlier draft with a newer revision.
+          // Only successful writes in this local queue can advance its base.
+          const written = localWrites.get(id);
+          const revision = written?.version > localVersion ? written.revision : expectedRevision;
           const updated_at = new Date(
             Math.max(Date.now(), revision ? Date.parse(revision) + 1 : 0),
           ).toISOString();
@@ -133,6 +146,7 @@ export function createCloudData(client) {
             if (error) throw error;
           }
           revisions.set(id, updated_at);
+          localWrites.set(id, {version:(written?.version ?? 0)+1,revision:updated_at});
           return true;
         })
         .catch((error) => {

@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "test": "node --test src/lib/*.test.js",
     "test:browser": "node scripts/browser-smoke.mjs",
-    "test:cloud": "node scripts/cloud-smoke.mjs"
+    "test:cloud": "node scripts/cloud-smoke.mjs",
+    "test:accounts": "node scripts/account-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

@@ -5,9 +5,13 @@ import { createCloudData } from "./cloudData.js";
 function fixture(initial = []) {
   const rows = structuredClone(initial);
   let failing = false;
+  let activeUser = "A", gate = null;
   const calls = [];
   const client = {
-    auth: { getUser: async () => ({ data: { user: { id: "A" } } }) },
+    auth: {
+      getUser: async () => ({ data: { user: { id: activeUser } } }),
+      getSession: async () => ({ data: { session: { user: { id: activeUser } } } }),
+    },
     from() {
       let op = "read",
         payload = null,
@@ -53,6 +57,9 @@ function fixture(initial = []) {
       };
       async function execute(single) {
         calls.push({ op, payload, fields });
+        if (op === "update" && gate) {
+          const current=gate; gate=null; current.enter(); await current.wait;
+        }
         if (failing) return { data: null, error: new Error("offline") };
         if (op === "insert") {
           if (
@@ -81,6 +88,14 @@ function fixture(initial = []) {
     client,
     rows,
     calls,
+    as(userId) { activeUser=userId; },
+    pauseNextUpdate() {
+      let enter, release;
+      const entered=new Promise(resolve=>{enter=resolve});
+      const wait=new Promise(resolve=>{release=resolve});
+      gate={enter,wait};
+      return {entered,release};
+    },
     offline(value) {
       failing = value;
     },
@@ -131,6 +146,7 @@ test("rapid saves to one key are ordered and the newest payload wins", async () 
   const f = fixture([row("log:2026-01-01", { steps: 10000 })]);
   const store = createCloudData(f.client);
   store.useUser("A");
+  await store.get("log:2026-01-01");
   assert.deepEqual(
     await Promise.all([
       store.set("log:2026-01-01", { steps: 11000 }),
@@ -177,4 +193,43 @@ test("the v2 bridge is read-only and preserves original-only records", async () 
   assert.equal((await store.getByPrefix("log:"))[0].steps, 15000);
   assert.equal((await store.get("recipes"))[0].name, "Dal");
   assert.ok(f.calls.every((call) => call.op === "read"));
+});
+
+test("account-bound stores cannot change users or redirect an old write to a new account",async()=>{
+  const f=fixture([row("setup",{name:"A"}),row("setup",{name:"B"},"B")]);
+  const a=createCloudData(f.client,"A"),b=createCloudData(f.client,"B");
+  assert.throws(()=>a.useUser("B"),/cannot change users/);
+  await a.get("setup");
+  f.as("B");
+  assert.equal((await b.get("setup")).name,"B");
+  assert.equal(await a.set("setup",{name:"Old draft"},"A"),false);
+  assert.equal(await b.set("setup",{name:"New B"},"B"),true);
+  assert.equal(f.rows.find(r=>r.user_id==="A").value.name,"A");
+  assert.equal(f.rows.find(r=>r.user_id==="B").value.name,"New B");
+});
+
+test("a read during queued saves cannot give stale drafts permission to overwrite remote changes",async(t)=>{
+  t.mock.method(console,"error",()=>{});
+  const f=fixture([row("setup",{name:"Original"})]);
+  const local=createCloudData(f.client,"A"),remote=createCloudData(f.client,"A");
+  await local.get("setup");
+  await remote.get("setup");
+  const gate=f.pauseNextUpdate();
+  const first=local.set("setup",{name:"Draft 1"});
+  await gate.entered;
+  const second=local.set("setup",{name:"Draft 2"});
+  assert.equal(await remote.set("setup",{name:"Remote edit"}),true);
+  assert.equal((await local.get("setup")).name,"Remote edit");
+  gate.release();
+  assert.deepEqual(await Promise.all([first,second]),[false,false]);
+  assert.equal(f.rows[0].value.name,"Remote edit");
+});
+
+test("saving an unread key cannot blindly overwrite an existing cloud record",async(t)=>{
+  t.mock.method(console,"error",()=>{});
+  const f=fixture([row("setup",{name:"Existing"})]);
+  const store=createCloudData(f.client,"A");
+  assert.equal(await store.set("setup",{name:"Unread replacement"}),false);
+  assert.equal(f.rows[0].value.name,"Existing");
+  assert.equal(await store.set("new_key",{value:1}),true);
 });
