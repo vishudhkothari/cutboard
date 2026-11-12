@@ -1,33 +1,42 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import react from 'eslint-plugin-react'
-import reactHooks from 'eslint-plugin-react-hooks'
+import js from "@eslint/js";
+import globals from "globals";
+import react from "eslint-plugin-react";
+import reactHooks from "eslint-plugin-react-hooks";
 
 /* Flat config (ESLint 9). Run with `npm run lint`.
    Catches the class of mistakes that slipped past before — undefined
    identifiers, unused vars, bad hook deps — without a heavy style ruleset. */
 export default [
-  { ignores: ['dist', 'public/sw.js', '*.dc.html'] },
+  {
+    ignores: ["dist", "artifacts/**", "legacy/**", "public/sw.js", "*.dc.html"],
+  },
   js.configs.recommended,
   {
-    files: ['src/**/*.{js,jsx}'],
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
+    files: ["src/**/*.{js,jsx}"],
     languageOptions: {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
+      ecmaVersion: "latest",
+      sourceType: "module",
       globals: { ...globals.browser },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
-    settings: { react: { version: '18.2' } },
-    plugins: { react, 'react-hooks': reactHooks },
+    settings: { react: { version: "18.2" } },
+    plugins: { react, "react-hooks": reactHooks },
     rules: {
       ...react.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
-      'react/react-in-jsx-scope': 'off',   // Vite's automatic JSX runtime
-      'react/prop-types': 'off',           // app doesn't use prop-types
+      "react/react-in-jsx-scope": "off", // Vite's automatic JSX runtime
+      "react/prop-types": "off", // app doesn't use prop-types
       // Existing UI copy intentionally contains ordinary apostrophes and
       // quotation marks in JSX text; these are not runtime safety issues.
-      'react/no-unescaped-entities': 'off',
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      "react/no-unescaped-entities": "off",
+      "no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
-]
+];

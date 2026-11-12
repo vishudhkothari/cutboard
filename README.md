@@ -1,80 +1,88 @@
-# CUTBOARD — 60-Day Cut Tracker
+# CUTIQ
 
-Your personal transformation dashboard. Tracks weight, calories, macros, sleep, steps, deep work, and InBody scans. Adaptive TDEE adjusts your calorie target weekly based on actual weight loss rate.
+A focused cutting app: one daily calorie target, dynamic step adjustments, weight
+trends and an automatic transition to maintenance after the goal is achieved.
 
----
-
-## Deploy in ~10 minutes (free)
-
-### Step 1 — Supabase (your database)
-
-1. Go to [supabase.com](https://supabase.com) → **Start for free** → create an account
-2. Click **New project** → give it a name (e.g. `cutboard`) → set a database password → **Create project**
-3. Wait ~1 minute for the project to spin up
-4. Go to **SQL Editor** (left sidebar) → **New query**
-5. Paste the entire contents of `supabase_schema.sql` → click **Run**
-6. Go to **Project Settings** → **API**
-7. Copy two values — you'll need them in Step 3:
-   - **Project URL** (looks like `https://xxxx.supabase.co`)
-   - **anon public** key (long string under "Project API keys")
-
-### Step 2 — Push to GitHub
-
-1. Go to [github.com](https://github.com) → **New repository** → name it `cutboard` → **Create repository**
-2. On your machine, open a terminal in this folder and run:
-   ```bash
-   git init
-   git add .
-   git commit -m "initial commit"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/cutboard.git
-   git push -u origin main
-   ```
-
-### Step 3 — Deploy on Vercel
-
-1. Go to [vercel.com](https://vercel.com) → **Sign up with GitHub**
-2. Click **Add New Project** → import your `cutboard` repo
-3. Before clicking Deploy, expand **Environment Variables** and add:
-   - `VITE_SUPABASE_URL` → paste your Supabase Project URL
-   - `VITE_SUPABASE_ANON_KEY` → paste your Supabase anon key
-4. Click **Deploy**
-5. In ~1 minute you'll get a live URL like `cutboard.vercel.app`
-
-That's it. Share the URL with Adarsh — he signs up with his own email and gets his own isolated data.
-
----
-
-## Adding features later
-
-1. Make changes to the code
-2. `git add . && git commit -m "your change" && git push`
-3. Vercel auto-deploys in ~30 seconds
-
-## Running locally (for development)
-
-```bash
-# Install dependencies
-npm install
-
-# Create your local env file
-cp .env.example .env
-# Then fill in your Supabase URL and anon key in .env
-
-# Start dev server
-npm run dev
-# Opens at http://localhost:5173
+```
+food target = baseline maintenance + step adjustment − planned deficit
 ```
 
----
+## Run
 
-## Features
+Node 20.19+ or 22.12+ is required by Vite 7.
 
-- **Today tab** — calorie ring + macro bars, adaptive coach, weight/sleep/steps vitals, full meal log, fasting-day toggle
-- **Nutrition tab** — macro breakdown, 7-day averages, 14-day calorie history chart, reusable "My Meals" recipes
-- **Progress tab** — weekly review, weight trend, sleep & steps charts, progress photos
-- **Cut IQ tab** — body-fat projection, pace controller, body-composition tracking, live TDEE estimate
-- **Schedule tab** — calorie strategy (steady / zigzag), intensity, weekly target spread
-- **Workout tab** — routines, live session logging, PRs, volume history
-- **Adaptive TDEE** — recalculates your calorie target weekly based on actual weight loss rate
-- **Separate accounts** — each user signs in with their own email, completely isolated data (Supabase RLS)
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
+
+With `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local`, the app uses
+the existing Supabase account and `user_data` table. The checked-in
+`supabase_schema.sql` provides the table and per-user RLS. Existing deployments do
+not require a schema change. Old rows and Storage objects are preserved.
+
+Without backend configuration, data is saved in this browser's local storage.
+Export backups regularly; local mode does not synchronize between devices.
+
+For an isolated local preview even when Supabase is configured:
+
+```powershell
+$env:VITE_DEMO='1'
+npm.cmd run dev -- --host 127.0.0.1 --port 5173
+```
+
+This mode uses separate `cutiq:v2:demo` local storage and never signs in to an account.
+The browser smoke test below requires this server. In a different terminal:
+
+```powershell
+npm.cmd test
+npm.cmd run lint
+npm.cmd run build
+npm.cmd run test:browser
+```
+
+The browser test uses headless Microsoft Edge by default. Set `BROWSER_CHANNEL`
+to `chrome` when appropriate. It creates an isolated browser context and writes
+screenshots to ignored `artifacts/`. It does not modify a real browser profile.
+
+`npm.cmd run test:cloud` exercises mocked authentication, account migration and save
+failures against an account-mode preview at port 5174 (or `TEST_URL`). Build that
+preview with `VITE_DEMO=0`, `VITE_SUPABASE_URL=https://cutiq-test.invalid`, and
+`VITE_SUPABASE_ANON_KEY=test-public-anon-key`. All external HTTP is intercepted;
+the test never sends requests to a real account. Use a separate output directory
+such as `artifacts/cloud-preview` for this fixture build.
+
+To build for deployment, disable demo mode and provide real Supabase variables.
+An explicit environment value overrides a local file's demo flag. On PowerShell:
+
+```powershell
+$env:VITE_DEMO='0'
+npm.cmd run build
+```
+
+## Structure
+
+- `src/lib/cutEngine.js`: pure energy, trend, calibration, phase and pace model.
+- `src/lib/data.js`: versioned state validation and non-destructive migration.
+- `src/lib/repository.js`: local/account persistence, write conflicts and export.
+- `src/App.jsx` and `src/Workspace.jsx`: account lifecycle, one day draft and one
+  computed plan shared by the active view.
+- `src/components/`: Today editor, Progress, Plan, profile and authentication UI.
+- `legacy/`: preserved previous application, workout tracker and supporting code;
+  unused by the active build.
+- [Audit](docs/REBUILD-AUDIT.md): original architecture, findings and changes.
+- [Model and research](docs/MODEL.md): equations, evidence, product assumptions and limitations.
+
+The first v2 account load imports old measurements and meals and asks you to review
+the goal. Imported days remain incomplete until confirmed. New data is stored under
+the separate `cutiq:v2` key; previous setup, logs, workouts, recipes and photos are
+not erased. Stale-tab/device writes fail visibly instead of silently overwriting
+newer data.
+
+Export includes an unsaved day draft, which can be useful after a failed save or a
+write conflict. Importing a backup through the interface is not currently supported;
+the JSON export remains directly inspectable and can be restored through the stored
+v2 state format.
+
+The app estimates energy balance. It cannot promise exact calorie expenditure,
+fat loss or a guaranteed completion date.
