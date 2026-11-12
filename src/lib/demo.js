@@ -62,7 +62,7 @@ function buildLogs() {
     logs.push({
       date: daysAgo(i), weight, sleep,
       sleepQuality: sleep >= 7.2 ? 'Good' : sleep >= 6.8 ? 'OK' : 'Poor',
-      steps, inclineMin: null, meals, notes: '', fasting: false, fastingOverridden: false,
+      steps, meals, notes: '', foodComplete: true, activityComplete: true,
     })
   }
   return logs
@@ -73,7 +73,6 @@ const SETUP = {
   startWeight: START_W, startBF: 20, goalBF: 12,
   startDate: daysAgo(SPAN), cutLength: 60, stepGoal: 8000,
   carbCycling: false, trainingDays: [1, 3, 5], manualCalTarget: '',
-  activeCut: false, cardioMin: 35,
 }
 
 const RECIPES = [
@@ -125,8 +124,6 @@ const seed = {
   cut_intel: { anchor: { date: daysAgo(SPAN), weight: START_W, bf: 20 }, strengthSignal: 'same', strengthWeek: 0, cardioMin: 0 },
   meal_history: MEAL_HISTORY,
   recipes: RECIPES,
-  plan_settings: { fastingDays: [], fastCompensation: false },
-  zigzag_settings: { on: false, schedule: 1, mode: 'weight' },
   routines: ROUTINES,
   workout_history: WORKOUTS,
 }

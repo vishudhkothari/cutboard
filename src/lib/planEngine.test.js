@@ -10,10 +10,10 @@ import {
   getPlanForDate,
   createPlanSnapshot,
   getDynamicStepGoal,
+  restingEnergy,
 } from "./planEngine.js";
 import {
   buildDayPlan,
-  zigzagWeek,
   estimateTDEE,
   evaluateMuscleRisk,
   inferBodyComp,
@@ -28,6 +28,7 @@ const setup = {
   sex: "male",
   startWeight: 85,
   startBF: 20,
+  goalBF: 12,
   goalWeight: 79,
   startDate: date,
   cutLength: 77,
@@ -38,15 +39,36 @@ const setup = {
 const day = (fields = {}) => ({ date, steps: 10000, meals: [], ...fields });
 const plan = (log, extra = {}) =>
   getPlanForDate({ date: log.date, log, setup, logs: [log], ...extra });
+const full = (fields = {}) =>
+  day({
+    meals: [{ cals: 2000 }],
+    foodComplete: true,
+    activityComplete: true,
+    ...fields,
+  });
+const series = (length = 36) =>
+  Array.from({ length }, (_, i) =>
+    full({
+      date: shiftDay("2026-01-01", i),
+      weight: 85 - (i * 600) / 7700,
+      steps: 15000,
+    }),
+  );
+const estimateOptions = {
+  fatFraction: (7700 - 1800) / (9400 - 1800),
+  activityForLog: () => 200,
+};
 
-test("the chosen step credit is exactly 40 kcal per thousand above baseline", () => {
+test("40 kcal per thousand extra steps increases food and expenditure equally", () => {
   assert.equal(STEP_KCAL_PER_1000, 40);
-  assert.equal(movementCredit(setup, day({ steps: 15000 }), 85).total, 200);
-  assert.equal(plan(day({ steps: 15000 })).eatTarget, 2200);
-  assert.equal(plan(day({ steps: 10000 })).eatTarget, 2000);
+  const a = plan(day()),
+    b = plan(day({ steps: 15000 }));
+  assert.equal(b.eatTarget, 2200);
+  assert.equal(b.eatTarget - a.eatTarget, 200);
+  assert.equal(b.maintenance - a.maintenance, 200);
+  assert.equal(b.deficit, a.deficit);
 });
-
-test("2600 maintenance, 2000 food and five thousand extra steps keep the 600 deficit", () => {
+test("the 2600 maintenance / 2000 food example preserves exactly 600 kcal deficit", () => {
   const result = buildDayPlan({
     baseTarget: 2000,
     maintenance: 2800,
@@ -56,23 +78,42 @@ test("2600 maintenance, 2000 food and five thousand extra steps keep the 600 def
   assert.equal(result.eatTarget, 2200);
   assert.equal(result.deficit, 600);
 });
-
-test("ordinary activity and gym are not added to baseline expenditure twice", () => {
-  const a = getAdaptiveTDEE(setup, [day()], {}, date);
-  const b = getAdaptiveTDEE(
-    { ...setup, gymDays: 5 },
-    [day({ trained: true })],
-    {},
-    date,
-  );
+test("usual steps and gym are already in the baseline and do not earn a second credit", () => {
+  const a = getAdaptiveTDEE(setup, [day()], date),
+    b = getAdaptiveTDEE(
+      { ...setup, gymDays: 5 },
+      [day({ trained: true })],
+      date,
+    );
   assert.equal(a.base, b.base);
   assert.equal(a.activityCredit, 0);
 });
-
-test("today partial steps do not debit food; finalized low steps do", () => {
+test("saved retired modes and incline logs cannot change the current budget", () => {
+  const log = day({ steps: 15000, fasting: true, inclineMin: 600 });
+  const result = plan(log, {
+    setup: {
+      ...setup,
+      activeCut: true,
+      activeCutDays: { [date]: true },
+      cardioMin: 600,
+    },
+    planSettings: {
+      fastingDays: [new Date().getDay()],
+      fastCompensation: true,
+    },
+    zigzagSettings: { on: true, mode: "extreme" },
+  });
+  assert.equal(result.eatTarget, 2200);
+  assert.equal("fasting" in result, false);
+  assert.equal("regime" in result, false);
+  assert.equal("activeCut" in getAdaptiveTDEE(setup, [log], date), false);
+});
+test("a partial low count does not debit food; finalized lower steps do", () => {
   assert.equal(plan(day({ steps: 5000 })).eatTarget, 2000);
-  const finalized = day({ steps: 5000, activityComplete: true });
-  assert.equal(plan(finalized).eatTarget, 1800);
+  assert.equal(
+    plan(day({ steps: 5000, activityComplete: true })).eatTarget,
+    1800,
+  );
   const yesterday = shiftDay(date, -1);
   assert.equal(
     plan(day({ date: yesterday, steps: 5000 }), {
@@ -80,195 +121,162 @@ test("today partial steps do not debit food; finalized low steps do", () => {
     }).eatTarget,
     1800,
   );
+  assert.equal(
+    plan(day({ date: yesterday, steps: 5000, activityComplete: false }), {
+      setup: { ...setup, startDate: yesterday },
+    }).eatTarget,
+    2000,
+  );
 });
-
-test("missing step count is unknown rather than a zero-step day", () => {
-  for (const steps of [null, undefined, "", NaN]) {
+test("missing, blank and invalid steps are unknown; a recorded zero is real", () => {
+  for (const steps of [null, undefined, "", NaN, -1, 100001]) {
     assert.equal(hasSteps({ steps }), false);
     assert.equal(
-      movementCredit(setup, day({ steps, activityComplete: true }), 85).total,
+      movementCredit(setup, day({ steps, activityComplete: true })).total,
       0,
     );
   }
   assert.equal(hasSteps({ steps: 0 }), true);
 });
-
-test("scheduled incline earns nothing until completed, and overlapping steps are credited once", () => {
-  const active = { ...setup, activeCut: true, cardioMin: 35 };
-  const a = getAdaptiveTDEE(active, [day()], {}, date);
-  assert.equal(a.cardioCredit, 0);
-  assert.equal(a.target, 2000);
-  const movement = movementCredit(
-    active,
-    day({ steps: 15000, inclineMin: 35 }),
-    85,
-  );
-  assert.equal(movement.cardioBurn, 238);
-  assert.equal(movement.overlapSteps, 3150);
-  assert.equal(movement.total, 200 + 238 - 126);
-  assert.equal(
-    plan(day({ steps: 15000, inclineMin: 35 }), { setup: active }).eatTarget,
-    2312,
-  );
-});
-
-test("food floor wins and the displayed deficit reflects the smaller achieved plan", () => {
-  const log = day({ steps: 0, activityComplete: true });
-  const result = plan(log, { setup: { ...setup, manualCalTarget: 1600 } });
+test("the food floor takes precedence and the displayed deficit uses the final target", () => {
+  const result = plan(day({ steps: 0, activityComplete: true }), {
+    setup: { ...setup, manualCalTarget: 1600 },
+  });
   assert.equal(result.eatTarget, 1500);
   assert.equal(result.deficit, result.maintenance - 1500);
 });
-
-test("zigzag preserves the exact weekly mean even when low days meet the floor", () => {
-  for (const target of [1200, 1500, 1501, 1550, 1800, 2400])
-    for (const schedule of [1, 2])
-      for (const mode of ["mild", "weight", "extreme"]) {
-        const week = zigzagWeek(target, schedule, mode, 1500);
-        assert.equal(
-          week.reduce((s, d) => s + d.cals, 0),
-          7 * Math.max(1500, target),
-        );
-        assert.ok(
-          week.every((d) => Number.isInteger(d.cals) && d.cals >= 1500),
-        );
-      }
-});
-
-test("activity credit is added after the zigzag pattern without changing its planned deficit", () => {
-  for (const mode of ["mild", "weight", "extreme"]) {
-    const a = plan(day(), { zigzagSettings: { on: true, schedule: 1, mode } });
-    const b = plan(day({ steps: 15000 }), {
-      zigzagSettings: { on: true, schedule: 1, mode },
+test("macro energy stays within rounding tolerance of the final food target", () => {
+  for (const credit of [-400, -200, 0, 200, 800]) {
+    const p = buildDayPlan({
+      baseTarget: 2000,
+      maintenance: 2600 + credit,
+      floor: 1500,
+      activityCredit: credit,
+      currentWeightKg: 85,
     });
-    assert.equal(b.eatTarget - a.eatTarget, 200);
-    assert.equal(b.deficit, a.deficit);
+    assert.ok(
+      Math.abs(p.proteinG * 4 + p.carbG * 4 + p.fatG * 9 - p.eatTarget) <= 7,
+    );
   }
 });
-
-test("fasting schedule, manual overrides and compensation retain their original behavior", () => {
-  const settings = { fastingDays: [new Date(date + "T12:00:00").getDay()] };
-  assert.equal(plan(day(), { planSettings: settings }).eatTarget, 0);
-  assert.equal(
-    plan(day({ fastingOverridden: true }), { planSettings: settings })
-      .eatTarget,
-    2000,
-  );
-  const result = plan(
-    day({ steps: 15000, fasting: true, meals: [{ cals: 300 }] }),
-    { planSettings: { fastCompensation: true } },
-  );
-  assert.equal(result.eatTarget, 550);
-  assert.equal(result.deficit, result.maintenance - 550);
-});
-
-test("today snapshots do not freeze an older calorie allowance; captured history does", () => {
+test("current-day snapshots cannot freeze activity; actual captured historical targets survive", () => {
   const log = day({
     steps: 15000,
     planSnapshot: { eatTarget: 1900, effMaint: 2500, source: "captured" },
   });
   assert.equal(plan(log).eatTarget, 2200);
-  const historical = { ...log, date: shiftDay(date, -2) };
-  assert.equal(plan(historical).eatTarget, 1900);
-  assert.equal(plan(historical).deficit, 600);
+  const old = { ...log, date: shiftDay(date, -2) };
+  assert.equal(plan(old).eatTarget, 1900);
+  assert.equal(plan(old).deficit, 600);
   assert.equal(
     createPlanSnapshot({ date, log, setup, logs: [log] }).eatTarget,
     2200,
   );
 });
-
-test("reconstructed history can be corrected and future records never affect a past plan", () => {
-  const past = shiftDay(date, -7);
-  const old = day({
-    date: past,
-    planSnapshot: { eatTarget: 9000, source: "reconstructed" },
-  });
-  const s = { ...setup, startDate: past };
-  const a = plan(old, { setup: s });
-  const b = plan(old, {
-    setup: s,
-    logs: [old, day({ weight: 50, steps: 60000 })],
-  });
+test("historical zero allowances stay historical and never switch on a live fasting mode", () => {
+  const snapshot = { eatTarget: 0, effMaint: 2500, source: "captured" };
+  assert.equal(
+    plan(day({ date: shiftDay(date, -2), planSnapshot: snapshot })).eatTarget,
+    0,
+  );
+  assert.equal(
+    plan(day({ planSnapshot: snapshot, fasting: true })).eatTarget,
+    2000,
+  );
+});
+test("reconstructed targets can be corrected and future facts cannot alter a historical plan", () => {
+  const past = shiftDay(date, -7),
+    old = day({
+      date: past,
+      planSnapshot: { eatTarget: 9000, source: "reconstructed" },
+    }),
+    s = { ...setup, startDate: past };
+  const a = plan(old, { setup: s }),
+    b = plan(old, { setup: s, logs: [old, day({ weight: 50, steps: 60000 })] });
   assert.equal(a.eatTarget, 2000);
   assert.equal(b.eatTarget, a.eatTarget);
   assert.equal(b.maintenance, a.maintenance);
 });
-
-test("weekly reviews hold the baseline steady between reviews", () => {
+test("baseline food and expenditure hold steady between weekly reviews", () => {
   const s = { ...setup, startDate: shiftDay(date, -4), manualCalTarget: "" };
-  const a = getAdaptiveTDEE(s, [], {}, date);
-  const b = getAdaptiveTDEE(s, [day({ weight: 82 })], {}, date);
+  const a = getAdaptiveTDEE(s, [], date),
+    b = getAdaptiveTDEE(s, [day({ weight: 82 })], date);
   assert.equal(a.target, b.target);
   assert.equal(a.base, b.base);
 });
-
-test("deadline requests are limited rather than forcing an extreme deficit", () => {
-  const s = { ...setup, manualCalTarget: "", goalWeight: 60, cutLength: 3 };
-  const result = getAdaptiveTDEE(s, [], {}, date);
+test("an aggressive timeline is flagged and cannot force an extreme automatic deficit", () => {
+  const result = getAdaptiveTDEE(
+    { ...setup, manualCalTarget: "", goalWeight: 60, cutLength: 3 },
+    [],
+    date,
+  );
   assert.ok(result.goalTooAggressive);
   assert.ok(result.deficit <= result.base * 0.25 + 1);
   assert.ok(result.target >= result.floor);
 });
-
-test("deadline and confirmed goal transition directly to maintenance", () => {
-  const s = { ...setup, startDate: shiftDay(date, -20), cutLength: 20 };
-  const deadline = getAdaptiveTDEE(s, [], {}, date);
-  assert.equal(deadline.phase, "maintenance");
-  assert.equal(deadline.target, deadline.base);
-  const reached = getAdaptiveTDEE(
-    { ...s, cutLength: 77 },
-    [-2, -1, 0].map((i) => day({ date: shiftDay(date, i), weight: 78.8 })),
-    {},
-    date,
+test("missing a deadline continues a bounded cut instead of declaring maintenance", () => {
+  const s = {
+    ...setup,
+    startDate: shiftDay(date, -90),
+    cutLength: 60,
+    manualCalTarget: "",
+  };
+  const result = getAdaptiveTDEE(s, [], date);
+  assert.equal(result.phase, "cut");
+  assert.equal(result.deadlineMissed, true);
+  assert.ok(result.deficit > 0);
+  assert.ok(result.requestedDeficit < 600);
+  assert.ok(result.target >= result.floor);
+});
+test("a confirmed scale goal returns directly to maintenance and ordinary rebound does not restart the cut", () => {
+  const s = { ...setup, startDate: shiftDay(date, -20) };
+  const logs = [-2, -1, 0].map((i) =>
+    day({ date: shiftDay(date, i), weight: 78.8 }),
   );
+  const reached = getAdaptiveTDEE(s, logs, date);
   assert.equal(reached.phase, "maintenance");
+  assert.equal(reached.target, reached.base);
   const latched = getAdaptiveTDEE(
-    { ...s, cutLength: 77, maintenanceSince: shiftDay(date, -1) },
+    { ...s, maintenanceSince: shiftDay(date, -1) },
     [day({ weight: 80 })],
-    {},
     date,
   );
   assert.equal(latched.phase, "maintenance");
 });
-
-test("one low weigh-in cannot end the cut", () => {
-  const result = getAdaptiveTDEE(
-    { ...setup, startDate: shiftDay(date, -20) },
-    [day({ weight: 78 })],
-    {},
-    date,
-  );
-  assert.equal(result.phase, "cut");
+test("one abnormally low weight cannot confirm the scale goal among normal higher readings", () => {
+  const s = { ...setup, startDate: shiftDay(date, -20) };
+  assert.equal(getAdaptiveTDEE(s, [day({ weight: 78 })], date).phase, "cut");
+  const logs = [
+    day({ date: shiftDay(date, -2), weight: 85 }),
+    day({ date: shiftDay(date, -1), weight: 85 }),
+    day({ weight: 50 }),
+  ];
+  assert.equal(getAdaptiveTDEE(s, logs, date).phase, "cut");
 });
-
-const series = () =>
-  Array.from({ length: 36 }, (_, i) => ({
-    date: shiftDay("2026-01-01", i),
-    weight: 85 - (i * 600) / 7700,
-    steps: 15000,
-    meals: [{ cals: 2000 }],
-  }));
-const estimateOptions = {
-  fatFraction: (7700 - 1800) / (9400 - 1800),
-  activityForLog: () => 200,
-};
-test("learning uses actual intake, aligned morning-to-morning weights and normalized movement", () => {
+test("calibration uses actual complete intake, morning-to-morning alignment and normalized movement", () => {
   const result = estimateTDEE(series(), estimateOptions);
   assert.equal(result.tdee, 2400);
   assert.equal(result.avgIntake, 2000);
   assert.equal(result.normalizedIntake, 1800);
+  const logs = series();
+  logs.at(-1).meals = [{ cals: 99999 }];
+  logs.at(-1).foodComplete = false;
+  assert.equal(estimateTDEE(logs, estimateOptions).tdee, 2400);
 });
-
-test("missing food days, explicit incomplete food and implausibly low logs block calibration", () => {
+test("unknown food, missing dates and unfinished steps block calibration rather than inventing data", () => {
   for (const change of [
     (logs) => logs.splice(25, 1),
     (logs) => {
       logs[25].foodComplete = false;
     },
     (logs) => {
-      logs[25].meals = [];
+      delete logs[25].foodComplete;
     },
     (logs) => {
-      logs[25].meals = [{ cals: 200 }];
+      logs[25].activityComplete = false;
+    },
+    (logs) => {
+      logs[25].meals = [{ cals: -1 }];
     },
   ]) {
     const logs = series();
@@ -276,10 +284,26 @@ test("missing food days, explicit incomplete food and implausibly low logs block
     assert.equal(estimateTDEE(logs, estimateOptions), null);
   }
 });
-
-test("fasting estimates use actual meals rather than prescribed fast calories", () => {
+test("one bad scale reading is excluded from calibration without deleting the recorded fact", () => {
+  const logs = series(),
+    original = logs[25].weight;
+  logs[25].weight += 8;
+  const result = estimateTDEE(logs, estimateOptions);
+  assert.equal(result.tdee, 2400);
+  assert.equal(result.discardedWeights, 1);
+  assert.equal(logs[25].weight, original + 8);
+});
+test("a very noisy weight window does not produce a confident TDEE adjustment", () => {
+  const logs = series().map((l, i) => ({
+    ...l,
+    weight: l.weight + (i % 2 ? 1.5 : -1.5),
+  }));
+  assert.equal(estimateTDEE(logs, estimateOptions), null);
+});
+test("known zero intake is actual data and no saved fasting prescription substitutes calories", () => {
   const logs = series();
-  logs[25] = { ...logs[25], fasting: true, meals: [{ cals: 300 }] };
+  logs[25].meals = [];
+  logs[25].fasting = true;
   const a = estimateTDEE(logs, {
     ...estimateOptions,
     fastComp: true,
@@ -293,46 +317,95 @@ test("fasting estimates use actual meals rather than prescribed fast calories", 
   assert.deepEqual(a, b);
   assert.ok(a.avgIntake < 2000);
 });
-
-test("step compensation does not count a logged movement credit twice", () => {
-  const yesterday = shiftDay(date, -1);
-  const logs = [
-    day({ date: yesterday, steps: 15000, meals: [{ cals: 2400 }] }),
-    day(),
-  ];
+test("calibration begins after 28 days and each accepted weekly correction is bounded", () => {
+  const logs = series(43),
+    s = { ...setup, startDate: logs[0].date };
+  assert.equal(getAdaptiveTDEE(s, logs, logs[21].date).isDataDriven, false);
+  const first = getAdaptiveTDEE(s, logs, logs[28].date);
+  const formula = Math.round(Math.round(restingEnergy(s, first.curW)) * 1.45);
+  assert.equal(first.isDataDriven, true);
+  assert.ok(Math.abs(first.base - formula) <= 101);
+});
+test("incomplete later logs hold a learned estimate instead of reverting to the formula", () => {
+  const logs = series(43),
+    s = { ...setup, startDate: logs[0].date };
+  logs[30].foodComplete = false;
+  const result = getAdaptiveTDEE(s, logs, logs[35].date);
+  assert.equal(result.isDataDriven, true);
+  assert.equal(result.calibration.lastAcceptedReview, logs[28].date);
+  assert.equal(result.calibration.status, "needs_data");
+  assert.ok(
+    result.base < Math.round(restingEnergy(s, result.curW) * 1.45) - 80,
+  );
+});
+test("repeated reliable weeks can correct a large initial formula error gradually", () => {
+  const logs = Array.from({ length: 113 }, (_, i) =>
+    full({
+      date: shiftDay("2026-01-01", i),
+      weight: 85,
+      steps: 10000,
+      meals: [{ cals: 1900 }],
+    }),
+  );
+  const s = { ...setup, startDate: logs[0].date, cutLength: 60 };
+  const result = getAdaptiveTDEE(s, logs, logs.at(-1).date);
+  assert.ok(result.base >= 1850 && result.base < 1950);
+  assert.equal(result.isDataDriven, true);
+});
+test("a changed baseline restarts calibration instead of reusing the previous activity regime", () => {
+  const logs = series(43),
+    s = { ...setup, startDate: logs[0].date, calibrationSince: logs[35].date };
+  assert.equal(getAdaptiveTDEE(s, logs, logs.at(-1).date).isDataDriven, false);
+});
+test("a future maintenance latch cannot contaminate earlier learning", () => {
+  const logs = series(36),
+    s = {
+      ...setup,
+      startDate: logs[0].date,
+      maintenanceSince: shiftDay(logs.at(-1).date, 7),
+    };
+  const result = getAdaptiveTDEE(s, logs, logs[21].date);
+  assert.equal(result.phase, "cut");
+  assert.equal(result.estimate, null);
+});
+test("step compensation counts movement in the allowance once and respects the movement ceiling", () => {
+  const old = shiftDay(date, -1),
+    logs = [
+      full({
+        date: old,
+        steps: 15000,
+        meals: [{ cals: 2400 }],
+        planSnapshot: { source: "captured", eatTarget: 2200 },
+      }),
+      day(),
+    ];
   const result = getDynamicStepGoal(
-    { ...setup, startDate: yesterday },
+    { ...setup, startDate: old },
     logs,
-    null,
-    {},
-    {},
     null,
     logs[1],
   );
   assert.equal(result.outstandingKcal, 200);
   assert.equal(result.capped, true);
 });
-
-test("empty food days cannot clear previous compensation", () => {
-  const old = shiftDay(date, -2);
-  const logs = [
-    day({ date: old, meals: [{ cals: 2300 }] }),
-    day({ date: shiftDay(date, -1) }),
-    day(),
-  ];
-  const result = getDynamicStepGoal(
-    { ...setup, startDate: old },
-    logs,
-    null,
-    {},
-    {},
-    null,
-    logs[2],
+test("partial or missing food cannot clear compensation from earlier completed days", () => {
+  const old = shiftDay(date, -2),
+    logs = [
+      full({
+        date: old,
+        meals: [{ cals: 2300 }],
+        planSnapshot: { source: "captured", eatTarget: 2000 },
+      }),
+      day({ date: shiftDay(date, -1) }),
+      day({ meals: [{ cals: 500 }] }),
+    ];
+  assert.equal(
+    getDynamicStepGoal({ ...setup, startDate: old }, logs, null, logs[2])
+      .outstandingKcal,
+    300,
   );
-  assert.equal(result.outstandingKcal, 300);
 });
-
-test("strength risk requires consecutive distinct weeks and numeric week ordering", () => {
+test("consecutive strength weeks sort numerically and missing BF cannot invent composition", () => {
   assert.equal(
     evaluateMuscleRisk({
       strengthReports: [
@@ -352,18 +425,6 @@ test("strength risk requires consecutive distinct weeks and numeric week orderin
     true,
   );
   assert.equal(
-    evaluateMuscleRisk({
-      strengthReports: [
-        { weekKey: 1, signal: "down" },
-        { weekKey: 1, signal: "down" },
-      ],
-    }).confirmed,
-    false,
-  );
-});
-
-test("missing body-fat anchor cannot invent body composition", () => {
-  assert.equal(
     inferBodyComp({
       logs: series(),
       anchor: { weight: 85, bf: null, date: "2026-01-01" },
@@ -371,50 +432,42 @@ test("missing body-fat anchor cannot invent body composition", () => {
     null,
   );
 });
-
-test("a flat trend already at the scale goal is reached rather than stalled", () => {
+test("flat weight at the scale goal is reached rather than stalled", () => {
   const logs = series().map((l) => ({ ...l, weight: 79 }));
-  const result = projectGoal({
-    logs,
-    currentWeight: 79,
-    currentBF: 15,
-    goalBF: 12,
-    leanMass: 67,
-    targetWeight: 79,
-  });
-  assert.equal(result.reached, true);
+  assert.equal(
+    projectGoal({
+      logs,
+      currentWeight: 79,
+      currentBF: 15,
+      goalBF: 12,
+      leanMass: 67,
+      targetWeight: 79,
+    }).reached,
+    true,
+  );
 });
-
-test("restoration keeps original settings and newer factual edits without losing classic-only fields", () => {
+test("restoration preserves original-only fields, newer facts and past prescriptions", () => {
   const classic = { name: "Original", startBF: 20 };
   assert.equal(restoredSetup(classic, { profile: { name: "New" } }), classic);
   const rows = [
     {
-      key: "log:2026-01-01",
+      key: `log:${date}`,
       updated_at: "2026-01-01",
-      value: {
-        date: "2026-01-01",
-        sleep: 8,
-        steps: 8000,
-        planSnapshot: { eatTarget: 1900 },
-      },
+      value: day({ sleep: 8, steps: 8000, planSnapshot: { eatTarget: 1900 } }),
     },
   ];
   const newer = {
     updated_at: "2026-01-02",
-    value: {
-      logs: [{ date: "2026-01-01", steps: 15000, meals: [{ cals: 2200 }] }],
-    },
+    value: { logs: [day({ steps: 15000, meals: [{ cals: 2200 }] })] },
   };
   const [log] = restoredLogs(rows, newer);
   assert.equal(log.sleep, 8);
   assert.equal(log.steps, 15000);
   assert.equal(log.planSnapshot, null);
-  rows[0].updated_at = "2026-01-03";
+  rows[0].value.planSnapshot = { modelVersion: 4, eatTarget: 1900 };
   assert.equal(restoredLogs(rows, newer)[0].steps, 8000);
 });
-
-test("a v2-only account retains its scale goal and does not acquire a fabricated body-fat reading", () => {
+test("a v2-only account retains its scale goal without a fabricated BF reading", () => {
   const result = restoredSetup(null, {
     profile: {
       startDate: "2026-01-01",
@@ -427,75 +480,50 @@ test("a v2-only account retains its scale goal and does not acquire a fabricated
   assert.equal(result.startBF, null);
   assert.equal(result.cutLength, 77);
 });
-
-test("a future maintenance latch cannot make historical calibration start early", () => {
+test("an idealized closed-loop simulation corrects an overestimated TDEE and continues past a missed deadline", () => {
   const s = {
     ...setup,
-    startDate: shiftDay(date, -21),
-    maintenanceSince: shiftDay(date, 7),
+    startDate: "2026-01-01",
+    cutLength: 42,
+    manualCalTarget: "",
   };
-  const logs = Array.from({ length: 22 }, (_, i) =>
-    day({
-      date: shiftDay(s.startDate, i),
-      weight: 85 - i * 0.05,
-      meals: [{ cals: 2000 }],
-    }),
-  );
-  const result = getAdaptiveTDEE(s, logs, {}, date);
-  assert.equal(result.phase, "cut");
-  assert.equal(result.estimate, null);
-});
-
-test("missing movement blocks baseline calibration instead of inventing a step count", () => {
-  const logs = series();
-  logs[25].steps = null;
-  const asOf = logs.at(-1).date;
-  const result = getAdaptiveTDEE(
-    { ...setup, startDate: logs[0].date },
-    logs,
-    {},
-    asOf,
-  );
-  assert.equal(result.estimate, null);
-});
-
-test("partial food today does not erase compensation from a completed prior day", () => {
-  const old = shiftDay(date, -1);
-  const logs = [
-    day({ date: old, meals: [{ cals: 2300 }] }),
-    day({ meals: [{ cals: 500 }] }),
-  ];
-  const result = getDynamicStepGoal(
-    { ...setup, startDate: old },
-    logs,
-    null,
-    {},
-    {},
-    null,
-    logs[1],
-  );
-  assert.equal(result.outstandingKcal, 300);
-});
-
-test("new classic edits cannot be replaced by an older v2 client whole-document save", () => {
-  const classic = { ...setup, modelVersion: 3 };
+  const logs = [];
+  let weight = 85,
+    reached = false;
+  for (let i = 0; i < 180; i++) {
+    const d = shiftDay(s.startDate, i),
+      steps = 10000 + (i % 4) * 1000;
+    const log = day({
+      date: d,
+      weight: weight + Math.sin(i * 0.7) * 0.12,
+      steps,
+      foodComplete: false,
+      activityComplete: false,
+    });
+    const result = getPlanForDate({ date: d, log, setup: s, logs });
+    assert.ok(result.eatTarget >= 1500);
+    assert.equal(result.deficit, result.maintenance - result.eatTarget);
+    log.meals = [{ cals: result.eatTarget }];
+    log.foodComplete = true;
+    log.activityComplete = true;
+    logs.push(log);
+    const model = getAdaptiveTDEE(s, logs, d);
+    if (i === 43) {
+      assert.equal(model.phase, "cut");
+      assert.equal(model.deadlineMissed, true);
+    }
+    if (model.phase === "maintenance") {
+      reached = true;
+      assert.ok(i > 42);
+      assert.equal(model.target, model.base);
+      break;
+    }
+    const actualTDEE = 2200 - (85 - weight) * 20 + (steps - 10000) * 0.04;
+    weight += (result.eatTarget - actualTDEE) / 7700;
+  }
   assert.equal(
-    restoredSetup(classic, { profile: { goalWeight: 50 } }, true),
-    classic,
+    reached,
+    true,
+    "Under stated simulated assumptions, feedback must eventually reach the goal",
   );
-  const rows = [
-    {
-      key: `log:${date}`,
-      updated_at: "2026-01-01",
-      value: day({
-        steps: 16000,
-        planSnapshot: { modelVersion: 3, eatTarget: 2240 },
-      }),
-    },
-  ];
-  const newer = {
-    updated_at: "2026-01-03",
-    value: { logs: [day({ steps: 12000 })] },
-  };
-  assert.equal(restoredLogs(rows, newer)[0].steps, 16000);
 });

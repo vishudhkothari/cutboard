@@ -1,51 +1,53 @@
 # CUTIQ model and evidence
 
-Reviewed 12 November 2026. The original features remain active. This document describes the shared model behind them. Product heuristics are explicit; software consistency does not establish physiological certainty.
+Updated 12 November 2026. The active app uses a single steady daily calorie plan. Schedule, fasting modes, Active Cut, incline calorie credits and zigzag distribution are removed from the active calculation and interface. Historical records and old captured prescriptions remain intact.
 
-## Energy accounting
+## What is exact, and what is estimated
+
+Software accounting is exact apart from rounding:
 
 ```
-estimated expenditure = baseline maintenance + completed movement credit
-food allowance        = baseline cut allowance + completed movement credit
-planned net deficit   = estimated expenditure - final food allowance
+estimated expenditure = baseline maintenance + extra-step credit
+food allowance = baseline food target + the same extra-step credit
+planned deficit = estimated expenditure - final food allowance
 ```
 
-The chosen step coefficient is **40 kcal per 1,000 extra steps**, independent of body weight. Only the difference from the configured usual step count earns credit. Thus 10,000 baseline steps and a 2,000 kcal allowance become 2,200 kcal at 15,000 steps. With baseline expenditure of 2,600, that is 2,800 minus 2,200: the same 600 kcal planned deficit. It is a conservative product choice, not a measurement or universal physiological coefficient.
+The chosen coefficient is **40 kcal per 1,000 steps above the usual baseline**. A 2,000 kcal allowance becomes 2,200 after 5,000 extra steps. If baseline expenditure is 2,600, the plan is 2,800 minus 2,200: the same 600 kcal deficit. This coefficient is a product choice, not a measurement. The [2024 Compendium](https://pacompendium.com/walking/) and [walking-energy research](https://pubmed.ncbi.nlm.nih.gov/26679617/) describe variation with body mass, pace, grade and walking economy.
 
-A live partial step count below baseline does not immediately debit food. An explicitly finalized count, or a recorded historical day, can have a negative adjustment. Missing steps are unknown. The intake floor takes precedence; the displayed deficit uses the final allowance when a floor prevents full compensation. Captured past prescriptions remain a record of what was shown then.
+A partial low count does not debit food. Explicitly final lower counts do. An old historical count without completion metadata is treated as historical recorded activity for display, while calibration requires explicit final confirmation. Missing counts are unknown. The food floor takes precedence; the displayed deficit always uses the final allowance. Gym is already part of usual activity and does not receive another credit. Removed incline and diet settings cannot alter the current plan.
 
-Incline walking uses a net heuristic of `0.08 * weightKg * completedMinutes`. Configured minutes alone earn nothing. Up to 90 steps/minute of the completed walk are assumed to overlap steps above baseline; their step credit is deducted from the incline credit. Speed, gradient and whether a device counted the walk are unknown, so this is deliberately an estimate. Zone 2 sessions remain a training/adherence feature; they do not create a second unmeasured calorie credit.
+## Baseline and bounded targets
 
-Walking cost varies with mass, speed, gradient and economy. The [2024 Compendium](https://pacompendium.com/walking/) and [walking-energy model research](https://pubmed.ncbi.nlm.nih.gov/26679617/) describe that variability. [Careau et al.](https://pubmed.ncbi.nlm.nih.gov/34453886/) does not justify one universal compensation discount for every individual activity.
+Initial resting energy uses the original lean-mass equation with a valid body-fat value, otherwise [Mifflin-St Jeor](https://pubmed.ncbi.nlm.nih.gov/2305711/). The familiar activity multipliers represent the usual routine, including gym and baseline steps. These are starting estimates.
 
-## Baseline and pace
+At weekly reviews, remaining weight and remaining calendar time imply a requested deficit using 7,700 kcal/kg. A scale-weight goal takes precedence; the original body-fat goal remains an estimated fallback. This approximation is not the full dynamic NIH model. [NIDDK's planner](https://www.niddk.nih.gov/health-information/weight-management/body-weight-planner) provides the relevant dynamic context.
 
-The familiar activity levels remain: resting energy multiplied by 1.15/1.3/1.45/1.6/1.75. This baseline includes the usual routine, baseline steps and gym; logging a workout does not pay for it again. Resting energy uses the original lean-mass equation when a valid body-fat anchor exists, otherwise [Mifflin-St Jeor](https://pubmed.ncbi.nlm.nih.gov/2305711/). Neither equation directly measures expenditure.
+Automatic deficits are capped by 25% of estimated baseline expenditure, 0.75% body weight/week with the original leanness taper, and the 1,500 male / 1,200 female food floor. These are product limits, not universal clinical safety thresholds. An infeasible timeline is flagged. A manual food override remains fixed until cleared; Calorie Strategy makes this explicit and offers Use adaptive target.
 
-At weekly reviews, remaining scale-weight loss and calendar time imply a requested deficit using 7,700 kcal/kg. A scale goal takes precedence when configured; otherwise the original modeled body-fat goal derives an estimated goal weight. The 7,700 approximation is not a full dynamic body-weight model. See [NIDDK's planner](https://www.niddk.nih.gov/health-information/weight-management/body-weight-planner) for the dynamic context.
+Protein and macro allocation use the final food allowance. Protein retains the original dynamic default and bounds. [Garthe et al.](https://pubmed.ncbi.nlm.nih.gov/21558571/) supports the direction of avoiding unnecessarily fast losses in trained athletes; [Longland et al.](https://pubmed.ncbi.nlm.nih.gov/26817506/) supports higher protein with resistance exercise within its studied population. Neither establishes a guaranteed individual result.
 
-Automatic deficits are bounded by 25% of baseline expenditure, 0.75% body weight/week with the original leanness taper, and the food floor (1,500 male / 1,200 female). These are product limits, not universal clinical safety thresholds. An infeasible deadline is flagged. The original manual food target remains an explicit baseline override, subject to the food floor; completed extra movement still adjusts it.
+## Learning from results
 
-Protein retains the original dynamic default of 2 g/kg with 110-220 g bounds. Macros are allocated from the final allowance, so extra calories flow through the same macro helper. [Longland et al.](https://pubmed.ncbi.nlm.nih.gov/26817506/) supports higher protein with resistance exercise during restriction in its studied population; it does not establish a guaranteed individual outcome.
+Today always exposes whole-day food and final-step confirmations. Missing confirmations are unknown, including legacy logs. Calibration requires actual complete records rather than assuming a meal entry represents a full day.
 
-## Optional schedules and coaching
+Learning is reviewed weekly, beginning no earlier than day 28. The first seven cut days are excluded. A trailing window of up to 28 days needs at least eight valid weights spanning 14 days. Intake is aligned from the first morning's date up to, but excluding, the final morning's date. Each interval day must have complete food, final steps, valid calorie values and a recorded step count. No missing day is invented as zero intake. Known zero intake is usable only when explicitly confirmed; a very low average intake window does not calibrate the model.
 
-Steady and zigzag remain available. Zigzag redistributes the neutral weekly target with an exact integer weekly total, including floor clipping. Earned movement is added after that distribution. Optional full fasting or 25% compensation deliberately changes the allowance and deficit; it is an exception to an otherwise steady cutting plan. Logged meals survive all fasting toggles, and actual intake is never replaced by a fasting prescription.
+A robust initial weight slope and median residual check exclude isolated scale errors; at least 75% of weights and eight measurements must remain. A noisy window or implausible loss rate is rejected. These statistical thresholds are engineering assumptions, not clinical validation. Recorded weights are not deleted.
 
-Pace, strength, composition and refeed features remain advisory. Initial pace/projection judgments wait for about two calendar weeks of weights. Strength changes can indicate fatigue or recovery issues; they do not measure muscle loss. Composition fractions and projected dates are model assumptions. Movement advice explicitly states that eating the full movement credit preserves the same deficit, so a higher step goal cannot promise faster loss at that allowance. Refeeds may support adherence/training; they are not promised hormone resets or fat-loss accelerators.
+Baseline expenditure is inferred from actual intake minus step credit minus weight slope times 7,700. Signals outside 65-150% of the formula are withheld for review. Each accepted weekly correction moves halfway toward the observed estimate, with a maximum 100 kcal change relative to the previous learned baseline, plus the formula's weight-related drift. Repeated reliable weeks can correct an initial formula error beyond a fixed permanent 20% bound.
 
-## Calibration
+Reviews are replayed deterministically from records. Missing or noisy later data holds the learned correction instead of resetting to the formula. The same evidence window is not repeatedly applied during a maintenance water hold. Baseline profile changes restart learning. Systematic underlogging, changing activity and water shifts still limit what this estimator can infer; it cannot identify a personalized step coefficient independently.
 
-Calibration is reviewed weekly, no earlier than day 28. It excludes the first seven cut days and uses up to 28 days of records with at least eight weights spanning 14 days. Morning weights bound the interval: intake includes the first morning's date and excludes the last morning's date.
+## Timeline and maintenance
 
-Every intake day in that interval must be present. Explicitly incomplete food, missing meals, missing step counts and nonfast daily totals below 1,000 block calibration. Original logs do not contain whole-day confirmations; plausible meal totals are a compatibility assumption, not proof of completeness. Actual explicit fasting can be zero, and any meals on a fasting day are included. Missing days are never invented as zero intake.
+Passing the deadline does **not** declare the goal achieved. A bounded cut continues at a moderate requested rate and flags the timeline for review. The app does not escalate the deficit through a near-zero remaining-days calculation. If the intake floor prevents a planned deficit, this is shown rather than forcing further restriction.
 
-Baseline TDEE is inferred from actual average intake minus completed movement credit minus the weight-regression slope times 7,700. The observed estimate is blended conservatively with the formula, with measured weight at most 75% and total correction bounded to 20% of the prior. Changing baseline profile inputs restarts the learning window. This cannot distinguish underlogging from lower expenditure, or identify an individual's true step coefficient. Consistent weighing, food logging and activity remain necessary.
+Goal confirmation requires at least three weights within seven days after the first cut week, with the mean at/below goal and a majority of measurements at/below goal. One anomalous low weight cannot end the cut. Once confirmed, the planned deficit becomes zero immediately. A saved transition survives normal rebound; changing the goal/start settings can begin a subsequent cut.
 
-## Maintenance
+Calibration holds pre-maintenance evidence during the first four maintenance weeks; later windows exclude the first 14 transition days. There is no mandatory slow reverse-diet ramp. The preliminary [2025 randomized reverse-dieting study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12381988/) did not establish a significant regain advantage for a mandatory ramp.
 
-A seven-day window containing at least three weights averaging at/below the scale goal can confirm goal attainment after the first cut week. Maintenance also starts when the configured cut window ends, preserving that scheduling feature; the interface distinguishes window expiry from goal confirmation. An attained goal is retained through ordinary weight rebound. A later cut requires changing the goal/start settings.
+## Limits and verification
 
-Maintenance immediately removes the planned deficit. There is no mandatory slow calorie ramp. The preliminary [2025 randomized reverse-dieting study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12381988/) did not find a significant group difference in regain; its limited results do not establish equivalence or support requiring a slow ramp for everybody.
+Pace, composition, strength and refeed features remain advisory. A strength dip does not measure muscle loss. Optional refeed advice requires complete food and appropriate intake adherence, and is not a promise of faster loss. Calorie Strategy remains the operative target.
 
-Calibration holds the pre-maintenance learning window through the first four maintenance weeks. Later windows exclude the first 14 maintenance days to reduce water/glycogen contamination. Continue stable activity, protein, lifting and logging; assess several weeks of trend instead of one rebound weight. Optional fasting/zigzag remain user choices and their actual plan is displayed explicitly.
+Tests verify accounting, evidence gates, missing-data holds, outliers, gradual calibration, deadlines, snapshots and maintenance. An idealized energy-balance simulation checks recovery from a deliberately overestimated TDEE and progress beyond a missed deadline. It is a software regression test under specified assumptions, not a clinical trial or biological guarantee. Actual expenditure, logging accuracy, water weight, body composition and completion date cannot be guaranteed by this app.

@@ -1,5 +1,5 @@
-// One budget resolver behind the original interface. Activity settings describe
-// the baseline; only completed movement above it earns additional food.
+// One daily budget: usual activity, completed extra steps, a bounded deficit,
+// and weekly calibration from explicitly complete records.
 import {
   buildDayPlan,
   macrosFromCalories,
@@ -13,6 +13,7 @@ import {
 
 export const STEP_KCAL_PER_1000 = 40;
 export const ENERGY_DENSITY = 7700;
+export const MODEL_VERSION = 4;
 const finite = (x) =>
   (typeof x === "number" || (typeof x === "string" && x.trim() !== "")) &&
   Number.isFinite(+x);
@@ -40,29 +41,20 @@ export const hasSteps = (log) =>
   finite(log?.steps) && +log.steps >= 0 && +log.steps <= 100000;
 export const stepCalories = (count) =>
   Math.round(((finite(count) ? +count : 0) * STEP_KCAL_PER_1000) / 1000);
-export const inclineWalkBurn = (minutes, weightKg) =>
-  Math.round(Math.max(0, +minutes || 0) * Math.max(0, +weightKg || 0) * 0.08);
+export const completeFood = (log) =>
+  log?.foodComplete === true &&
+  Array.isArray(log.meals) &&
+  log.meals.every((m) => finite(m?.cals) && +m.cals >= 0);
 
-export function movementCredit(setup, log, weightKg, asOfDate = today()) {
-  const baselineSteps = Math.max(0, +setup.stepGoal || 0);
+export function movementCredit(setup, log, asOfDate = today()) {
   const final =
-    log?.activityComplete === true || (log?.date && log.date < asOfDate);
-  const delta = hasSteps(log) ? +log.steps - baselineSteps : 0;
+    log?.activityComplete === true ||
+    (log?.activityComplete !== false && log?.date < asOfDate);
+  const delta = hasSteps(log)
+    ? +log.steps - Math.max(0, +setup.stepGoal || 0)
+    : 0;
   const stepCredit = stepCalories(final ? delta : Math.max(0, delta));
-  const minutes = finite(log?.inclineMin) ? clamp(+log.inclineMin, 0, 600) : 0;
-  const cardioBurn = inclineWalkBurn(minutes, weightKg);
-  // Incline walking steps are normally inside the device's step total. Credit
-  // its extra intensity once, rather than paying for the same steps twice.
-  const overlapSteps = Math.min(Math.max(0, delta), minutes * 90);
-  const cardioCredit = Math.max(0, cardioBurn - stepCalories(overlapSteps));
-  return {
-    stepCredit,
-    cardioCredit,
-    cardioBurn,
-    overlapSteps,
-    total: stepCredit + cardioCredit,
-    final,
-  };
+  return { stepCredit, total: stepCredit, final };
 }
 
 export function restingEnergy(setup, weightKg) {
@@ -81,18 +73,20 @@ export function restingEnergy(setup, weightKg) {
         (setup.sex === "female" ? -161 : 5)
     : 370 + 21.6 * weight * (1 - bf / 100);
 }
-
+const trendAt = (setup, logs, date) =>
+  currentTrendWeight(logs.filter((l) => l.date <= date)) ??
+  (+setup.startWeight || 70);
 function goalFor(setup, logs, cutIntel, asOfDate) {
   if (finite(setup.goalWeight) && +setup.goalWeight > 0)
     return +setup.goalWeight;
   const candidate = cutIntel?.anchor;
   const anchor =
-    candidate && candidate.date <= asOfDate
+    candidate && candidate.date >= setup.startDate && candidate.date <= asOfDate
       ? candidate
       : {
           date: setup.startDate,
           weight: +setup.startWeight,
-          bf: +setup.startBF,
+          bf: setup.startBF,
         };
   if (
     !finite(anchor.bf) ||
@@ -108,10 +102,11 @@ function goalFor(setup, logs, cutIntel, asOfDate) {
     strengthSignal: null,
     startDate: setup.startDate,
   });
-  const lean = comp?.leanMass ?? anchor.weight * (1 - anchor.bf / 100);
-  return lean / (1 - setup.goalBF / 100);
+  return (
+    (comp?.leanMass ?? anchor.weight * (1 - anchor.bf / 100)) /
+    (1 - setup.goalBF / 100)
+  );
 }
-
 function goalReachedDate(logs, goalWeight, startDate) {
   if (!finite(goalWeight)) return null;
   const weighed = logs.filter(
@@ -124,6 +119,8 @@ function goalReachedDate(logs, goalWeight, startDate) {
     );
     if (
       values.length >= 3 &&
+      values.filter((w) => +w.weight <= goalWeight).length >
+        values.length / 2 &&
       values.reduce((s, w) => s + +w.weight, 0) / values.length <= goalWeight
     )
       return log.date;
@@ -131,10 +128,59 @@ function goalReachedDate(logs, goalWeight, startDate) {
   return null;
 }
 
+function calibrationInput(setup, logs, reviewDate, maintenanceSince) {
+  const start = setup.startDate || reviewDate;
+  maintenanceSince =
+    maintenanceSince && maintenanceSince <= reviewDate
+      ? maintenanceSince
+      : null;
+  const hold = maintenanceSince && reviewDate < shiftDay(maintenanceSince, 28);
+  const end = hold ? shiftDay(maintenanceSince, -1) : reviewDate;
+  const first = [
+    shiftDay(start, 7),
+    setup.calibrationSince || start,
+    ...(maintenanceSince && !hold ? [shiftDay(maintenanceSince, 14)] : []),
+  ]
+    .sort()
+    .at(-1);
+  const windowStart = [first, shiftDay(end, -27)].sort().at(-1);
+  const records = logs.filter((l) => l.date >= windowStart && l.date <= end);
+  const completeDays = records.filter(
+    (l) =>
+      l.date < end &&
+      completeFood(l) &&
+      hasSteps(l) &&
+      l.activityComplete === true,
+  ).length;
+  const weighed = records.filter(
+    (l) => finite(l.weight) && +l.weight >= 35 && +l.weight <= 350,
+  );
+  const span =
+    weighed.length > 1 ? daySpan(weighed[0].date, weighed.at(-1).date) : 0;
+  const ready = daySpan(setup.calibrationSince || start, end) >= 28;
+  const estimate = ready
+    ? estimateTDEE(records, {
+        windowDays: 28,
+        fatFraction: (ENERGY_DENSITY - 1800) / (9400 - 1800),
+        activityForLog: (l) =>
+          hasSteps(l) && l.activityComplete === true
+            ? movementCredit(setup, l, end).total
+            : NaN,
+      })
+    : null;
+  return {
+    estimate,
+    completeDays,
+    weighIns: weighed.length,
+    spanDays: span,
+    ready,
+    hold: !!hold,
+  };
+}
+
 export function getAdaptiveTDEE(
   setup,
   logs,
-  _planSettings = {},
   asOfDate = today(),
   cutIntel = null,
 ) {
@@ -142,110 +188,111 @@ export function getAdaptiveTDEE(
     return {
       target: 1800,
       base: 2400,
-      adj: 0,
-      curW: 70,
-      deficit: 600,
-      isDataDriven: false,
       bmr: 1600,
       floor: 1500,
-      phase: "cut",
-      activeCut: false,
-      cardioBurn: 0,
-      cardioMin: 0,
-      foodDeficit: 600,
+      curW: 70,
+      deficit: 600,
       effMaint: 2400,
       activityCredit: 0,
       stepCredit: 0,
-      cardioCredit: 0,
+      phase: "cut",
+      calibration: { status: "learning", completeDays: 0, weighIns: 0 },
+      isDataDriven: false,
     };
   const startDate = setup.startDate || asOfDate;
   const scoped = [
     ...new Map(
       logs
-        .filter((l) => l?.date && l.date <= asOfDate && l.date >= startDate)
+        .filter((l) => l?.date && l.date >= startDate && l.date <= asOfDate)
         .map((l) => [l.date, l]),
     ).values(),
   ].sort((a, b) => a.date.localeCompare(b.date));
   const elapsed = Math.max(0, daySpan(startDate, asOfDate));
   const reviewDate = shiftDay(startDate, Math.floor(elapsed / 7) * 7);
   const history = scoped.filter((l) => l.date <= reviewDate);
-  const curW =
-    currentTrendWeight(history) ??
-    (finite(setup.startWeight) && +setup.startWeight > 0
-      ? +setup.startWeight
-      : 70);
+  const curW = trendAt(setup, history, reviewDate);
   const bmr = Math.round(restingEnergy(setup, curW));
-  const formulaTDEE = Math.round(bmr * (multipliers[setup.activity] || 1.45));
+  const multiplier = multipliers[setup.activity] || 1.45;
+  const formulaTDEE = Math.round(bmr * multiplier);
   const goalWeight = goalFor(setup, history, cutIntel, reviewDate);
   const reachedDate = goalReachedDate(scoped, goalWeight, startDate);
-  const cutLength = Math.max(1, +setup.cutLength || 60);
-  const latchedMaintenance =
-    setup.maintenanceSince && setup.maintenanceSince <= asOfDate;
-  const phase =
-    reachedDate || latchedMaintenance || elapsed >= cutLength
-      ? "maintenance"
-      : "cut";
-  const maintenanceSince =
-    (latchedMaintenance ? setup.maintenanceSince : null) ||
-    reachedDate ||
-    (elapsed >= cutLength ? shiftDay(startDate, cutLength) : null);
-  const estimationEnd =
-    maintenanceSince && reviewDate < shiftDay(maintenanceSince, 28)
-      ? shiftDay(maintenanceSince, -1)
-      : reviewDate;
-  const learningStart = [
-    shiftDay(startDate, 7),
-    setup.calibrationSince || startDate,
-    ...(maintenanceSince && reviewDate >= shiftDay(maintenanceSince, 28)
-      ? [shiftDay(maintenanceSince, 14)]
-      : []),
-  ]
-    .sort()
-    .at(-1);
-  const learningLogs = history.filter(
-    (l) => l.date >= learningStart && l.date <= estimationEnd,
-  );
-  // Old meal logs do not prove perfect completeness. Require a continuous
-  // plausible intake window, delay calibration, and bound the update.
-  const estimate =
-    daySpan(setup.calibrationSince || startDate, estimationEnd) >= 28
-      ? estimateTDEE(learningLogs, {
-          windowDays: 28,
-          fatFraction: (ENERGY_DENSITY - 1800) / (9400 - 1800),
-          activityForLog: (l) =>
-            hasSteps(l) ? movementCredit(setup, l, curW, asOfDate).total : NaN,
-        })
+  const latched =
+    setup.maintenanceSince && setup.maintenanceSince <= asOfDate
+      ? setup.maintenanceSince
       : null;
-  const measuredWeight = estimate ? Math.min(0.75, estimate.spanDays / 42) : 0;
-  const correction = estimate
-    ? clamp(
-        (estimate.tdee - formulaTDEE) * measuredWeight,
-        -formulaTDEE * 0.2,
-        formulaTDEE * 0.2,
-      )
-    : 0;
-  const base = Math.round(formulaTDEE + correction);
+  const maintenanceSince = latched || reachedDate;
+  const phase = maintenanceSince ? "maintenance" : "cut";
+  const cutLength = Math.max(1, +setup.cutLength || 60);
+  const deadlineMissed = phase === "cut" && elapsed >= cutLength;
+
+  // Replay accepted weekly reviews. A missing recent log holds the learned
+  // baseline instead of suddenly reverting it to the original formula.
+  let learnedBase = null,
+    priorFormula = null,
+    estimate = null,
+    lastReview = null,
+    fingerprint = null;
+  for (let day = 28; day <= Math.floor(elapsed / 7) * 7; day += 7) {
+    const date = shiftDay(startDate, day);
+    if (daySpan(setup.calibrationSince || startDate, date) < 28) continue;
+    const weight = trendAt(setup, scoped, date);
+    const formula = Math.round(
+      Math.round(restingEnergy(setup, weight)) * multiplier,
+    );
+    if (learnedBase != null) learnedBase += formula - priorFormula;
+    priorFormula = formula;
+    const input = calibrationInput(setup, scoped, date, maintenanceSince);
+    const candidate = input.estimate;
+    if (
+      !candidate ||
+      candidate.tdee < formula * 0.65 ||
+      candidate.tdee > formula * 1.5
+    )
+      continue;
+    const nextFingerprint = `${candidate.firstDate}:${candidate.lastDate}:${candidate.tdee}:${candidate.avgIntake}`;
+    if (nextFingerprint === fingerprint) continue;
+    const current = learnedBase ?? formula;
+    learnedBase = current + clamp((candidate.tdee - current) * 0.5, -100, 100);
+    estimate = candidate;
+    lastReview = date;
+    fingerprint = nextFingerprint;
+  }
+  const base = Math.round(learnedBase ?? formulaTDEE);
+  const input = calibrationInput(setup, scoped, asOfDate, maintenanceSince);
+  const plausible =
+    input.estimate &&
+    input.estimate.tdee >= formulaTDEE * 0.65 &&
+    input.estimate.tdee <= formulaTDEE * 1.5;
+  const status = input.hold
+    ? "transition_hold"
+    : !input.ready
+      ? "learning"
+      : !plausible
+        ? "needs_data"
+        : lastReview !== reviewDate && asOfDate !== reviewDate
+          ? "waiting_review"
+          : "calibrated";
+  const calibration = {
+    status,
+    completeDays: input.completeDays,
+    weighIns: input.weighIns,
+    spanDays: input.spanDays,
+    lastAcceptedReview: lastReview,
+    nextReviewDate: shiftDay(reviewDate, 7),
+  };
   const floor = setup.sex === "female" ? 1200 : 1500;
-  const remainingDays = Math.max(
-    1,
-    cutLength - Math.max(0, daySpan(startDate, reviewDate)),
-  );
-  const requested =
-    goalWeight != null
-      ? (Math.max(0, curW - goalWeight) * ENERGY_DENSITY) / remainingDays
-      : 600;
   const compAnchor =
-    cutIntel?.anchor?.date <= reviewDate
+    cutIntel?.anchor?.date >= startDate && cutIntel.anchor.date <= reviewDate
       ? cutIntel.anchor
       : { date: startDate, weight: +setup.startWeight, bf: setup.startBF };
-  const composition = inferBodyComp({
+  const comp = inferBodyComp({
     logs: history,
     anchor: compAnchor,
     strengthSignal: null,
     startDate,
   });
   const rateMultiplier = leannessRateMultiplier(
-    composition?.bf ?? setup.startBF,
+    comp?.bf ?? setup.startBF,
     setup.goalBF,
   );
   const capacity = Math.max(
@@ -256,20 +303,23 @@ export function getAdaptiveTDEE(
       base - floor,
     ),
   );
+  const remainingDays = cutLength - Math.max(0, daySpan(startDate, reviewDate));
+  const requested =
+    remainingDays > 0 && goalWeight != null
+      ? (Math.max(0, curW - goalWeight) * ENERGY_DENSITY) / remainingDays
+      : (curW * ENGINE_CONST.IDEAL_RATE * rateMultiplier * ENERGY_DENSITY) / 7;
   const plannedDeficit =
     phase === "maintenance" ? 0 : Math.round(Math.min(requested, capacity));
   const isManual = finite(setup.manualCalTarget) && +setup.manualCalTarget > 0;
   const target =
-    isManual && phase !== "maintenance"
+    isManual && phase === "cut"
       ? Math.max(floor, Math.round(+setup.manualCalTarget))
       : Math.max(floor, base - plannedDeficit);
   const log = scoped.find((l) => l.date === asOfDate);
-  const movement = movementCredit(setup, log, curW, today());
-  const activeOverride = setup.activeCutDays?.[asOfDate];
-  const activeCut =
-    activeOverride == null ? !!setup.activeCut : !!activeOverride;
+  const movement = movementCredit(setup, log, today());
   const dailyTarget = Math.max(floor, target + movement.total);
   return {
+    modelVersion: MODEL_VERSION,
     target,
     base,
     bmr,
@@ -277,33 +327,23 @@ export function getAdaptiveTDEE(
     curW,
     adj: movement.total,
     deficit: base + movement.total - dailyTarget,
-    foodDeficit: base - dailyTarget,
     effMaint: base + movement.total,
     activityCredit: movement.total,
     stepCredit: movement.stepCredit,
-    cardioCredit: movement.cardioCredit,
-    cardioBurn: movement.cardioBurn,
-    cardioGoalBurn: inclineWalkBurn(+setup.cardioMin || 35, curW),
-    cardioMin: activeCut ? +setup.cardioMin || 35 : 0,
-    activeCut,
     isManual,
-    isDataDriven: !!estimate,
+    isDataDriven: learnedBase != null,
     estimate,
+    calibration,
     phase,
     reachedDate,
     maintenanceSince,
-    phaseReason: reachedDate
-      ? "goal"
-      : latchedMaintenance
-        ? "goal"
-        : phase === "maintenance"
-          ? "deadline"
-          : null,
-    weeksOver: Math.max(0, Math.ceil((elapsed - cutLength + 1) / 7)),
+    phaseReason: maintenanceSince ? "goal" : null,
     reviewDate,
     goalWeight,
     requestedDeficit: Math.round(requested),
-    goalTooAggressive: phase === "cut" && requested > capacity + 1,
+    goalTooAggressive:
+      phase === "cut" && (deadlineMissed || requested > capacity + 1),
+    deadlineMissed,
     stepKcalPer1000: STEP_KCAL_PER_1000,
   };
 }
@@ -313,8 +353,6 @@ export function getPlanForDate({
   log,
   setup,
   logs,
-  planSettings = {},
-  zigzagSettings = {},
   cutIntel = null,
   ignoreSnapshot = false,
 }) {
@@ -322,24 +360,14 @@ export function getPlanForDate({
     ...logs.filter((l) => l.date !== date),
     ...(log ? [{ ...log, date }] : []),
   ];
-  const tdee = getAdaptiveTDEE(setup, scoped, planSettings, date, cutIntel);
+  const tdee = getAdaptiveTDEE(setup, scoped, date, cutIntel);
   const plan = buildDayPlan({
     baseTarget: tdee.target,
     maintenance: tdee.effMaint,
     floor: tdee.floor,
     activityCredit: tdee.activityCredit,
-    regime: zigzagSettings.on ? "zigzag" : "steady",
-    zigzag: {
-      schedule: zigzagSettings.schedule || 1,
-      mode: zigzagSettings.mode || "weight",
-    },
-    fastingDays: planSettings.fastingDays || [],
-    fastComp: !!planSettings.fastCompensation,
-    manualFastToday: !!log?.fasting,
-    overriddenToday: !!log?.fastingOverridden,
     currentWeightKg: tdee.curW,
     proteinFactor: cutIntel?.proteinFactor,
-    dateObj: new Date(date + "T12:00:00"),
   });
   const snapshot = log?.planSnapshot;
   if (
@@ -362,29 +390,21 @@ export function getPlanForDate({
       activityNeutralTarget:
         snapshot.activityNeutralTarget ?? snapshot.eatTarget,
       activityCredit: snapshot.activityCredit ?? 0,
+      historical: true,
     };
   }
-  return { ...plan, modelVersion: 3 };
+  return { ...plan, modelVersion: MODEL_VERSION };
 }
-
 export function createPlanSnapshot(args) {
-  const {
-    date,
-    log,
-    setup,
-    logs,
-    planSettings = {},
-    cutIntel = null,
-    source = "captured",
-  } = args;
+  const { date, log, setup, logs, cutIntel = null, source = "captured" } = args;
   const scoped = [
     ...logs.filter((l) => l.date !== date),
     ...(log ? [{ ...log, date }] : []),
   ];
-  const tdee = getAdaptiveTDEE(setup, scoped, planSettings, date, cutIntel);
+  const tdee = getAdaptiveTDEE(setup, scoped, date, cutIntel);
   const plan = getPlanForDate({ ...args, ignoreSnapshot: true });
   return {
-    modelVersion: 3,
+    modelVersion: MODEL_VERSION,
     target: tdee.target,
     base: tdee.base,
     bmr: tdee.bmr,
@@ -393,10 +413,6 @@ export function createPlanSnapshot(args) {
     activityCredit: tdee.activityCredit,
     activityNeutralTarget: plan.activityNeutralTarget,
     stepCredit: tdee.stepCredit,
-    cardioCredit: tdee.cardioCredit,
-    activeCut: tdee.activeCut,
-    cardioBurn: tdee.cardioBurn,
-    cardioMin: tdee.cardioMin,
     phase: tdee.phase,
     eatTarget: plan.eatTarget,
     deficit: plan.deficit,
@@ -407,11 +423,9 @@ export function createPlanSnapshot(args) {
 export function getDynamicStepGoal(
   setup,
   logs,
-  tdeeData,
-  planSettings = {},
-  zigzagSettings = {},
   prescribedSteps = null,
   currentLog = null,
+  cutIntel = null,
 ) {
   const baseline = normalizeStepTarget(setup?.stepGoal, 10000);
   const normalGoal = normalizeStepTarget(prescribedSteps ?? baseline, baseline);
@@ -427,39 +441,35 @@ export function getDynamicStepGoal(
     Math.min(setup?.userMaxStepBudget || 14000, average + 4000),
   );
   const asOf = currentLog?.date || today();
-  let debt = 0;
   const entries = [
     ...logs.filter((l) => l.date < asOf && l.date >= (setup?.startDate || "")),
     ...(currentLog ? [currentLog] : []),
   ].sort((a, b) => a.date.localeCompare(b.date));
+  let debt = 0;
   for (const log of entries) {
-    if (log.foodComplete === false || (!log.meals?.length && !log.fasting))
-      continue;
-    const normalLog = {
-      ...log,
-      fasting: false,
-      fastingOverridden: true,
-      planSnapshot: null,
-    };
-    const plan = getPlanForDate({
-      date: log.date,
-      log: normalLog,
-      setup,
-      logs,
-      planSettings,
-      zigzagSettings,
-      ignoreSnapshot: true,
-    });
-    // Credit only the additional deficit versus the normal cut allowance.
-    // An empty, unlogged day never clears earlier compensation.
+    if (!log.meals?.length && !completeFood(log)) continue;
+    // Unknown historical prescriptions cannot establish a calorie debt. Use
+    // captured allowances; only today's live budget needs recalculation.
+    const snapshot = log.planSnapshot;
+    const allowance =
+      log.date === asOf
+        ? getPlanForDate({
+            date: log.date,
+            log,
+            setup,
+            logs,
+            cutIntel,
+            ignoreSnapshot: true,
+          }).eatTarget
+        : snapshot?.source !== "reconstructed" && finite(snapshot?.eatTarget)
+          ? +snapshot.eatTarget
+          : null;
+    if (allowance == null) continue;
     const calories = (log.meals || []).reduce((s, m) => s + (+m.cals || 0), 0);
-    const difference = calories - plan.eatTarget;
+    const difference = calories - allowance;
     debt = Math.max(
       0,
-      debt +
-        (log.date === asOf && log.foodComplete !== true && !log.fasting
-          ? Math.max(0, difference)
-          : difference),
+      debt + (completeFood(log) ? difference : Math.max(0, difference)),
     );
   }
   if (debt < 1)
@@ -472,12 +482,11 @@ export function getDynamicStepGoal(
     Math.min(ceiling, Math.max(normalGoal, required)),
     normalGoal,
   );
-  const capped = required > ceiling;
   return {
     goal,
     extra: Math.max(0, goal - baseline),
     outstandingKcal: Math.round(debt),
-    capped,
-    reason: `${Math.round(debt)} kcal above the allowance${capped ? "; movement limit reached — review intake rather than chasing more steps" : ` · ${STEP_KCAL_PER_1000} kcal per 1,000 extra steps`}`,
+    capped: required > ceiling,
+    reason: `${Math.round(debt)} kcal above logged allowances. Optional movement stays within your limit; eating its full credit keeps the same planned deficit.`,
   };
 }

@@ -141,52 +141,45 @@ export function currentTrendWeight(logs) {
   return t.length ? t[t.length - 1].trend : null
 }
 
-/* ───────────────────────────────────────────────────────────────
-   2. ROLLING TDEE ESTIMATE
-   Energy balance: ΔW = (intake − TDEE) / compositeDensity
-   ⇒ TDEE ≈ avgIntake − (trendWeightChangePerDay × compositeDensity)
-   (losing ⇒ ΔW negative ⇒ TDEE sits ABOVE intake)
-   Uses a trailing window of CALENDAR days that have intake data.
-
-   Fasting days are REAL low/zero-intake days and must feed the regression.
-   A scheduled fasting weekday is only a plan. A day counts as fasting only
-   when the user explicitly records l.fasting=true, so an unlogged plan never
-   fabricates a zero-intake day or distorts the TDEE estimate.
-
-   opts: { windowDays, fatFraction, activityForLog }
-─────────────────────────────────────────────────────────────── */
-export function estimateTDEE(logs, { windowDays = 28, fatFraction = ENERGY_DENSITY_CONFIG.defaultFatFraction, activityForLog = () => 0 } = {}) {
-  const sorted = [...new Map(logs.filter(l => l?.date).map(l => [l.date,l])).values()].sort((a,b)=>a.date.localeCompare(b.date))
-  if (!sorted.length) return null
-  const cutoff=_shiftDate(sorted.at(-1).date,-(windowDays-1))
-  const window=sorted.filter(l=>l.date>=cutoff)
-  const weighed=window.filter(l=>l.weight!=null && l.weight!=='' && Number.isFinite(+l.weight) && +l.weight>=35 && +l.weight<=350)
-  if(weighed.length<8) return null
-  const first=weighed[0].date,last=weighed.at(-1).date,spanDays=_daySpan(first,last)
-  if(spanDays<14) return null
-  const byDate=new Map(window.map(l=>[l.date,l]))
-  const interval=Array.from({length:spanDays},(_,i)=>byDate.get(_shiftDate(first,i)))
-  const intake=l=>(l?.meals||[]).reduce((sum,m)=>sum+(Number.isFinite(+m.cals)&&+m.cals>=0?+m.cals:0),0)
-  // Missing or obviously partial food days are unknown, never invented zeroes.
-  // The explicit fasting flag records an actual fast; the planned 25% allowance
-  // is not substituted for food that was never logged.
-  if(interval.some(l=>!l || l.foodComplete===false || (!(l.meals?.length) && l.fasting!==true) || (l.fasting!==true && intake(l)<1000) || !Number.isFinite(activityForLog(l)) || (l.meals||[]).some(m=>m.cals==null || !Number.isFinite(+m.cals) || +m.cals<0))) return null
-  const xs=weighed.map(l=>_daySpan(first,l.date)),ys=weighed.map(l=>+l.weight)
-  const mx=xs.reduce((s,x)=>s+x,0)/xs.length,my=ys.reduce((s,y)=>s+y,0)/ys.length
-  const slope=xs.reduce((s,x,i)=>s+(x-mx)*(ys[i]-my),0)/xs.reduce((s,x)=>s+(x-mx)**2,0)
-  const avgIntake=interval.reduce((s,l)=>s+intake(l),0)/spanDays
-  const normalizedIntake=interval.reduce((s,l)=>s+intake(l)-activityForLog(l),0)/spanDays
-  const density=compositeEnergyDensity(fatFraction)
-  const tdee=Math.round(normalizedIntake-slope*density)
-  return { tdee,avgIntake:Math.round(avgIntake),normalizedIntake:Math.round(normalizedIntake),weeklyRateKg:Math.round(slope*700)/100,spanDays,dataPoints:interval.length,coverage:1,density:Math.round(density) }
+// Complete, aligned intake/activity and robust weigh-ins are required for calibration.
+export function estimateTDEE(logs, {windowDays=28,fatFraction=ENERGY_DENSITY_CONFIG.defaultFatFraction,activityForLog=()=>0}={}) {
+  const sorted=[...new Map(logs.filter(l=>l?.date).map(l=>[l.date,l])).values()].sort((a,b)=>a.date.localeCompare(b.date));
+  if(!sorted.length)return null;
+  const window=sorted.filter(l=>l.date>=_shiftDate(sorted.at(-1).date,-(windowDays-1)));
+  let weighed=window.filter(l=>l.weight!=null&&l.weight!==''&&Number.isFinite(+l.weight)&&+l.weight>=35&&+l.weight<=350);
+  if(weighed.length<8)return null;
+  const median=values=>{const a=[...values].sort((a,b)=>a-b);return a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2};
+  const origin=weighed[0].date;
+  const points=weighed.map(l=>({x:_daySpan(origin,l.date),y:+l.weight,log:l}));
+  const slopes=[];
+  for(let i=0;i<points.length;i++)for(let j=i+1;j<points.length;j++)if(points[j].x-points[i].x>=7)slopes.push((points[j].y-points[i].y)/(points[j].x-points[i].x));
+  if(!slopes.length)return null;
+  const robustSlope=median(slopes);
+  const intercept=median(points.map(p=>p.y-robustSlope*p.x));
+  const residuals=points.map(p=>p.y-(intercept+robustSlope*p.x));
+  const residualCenter=median(residuals);
+  const mad=median(residuals.map(r=>Math.abs(r-residualCenter)));
+  const filtered=points.filter((p,i)=>Math.abs(residuals[i]-residualCenter)<=Math.max(.75,3*1.4826*mad));
+  if(filtered.length<8||filtered.length<points.length*.75)return null;
+  weighed=filtered.map(p=>p.log);
+  const first=weighed[0].date,last=weighed.at(-1).date,spanDays=_daySpan(first,last);
+  if(spanDays<14||_daySpan(last,window.at(-1).date)>3)return null;
+  const mx=filtered.reduce((s,p)=>s+p.x,0)/filtered.length,my=filtered.reduce((s,p)=>s+p.y,0)/filtered.length;
+  const slope=filtered.reduce((s,p)=>s+(p.x-mx)*(p.y-my),0)/filtered.reduce((s,p)=>s+(p.x-mx)**2,0);
+  const error=Math.sqrt(filtered.reduce((s,p)=>s+(p.y-(my+slope*(p.x-mx)))**2,0)/filtered.length);
+  if(error>Math.max(.35,my*.008)||Math.abs(slope*7)>my*.015)return null;
+  const byDate=new Map(window.map(l=>[l.date,l]));
+  const interval=Array.from({length:spanDays},(_,i)=>byDate.get(_shiftDate(first,i)));
+  if(interval.some(l=>!l||l.foodComplete!==true||l.activityComplete!==true||!Array.isArray(l.meals)||!Number.isFinite(activityForLog(l))||l.meals.some(m=>m.cals==null||m.cals===''||!Number.isFinite(+m.cals)||+m.cals<0)))return null;
+  const intake=l=>l.meals.reduce((s,m)=>s + +m.cals,0);
+  const avgIntake=interval.reduce((s,l)=>s+intake(l),0)/spanDays;
+  if(avgIntake<1000)return null;
+  const normalizedIntake=interval.reduce((s,l)=>s+intake(l)-activityForLog(l),0)/spanDays;
+  const density=compositeEnergyDensity(fatFraction);
+  return {tdee:Math.round(normalizedIntake-slope*density),avgIntake:Math.round(avgIntake),normalizedIntake:Math.round(normalizedIntake),weeklyRateKg:Math.round(slope*700)/100,spanDays,dataPoints:interval.length,coverage:1,density:Math.round(density),firstDate:first,lastDate:last,discardedWeights:points.length-filtered.length};
 }
 
-/* ───────────────────────────────────────────────────────────────
-   3. FAT-LOSS MODEL  (strength-modulated mass partitioning)
-   Past week 2, lost mass is mostly fat IF strength is retained.
-   strengthSignal: 'up' | 'same' | 'slight_down' | 'down' | null
-   Returns the fraction of lost mass attributable to fat.
-─────────────────────────────────────────────────────────────── */
+/* Composition remains a rough advisory estimate, separate from energy learning. */
 export function fatFraction(strengthSignal, weekIntoCut) {
   // Week 1-2: heavy water/glycogen flux — composition meaningless
   if (weekIntoCut < 2) return null
@@ -513,7 +506,7 @@ export function paceController({
       headline: 'Strength is dropping - ease the deficit',
       actions: [
         'Falling lifts can reflect fatigue or under-recovery; they are a risk signal, not proof of muscle loss.',
-        'Add 100-150 kcal back (carbs around training) and hold for a week.',
+        'Review your food allowance and recovery before reducing intake further.',
         'Keep protein dynamic, prioritise sleep 7.5h+.',
       ],
       cardioRx: null,
@@ -575,11 +568,11 @@ export function paceController({
     }
   } else if (tooFast) {
     status = 'too_fast'
-    headline = `Losing ${actualRate.toFixed(2)} kg/wk — faster than safe`
+    headline = `Losing ${actualRate.toFixed(2)} kg/wk — above the planning ceiling`
     actions = [
       `You're above the muscle-sparing ceiling (~${safeRateKg.toFixed(2)} kg/wk).`,
-      'Add ~150 kcal back to protect lean mass and adherence.',
-      'Fast loss now = rebound risk later. Slow is durable.',
+      'Review the allowance and recovery in Calorie Strategy before another change.',
+      'Review several weeks of trend; early water changes can exaggerate the apparent rate.',
     ]
   } else if (onTrack) {
     status = 'on_track'
@@ -648,6 +641,10 @@ export function paceController({
     cardioRx = null
   }
 
+  if (status === 'lever_calories') {
+    headline='Review calorie calibration'
+    actions=['Confirm food and final step counts are complete.', 'Use the target in Calorie Strategy; its weekly review adjusts the estimate from actual results.', 'If the allowance reaches its floor, review the timeline instead of stacking further calorie cuts.']
+  }
   if (status === 'lever_steps') {
     headline = `${gaining ? 'Rising trend' : 'Slower trend'} — review logs and movement`
     actions = [
@@ -694,14 +691,20 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
   // above plan, and sparse food logs cannot establish adherence. Refeed only
   // when at least 10 of the trailing 15 calendar days have intake data and
   // the logged average is reasonably close to the plan.
-  const adherenceWindow = logs.filter(l => l.date >= cutoffDate && l.date <= last.date && l.meals?.length)
+  const adherenceWindow = logs.filter(l => l.date >= cutoffDate && l.date <= last.date && l.foodComplete===true && l.meals?.length)
   const calendarDays = Math.max(1, _daySpan(cutoffDate, last.date) + 1)
   const mealCoverage = adherenceWindow.length / calendarDays
+  if (!adherenceWindow.length) return null
+  const fallbackTarget = Math.max(MIN_CALS, maintenance - 600)
+  const avgTarget = adherenceWindow.reduce((sum, l) => sum + (l.planSnapshot?.eatTarget ?? targetCalories ?? fallbackTarget), 0) / adherenceWindow.length
+  const avgIntake = adherenceWindow.reduce((sum, l) => sum + l.meals.reduce((day, meal) => day + (+meal.cals || 0), 0), 0) / adherenceWindow.length
+  if (!Number.isFinite(avgIntake) || Math.abs(avgIntake-avgTarget) > 150) return null
+
   if (weeksIntoCut * 7 >= 14 && mealCoverage >= 0.95 && movementAdherence === 1 && rate >= -0.05 && rate <= 0.05) {
     const protein = proteinTargetForWeight(currentWeight, { factor: proteinFactor })
     return {
       kind: 'mini_refeed', durationDays: 2,
-      headline: 'High-confidence plateau — take a 2-day mini-refeed',
+      headline: 'Flat trend — optional 2-day maintenance break',
       reason: `Your trend is flat (~${Math.abs(rate).toFixed(2)} kg/wk) across a fully logged, fully adherent 14-day window.`,
       protocol: [
         `Eat at estimated maintenance (~${Math.round(maintenance)} kcal) for two days.`,
@@ -714,11 +717,6 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
   const span = _daySpan(trend[0].date, trend[trend.length - 1].date) + 1
   if (weeksIntoCut < 4 || span < 28) return null                       // need a month of context
   if (mealCoverage < 10 / 15) return null
-  const fallbackTarget = Math.max(MIN_CALS, maintenance - 600)
-  const avgTarget = adherenceWindow.reduce((sum, l) => sum + (l.planSnapshot?.eatTarget ?? targetCalories ?? fallbackTarget), 0) / adherenceWindow.length
-  const avgIntake = adherenceWindow.reduce((sum, l) => sum + l.meals.reduce((day, meal) => day + (+meal.cals || 0), 0), 0) / adherenceWindow.length
-  if (avgIntake > avgTarget + 150) return null
-
   // only a TRUE plateau qualifies: not losing, but not gaining either —
   // gaining means intake, not adaptation, and the pace coach handles that
   if (rate <= -REFEED_FLAT_RATE_KG || rate >= REFEED_FLAT_RATE_KG) return null
@@ -731,7 +729,7 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
       protocol: [
         `Eat at maintenance (~${Math.round(maintenance)} kcal) for ONE FULL WEEK. This is a reset, not a cheat.`,
         `Keep protein at ${proteinTargetForWeight(currentWeight, { factor: proteinFactor })}g and keep training — most of the scale jump will be water/glycogen.`,
-        'After the week, resume the deficit. Loss typically restarts faster than before.',
+        'After the week, review the trend and resume the calculated deficit if appropriate; a break does not guarantee faster loss.',
       ],
     }
   }
@@ -742,76 +740,16 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
     protocol: [
       `Pick ONE day (ideally a hard training day): eat at maintenance (~${Math.round(maintenance)} kcal).`,
       `Put the extra calories almost entirely into CARBS — keep protein at ${proteinTargetForWeight(currentWeight, { factor: proteinFactor })}g, fat stays low.`,
-      'Expect +0.5–1 kg of water next morning; it clears in 2–3 days. Back to the normal target the next day.',
+      'Scale weight can rise temporarily with extra carbohydrate intake. Review the trend rather than treating one weigh-in as fat gain.',
     ],
   }
-}
-
-/* ───────────────────────────────────────────────────────────────
-   6. UNIFIED TARGET RESOLVER  ★ SINGLE SOURCE OF TRUTH ★
-   Every tab calls this. Given the user's regime + live model state,
-   returns the canonical daily calorie target and macro split.
-
-   Priority chain:
-   1. Fasting day  → 0 or 25% compensation
-   2. Cut IQ live target (model-driven base, auto-applied)
-   3. Regime distribution: 'steady' = flat, 'zigzag' = weekly wave
-   Protein is dynamically calculated from current body mass; remaining kcal
-   split 50/50 carb/fat.
-
-   params:
-     baseTarget   — Cut IQ recommended daily target (or adaptiveTDEE.target fallback)
-     tdeeBase     — maintenance TDEE (for zigzag wave math)
-     regime       — 'steady' | 'zigzag'
-     zigzag       — { schedule, mode }
-     fasting      — { isFasting, compensation }  (compensation = 25% if true)
-     dateObj      — Date to resolve for (defaults today)
-─────────────────────────────────────────────────────────────── */
-const _DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-
-/* Zigzag as a bounded % swing AROUND the daily cut target.
-   High days +15%, low days −12% — the pattern's mean is ~0 so the
-   weekly average stays at target. Sustainable, never floors out.
-   schedule 1: high on weekends (Sat/Sun)
-   schedule 2: wave — high mid-week (Wed), low at week edges        */
-// pattern multipliers per weekday (Sun..Sat), chosen so the 7-day mean ≈ 0
-const _ZZ_PATTERN = {
-  1: [ 0.15, -0.12, -0.12, -0.06, -0.12, -0.12, 0.15 ],  // weekends high
-  2: [ -0.12, -0.06, 0.06, 0.15, 0.06, -0.06, -0.12 ],   // wave, peaks Wed
-}
-
-/* weekly zigzag distribution (Sun–Sat) as eat-targets around `target`.
-   The pattern is auto-centered so the 7-day mean equals `target` exactly,
-   keeping the weekly deficit identical to steady mode. */
-export function zigzagWeek(target, schedule = 1, intensity = 'weight', floor = MIN_CALS, dateObj = new Date()) {
-  const ampScale = intensity === 'mild' ? 0.6 : intensity === 'extreme' ? 1.5 : 1
-  const pattern = _ZZ_PATTERN[schedule] || _ZZ_PATTERN[1]
-  const patMean = pattern.reduce((s, x) => s + x, 0) / 7   // center the pattern
-  const todayDow = dateObj.getDay()
-  const meanTarget = Math.max(Math.ceil(floor),Math.round(target))
-  const budget = meanTarget * 7
-  let values = pattern.map(value => meanTarget * (1 + (value-patMean)*ampScale))
-  for (let pass=0; pass<8; pass++) {
-    values=values.map(value=>Math.max(Math.ceil(floor),value))
-    const excess=values.reduce((s,value)=>s+value,0)-budget
-    const free=values.filter(value=>value>Math.ceil(floor)+1e-7).length
-    if (excess<1e-7 || !free) break
-    values=values.map(value=>value>Math.ceil(floor)+1e-7?value-excess/free:value)
-  }
-  const rounded=values.map(value=>Math.max(Math.ceil(floor),Math.floor(value)))
-  const order=values.map((value,index)=>({index,fraction:value-Math.floor(value)})).sort((a,b)=>b.fraction-a.fraction)
-  for(let i=0,remaining=budget-rounded.reduce((s,value)=>s+value,0);i<remaining;i++)rounded[order[i%7].index]++
-  return _DAYS.map((name, dow) => {
-    const cals = rounded[dow]
-    return { name, cals, isToday: todayDow === dow }
-  })
 }
 
 export function macrosFromCalories(calTarget, proteinG = PROTEIN_CONFIG.min, currentWeightKg = null, proteinOptions = {}) {
   const targetProteinG = currentWeightKg != null
     ? proteinTargetForWeight(currentWeightKg, proteinOptions)
     : (Number.isFinite(+proteinG) && +proteinG > 0 ? +proteinG : PROTEIN_CONFIG.min)
-  // on tiny targets (25% fast compensation) cap protein at 60% of the day
+  // Cap protein at 60% of a small calorie allowance
   // so the macro grams can never sum past the calorie target
   const p = Math.min(targetProteinG, Math.floor(calTarget * 0.6 / 4))
   const remaining = Math.max(calTarget - p * 4, 0)
@@ -826,101 +764,12 @@ export function macrosFromCalories(calTarget, proteinG = PROTEIN_CONFIG.min, cur
   }
 }
 
-/* ───────────────────────────────────────────────────────────────
-   ★★★ buildDayPlan — THE SINGLE SOURCE OF TRUTH ★★★
-   Called ONCE at App root. Every tab reads this object, none recompute.
-
-   Returns a complete, self-consistent plan:
-   {
-     eatTarget      — the ONE number: kcal to eat today
-     proteinG/carbG/fatG — macros for eatTarget
-     maintenance    — maintenance TDEE (for deficit display)
-     deficit        — maintenance - eatTarget (today's actual deficit)
-     baseTarget     — the steady daily target (Cut IQ / formula driven)
-     regime         — 'steady' | 'zigzag'
-     fasting        — { isFasting, compensation, kind }
-     week           — [{name, dow, eat, isToday, isFast}] the FULL shifted week
-                      (zigzag varies but week mean === baseTarget)
-   }
-
-   params:
-     baseTarget   — Cut IQ recommended daily target (or formula fallback)
-     maintenance  — maintenance TDEE
-     regime       — 'steady' | 'zigzag'
-     zigzag       — { schedule, mode }
-     fastingDays  — array of weekday indexes (0=Sun) that are fasting days
-     fastComp     — bool: 25% compensation on fast days vs full fast
-     manualFastToday / overriddenToday — manual fast toggles for today only
-     dateObj      — defaults today
-─────────────────────────────────────────────────────────────── */
-export function buildDayPlan({
-  baseTarget, maintenance, floor = MIN_CALS, regime = 'steady',
-  zigzag = { schedule: 1, mode: 'weight' },
-  fastingDays = [], fastComp = false,
-  manualFastToday = false, overriddenToday = false,
-  currentWeightKg = null, proteinFactor = PROTEIN_CONFIG.factor,
-  dateObj = new Date(), activityCredit = 0,
-}) {
-  const todayDow = dateObj.getDay()
-  const floorCals = Math.max(MIN_CALS, Math.round(floor))
-
-  // --- compute the weekly eat-targets (zigzag) or flat (steady) ---
-  // This is the ONLY place zigzag math happens. zigzagWeek swings around
-  // the cut TARGET (mean === target), and never drops below the floor.
-  let weekEat            // array[7] of kcal to eat each weekday (pre-fasting)
-  if (regime === 'zigzag') {
-    const raw = zigzagWeek(baseTarget, zigzag.schedule, zigzag.mode, floorCals, dateObj)
-    weekEat = raw.map(d => d.cals)
-  } else {
-    const flat = Math.max(floorCals, Math.round(baseTarget))
-    weekEat = Array(7).fill(flat)
-  }
-
-  // --- apply fasting per day to build the displayed week ---
-  const isFastDow = dow => fastingDays.includes(dow)
-  const week = weekEat.map((eat, dow) => {
-    const fast = isFastDow(dow)
-    const dayEat = fast ? (fastComp ? Math.round(eat * 0.25) : 0) : eat
-    return {
-      name: _DAYS[dow], dow,
-      eat: dayEat,
-      baseEat: eat,            // what they'd eat if not fasting
-      isToday: dow === todayDow,
-      isFast: fast,
-    }
-  })
-
-  // --- resolve TODAY (manual fast toggle can override the schedule) ---
-  const plannedFastToday = isFastDow(todayDow) && !overriddenToday
-  const isFasting = manualFastToday || plannedFastToday
-  const neutralBaseToday = weekEat[todayDow]
-  const baseEatToday = Math.max(floorCals,neutralBaseToday + (Number.isFinite(+activityCredit)?Math.round(+activityCredit):0))
-  let eatTarget, fastKind = null
-  if (isFasting) {
-    if (fastComp) { eatTarget = Math.round(baseEatToday * 0.25); fastKind = 'comp25' }
-    else          { eatTarget = 0; fastKind = 'full' }
-  } else {
-    eatTarget = baseEatToday
-  }
-  const activityNeutralTarget = isFasting ? (fastComp ? Math.round(neutralBaseToday*.25) : 0) : neutralBaseToday
-  week[todayDow] = { ...week[todayDow], eat:eatTarget, isFast:isFasting }
-
-  const macros  = eatTarget > 0 ? macrosFromCalories(eatTarget, null, currentWeightKg, { factor: proteinFactor }) : { calTarget: 0, proteinG: 0, proteinTargetG: 0, carbG: 0, fatG: 0, fiberG: 0 }
-  const deficit = Math.round(maintenance - eatTarget)
-
-  return {
-    eatTarget,
-    ...macros,
-    maintenance: Math.round(maintenance),
-    deficit,
-    baseTarget: Math.round(baseTarget),
-    baseEatToday,
-    activityNeutralTarget,
-    activityCredit: eatTarget-activityNeutralTarget,
-    regime,
-    fasting: { isFasting, compensation: fastComp, kind: fastKind, planned: plannedFastToday },
-    week,
-  }
+// The final allowance is resolved once; removed schedule settings have no input.
+export function buildDayPlan({baseTarget,maintenance,floor=MIN_CALS,activityCredit=0,currentWeightKg=null,proteinFactor=PROTEIN_CONFIG.factor}) {
+  const minimum=Math.max(MIN_CALS,Math.round(floor));
+  const neutral=Math.max(minimum,Math.round(baseTarget));
+  const eatTarget=Math.max(minimum,neutral+(Number.isFinite(+activityCredit)?Math.round(+activityCredit):0));
+  return {eatTarget,...macrosFromCalories(eatTarget,null,currentWeightKg,{factor:proteinFactor}),maintenance:Math.round(maintenance),deficit:Math.round(maintenance-eatTarget),baseTarget:neutral,activityNeutralTarget:neutral,activityCredit:eatTarget-neutral};
 }
 
 export const ENGINE_CONST = {

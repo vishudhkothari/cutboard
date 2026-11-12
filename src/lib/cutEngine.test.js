@@ -131,9 +131,19 @@ test('two-day mini-refeed requires complete logging and movement adherence', () 
     const d = new Date('2026-01-01T12:00:00')
     d.setDate(d.getDate() + i)
     const date = d.toISOString().slice(0, 10)
-    return { date, weight: 80, meals: [{ cals: 1800 }] }
+    return { date, weight: 80, meals: [{ cals: 1800 }], foodComplete:true }
   })
   const result = suggestRefeed({ logs, weeksIntoCut: 3, maintenance: 2400, currentWeight: 80, movementAdherence: 1 })
   assert.equal(result.kind, 'mini_refeed')
   assert.equal(result.durationDays, 2)
+})
+
+test('a flat scale with incomplete food cannot establish a refeed-worthy plateau', () => {
+  const logs=Array.from({length:36},(_,i)=>({date:new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10),weight:80,meals:[{cals:1800}],foodComplete:false}));
+  assert.equal(suggestRefeed({logs,weeksIntoCut:6,maintenance:2400,targetCalories:1800,currentWeight:80,movementAdherence:1}),null)
+})
+
+test('complete food above the plan cannot trigger an adherence-based mini-refeed', () => {
+  const logs=Array.from({length:36},(_,i)=>({date:new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10),weight:80,meals:[{cals:3500}],foodComplete:true}));
+  assert.equal(suggestRefeed({logs,weeksIntoCut:6,maintenance:2400,targetCalories:1800,currentWeight:80,movementAdherence:1}),null)
 })

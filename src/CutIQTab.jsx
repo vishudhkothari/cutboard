@@ -10,6 +10,7 @@ import {
 import { hasSteps } from './lib/planEngine'
 import { FOOD_DB } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
+import CalorieStrategy from './CalorieStrategy'
 
 // date-only strings parse as UTC midnight in new Date() — pin to local noon
 const fmtD = d => d ? new Date(typeof d === 'string' ? d + 'T12:00:00' : d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—'
@@ -31,7 +32,7 @@ const STRENGTH_OPTS = [
   { id:'down',        label:'Down',          desc:'Clearly weaker' },
 ]
 
-export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workoutHistory = [], onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
+export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseAutomatic, cutData, workoutHistory = [], onSaveCutData, todayLog, recipes = [], customFoods = [] }) {
   // cutData = { anchor, strengthSignal, strengthWeek, cardioMin } — owned by
   // App (single source of truth: the anchor also drives Header/Progress)
   const mobile = useIsMobile()
@@ -119,7 +120,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
   }, [allLogs, currentSteps, cutData?.cardioPlan?.sessionsPerWeek])
   const pace = useMemo(()=> setup && (leanMass || setup.goalWeight) ? paceController({
     currentWeight:curWeight, currentBF, goalBF:setup.goalBF, leanMass, targetWeight:adaptiveTDEE.goalWeight, daysLeft,
-    actualWeeklyRateKg: tdeeEst?.weeklyRateKg ?? projection?.meanRateKg ?? 0,
+    actualWeeklyRateKg: projection?.meanRateKg ?? tdeeEst?.weeklyRateKg ?? 0,
     currentSteps,
     baselineSteps,
     baselineStepAvg,
@@ -138,11 +139,11 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
   }) : null, [setup, leanMass, curWeight, currentBF, daysLeft, tdeeEst, projection, adaptiveTDEE.goalWeight, cutData, muscleRisk, dataSpanDays, currentSteps, baselineSteps, baselineStepAvg, recentMovement, zone2Progress, stepAdjustmentEligible])
 
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
-  const refeed = useMemo(() => !inMaintenance ? suggestRefeed({
+  const refeed = useMemo(() => !inMaintenance && adaptiveTDEE.isDataDriven ? suggestRefeed({
     logs: allLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0, currentWeight: curWeight,
     targetCalories: adaptiveTDEE?.target,
     movementAdherence,
-  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance, curWeight, movementAdherence])
+  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE.isDataDriven, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance, curWeight, movementAdherence])
 
   // weekly strength check-in due?
   const thisWeek = Math.floor(weeksIntoCut)
@@ -162,6 +163,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
 
   return (
     <div style={{ padding:mobile?12:20, maxWidth:980, margin:'0 auto', display:'grid', gap:mobile?10:16 }}>
+      <CalorieStrategy plan={dayPlan} energy={adaptiveTDEE} onUseAutomatic={onUseAutomatic} />
 
       {/* ─── HERO: Projection ─── */}
       <div style={card({ background:`linear-gradient(165deg, #16111f 0%, #0d0b13 100%)`, border:`1px solid ${C.accent}33` })}>
@@ -255,14 +257,14 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
         <div style={card({ borderLeft:`3px solid ${C.teal}` })}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10 }}>
             <Icon name="flag" size={16} color={C.teal} style={{marginTop:1}} />
-            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.teal }}>{adaptiveTDEE.phaseReason==='deadline'?'Cut window complete':'Goal confirmed'} — maintenance mode</div>
+            <div style={{ fontFamily:F.head, fontWeight:700, fontSize:15, color:C.teal }}>Goal confirmed — maintenance mode</div>
           </div>
           <div style={{ display:'grid', gap:7 }}>
             {[
               `Your target now matches estimated maintenance (~${adaptiveTDEE.base} kcal at baseline activity). Completed extra movement still earns food; keep logging to refine the estimate.`,
               'The goal now is a FLAT trend line — weight holding steady while eating more.',
               `Keep protein at ${proteinTargetForWeight(curWeight)}g and keep lifting heavy; that's what locks the result in.`,
-              'Want to cut again later? Raise the cut length in Settings, or reset with a new start date.',
+              'To begin another cut, choose a new start date and goal in Settings.',
             ].map((a,i)=>(
               <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start', fontSize:12.5, color:C.text, opacity:0.85, lineHeight:1.5 }}>
                 <span style={{ color:C.teal, flexShrink:0 }}>›</span>{a}
@@ -452,7 +454,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
       {/* ─── Live TDEE estimate ─── */}
       {tdeeEst && (
         <div style={card()}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}><Icon name="beaker" size={16} color={C.accent} /> Live TDEE Estimate</div>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}><Icon name="beaker" size={16} color={C.accent} /> Learned TDEE Estimate</div>
           {tdeeEst.spanDays < LEARN_DAYS ? (
             <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55 }}>
               Still learning — calibration needs roughly four weeks of consistent food and weight logs. Until then, your targets use the proven formula estimate (BMR × activity), so they stay stable. <span style={{ color:C.textFaint }}>({tdeeEst.dataPoints} days logged so far.)</span>
@@ -460,7 +462,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
           ) : (<>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
             {[
-              { label:'Real TDEE',   val:`${tdeeEst.tdee}`,       color:C.accent },
+              { label:'Observed estimate',   val:`${tdeeEst.tdee}`,       color:C.accent },
               { label:'Avg intake',  val:`${tdeeEst.avgIntake}`,  color:C.text },
               { label:'Rate',        val:`${tdeeEst.weeklyRateKg} kg/wk`, color:tdeeEst.weeklyRateKg<0?C.teal:C.orange },
             ].map(s=>(
@@ -471,7 +473,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, cutData, workou
             ))}
           </div>
           <div style={{ fontSize:11.5, color:C.textFaint, marginTop:12, lineHeight:1.5 }}>
-            Calculated from {tdeeEst.dataPoints} logged days over {tdeeEst.spanDays} days, using a regression of weigh-ins and actual intake, normalized to baseline movement. Blended with the formula and bounded for stability.
+            Last accepted window ending {fmtD(tdeeEst.lastDate)}: {tdeeEst.dataPoints} completed days over {tdeeEst.spanDays} days, using a regression of weigh-ins and actual intake, normalized to baseline movement. Blended with the formula and bounded for stability.
           </div>
           </>)}
         </div>

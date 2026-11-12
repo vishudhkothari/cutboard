@@ -1,5 +1,5 @@
 // Read the short-lived v2 document without replacing the original account rows.
-// Classic-only fields (sleep, fasting, measurements, snapshots) survive the bridge.
+// Classic-only fields (sleep, measurements, snapshots and historical metadata) survive the bridge.
 export function restoredSetup(classic, document, newer = false) {
   if (
     classic &&
@@ -25,7 +25,6 @@ export function restoredSetup(classic, document, newer = false) {
     startBF: null,
     goalBF: 12,
     trainingDays: [],
-    activeCut: false,
   };
   return classic
     ? {
@@ -34,13 +33,7 @@ export function restoredSetup(classic, document, newer = false) {
           Object.entries(mapped).filter(
             ([key, value]) =>
               value != null &&
-              ![
-                "startBF",
-                "goalBF",
-                "activity",
-                "trainingDays",
-                "activeCut",
-              ].includes(key),
+              !["startBF", "goalBF", "activity", "trainingDays"].includes(key),
           ),
         ),
       }

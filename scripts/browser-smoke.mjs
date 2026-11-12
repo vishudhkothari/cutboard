@@ -28,7 +28,7 @@ const seed = [
   ["setup", setup],
   ["recipes", []],
   ["plan_settings", { fastCompensation: false }],
-  ["zigzag_settings", { on: false, schedule: 1, mode: "weight" }],
+  ["zigzag_settings", { on: true, schedule: 1, mode: "extreme" }],
   [
     "routines",
     [
@@ -123,47 +123,50 @@ try {
         .length === 2,
     { key, date },
   );
-  await page.getByRole("button", { name: "Fasting Day", exact: true }).click();
-  await page.getByText("0 kcal planned allowance", { exact: false }).waitFor();
+  await page
+    .getByText("Food log includes the whole day", { exact: true })
+    .check();
+  await page
+    .getByText("Step count is final for this day", { exact: true })
+    .check();
   await page.waitForFunction(
     ({ key, date }) =>
       new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)
-        ?.fasting === true,
-    { key, date },
-  );
-  assert.equal((await stored(`log:${date}`)).meals.length, 2);
-  await page.getByRole("button", { name: /Undo Fast/ }).click();
-  await page.getByText("of 2200 kcal", { exact: true }).waitFor();
-  await page.waitForFunction(
-    ({ key, date }) =>
-      new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)
-        ?.fasting === false,
+        ?.foodComplete === true,
     { key, date },
   );
   await page.reload();
   await page.getByText("of 2200 kcal", { exact: true }).waitFor();
   assert.equal((await stored(`log:${date}`)).meals.length, 2);
-  console.log(
-    "PASS 40 kcal credit, food entry, fasting without losing meals, and reload persistence",
+  assert.equal(
+    await page.getByRole("button", { name: "Schedule", exact: true }).count(),
+    0,
   );
-
-  await nav("Schedule");
-  await page.getByText("+200 kcal", { exact: true }).waitFor();
-  await page
-    .getByRole("button", { name: "Turn on today", exact: true })
-    .click();
-  await page.getByText("+0 kcal", { exact: true }).waitFor();
-  await nav("Today");
-  await page.getByText("of 2200 kcal", { exact: true }).waitFor();
-  await page.getByLabel("Incline walk", { exact: true }).fill("35");
-  await page.getByText("of 2312 kcal", { exact: true }).waitFor();
-  await nav("Schedule");
-  await page.getByRole("button", { name: /^Zigzag/ }).click();
-  await page.getByText("This Week", { exact: true }).waitFor();
-  await page.getByRole("button", { name: /^Steady/ }).click();
-  await page.getByText("2312 kcal", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Fasting Day", exact: true })
+      .count(),
+    0,
+  );
   console.log(
-    "PASS completed incline, overlap adjustment, Active Cut and zigzag toggles",
+    "PASS 40 kcal credit, food entry, completion controls and reload persistence",
+  );
+  await nav("Cut IQ");
+  await page.getByText("Calorie Strategy", { exact: true }).waitFor();
+  await page.getByText("2200 kcal", { exact: true }).waitFor();
+  await page.getByText("+200 kcal", { exact: true }).waitFor();
+  assert.doesNotMatch(
+    await page.locator("body").innerText(),
+    /Active Cut|Fasting|Zigzag|Diet Regime/,
+  );
+  await page
+    .getByRole("button", { name: "Use adaptive target", exact: true })
+    .click();
+  await page.getByText("FORMULA ESTIMATE", { exact: true }).waitFor();
+  assert.equal((await stored("setup")).manualCalTarget, "");
+  assert.equal((await stored(`log:${date}`)).steps, 15000);
+  console.log(
+    "PASS Schedule removed, live strategy moved to Cut IQ, fixed/manual override can return to adaptive",
   );
 
   await nav("Nutrition");
@@ -208,7 +211,10 @@ try {
     .getByLabel("Target Scale Weight (kg)", { exact: true })
     .fill("78.5");
   await page.getByRole("button", { name: "Save Changes", exact: true }).click();
-  await page.getByRole("button", { name: "Schedule", exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: "Today", exact: true })
+    .first()
+    .waitFor();
   assert.equal((await stored("setup")).goalWeight, 78.5);
   console.log("PASS profile edit and numeric scale-goal persistence");
 
@@ -217,14 +223,7 @@ try {
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    for (const tab of [
-      "Today",
-      "Nutrition",
-      "Progress",
-      "Cut IQ",
-      "Schedule",
-      "Workout",
-    ]) {
+    for (const tab of ["Today", "Nutrition", "Progress", "Cut IQ", "Workout"]) {
       await nav(tab);
       await page.waitForTimeout(150);
       assert.doesNotMatch(
@@ -275,14 +274,7 @@ try {
   bridgePage.on("pageerror", (error) => errors.push(error.message));
   await bridgePage.goto(process.env.TEST_URL || "http://127.0.0.1:5173");
   await bridgePage.getByLabel("Steps", { exact: true }).waitFor();
-  for (const tab of [
-    "Today",
-    "Nutrition",
-    "Progress",
-    "Cut IQ",
-    "Schedule",
-    "Workout",
-  ]) {
+  for (const tab of ["Today", "Nutrition", "Progress", "Cut IQ", "Workout"]) {
     await bridgePage
       .getByRole("button", { name: tab, exact: true })
       .first()
@@ -293,12 +285,47 @@ try {
     );
   }
   await bridgeContext.close();
+  const overdueContext = await browser.newContext({ serviceWorkers: "block" });
+  const overdueSeed = seed.map(([name, value]) => [
+    name,
+    name === "setup"
+      ? {
+          ...value,
+          startDate: shiftDay(date, -90),
+          cutLength: 60,
+          manualCalTarget: "",
+        }
+      : value,
+  ]);
+  await overdueContext.addInitScript(
+    ({ key, seed }) => localStorage.setItem(key, JSON.stringify(seed)),
+    { key, seed: overdueSeed },
+  );
+  const overduePage = await overdueContext.newPage();
+  overduePage.on("pageerror", (error) => errors.push(error.message));
+  await overduePage.goto(process.env.TEST_URL || "http://127.0.0.1:5173");
+  await overduePage
+    .getByRole("button", { name: "Cut IQ", exact: true })
+    .click();
+  await overduePage
+    .getByText("The deadline passed, but the goal is not confirmed.", {
+      exact: false,
+    })
+    .waitFor();
+  assert.doesNotMatch(
+    await overduePage.locator("body").innerText(),
+    /Goal confirmed|MAINTENANCE/,
+  );
+  await overdueContext.close();
   console.log(
-    "PASS v2-only scale-goal restoration without a body-fat anchor across all six tabs",
+    "PASS missed deadline keeps the cut active and displays a timeline review",
+  );
+  console.log(
+    "PASS v2-only scale-goal restoration without a body-fat anchor across all five tabs",
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS all six tabs on desktop/mobile, no runtime errors or horizontal overflow",
+    "PASS all five tabs on desktop/mobile, no runtime errors or horizontal overflow",
   );
 } catch (error) {
   console.log((await page.locator("body").innerText()).slice(-4500));
