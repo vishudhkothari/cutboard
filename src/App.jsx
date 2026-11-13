@@ -11,6 +11,7 @@ import { normalizeProfile, normalizeLog, numeric } from './lib/modelInputs'
 import { createLogDrafts } from './lib/logDrafts'
 import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
+import LogNumberInput from './LogNumberInput'
 import CutIQTab from './CutIQTab'
 import { trendWeight, normalizeStepTarget, ENGINE_CONST } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
@@ -235,15 +236,15 @@ function Onboarding({ issues=[], userEmail, onSave, existing, onCancel, onLogout
         <div style={{ display: 'grid', gap: 24 }}>
           <div><label style={LBL}>Your Name</label><input style={inp({ maxWidth: 260 })} value={f.name} placeholder="Vishudh" onChange={e => set('name', e.target.value)} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(100px,1fr))', gap: 14 }}>
-            <div><label style={LBL}>Age</label><input style={inp()} type="number" inputMode="decimal" value={f.age} placeholder="22" onChange={e => set('age', +e.target.value)} /></div>
-            <div><label style={LBL}>Height (cm)</label><input style={inp()} type="number" inputMode="decimal" value={f.height} placeholder="175" onChange={e => set('height', +e.target.value)} /></div>
+            <div><label style={LBL}>Age</label><input style={inp()} type="number" inputMode="decimal" value={f.age} placeholder="22" onChange={e => set('age', e.target.value)} /></div>
+            <div><label style={LBL}>Height (cm)</label><input style={inp()} type="number" inputMode="decimal" value={f.height} placeholder="175" onChange={e => set('height', e.target.value)} /></div>
             <div><label style={LBL}>Sex</label><select style={inp()} value={f.sex} onChange={e => set('sex', e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></div>
           </div>
           <div><label style={LBL}>Activity Level</label><div style={{ display: 'grid', gap: 8 }}>{ACTIVITY.map(a => <button key={a.id} style={{ ...btn(f.activity === a.id), textAlign: 'left', width: '100%', padding: '11px 16px' }} onClick={() => set('activity', a.id)}>{a.label}</button>)}</div></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(100px,1fr))', gap: 14 }}>
-            <div><label style={LBL}>Start Weight (kg)</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={f.startWeight} placeholder="74.0" onChange={e => set('startWeight', +e.target.value)} /></div>
-            <div><label style={LBL}>Start Body Fat %</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={f.startBF} placeholder="20" onChange={e => set('startBF', +e.target.value)} /></div>
-            <div><label style={LBL}>Goal Body Fat %</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={f.goalBF} placeholder="12" onChange={e => set('goalBF', +e.target.value)} /></div>
+            <div><label style={LBL}>Start Weight (kg)</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={f.startWeight} placeholder="74.0" onChange={e => set('startWeight', e.target.value)} /></div>
+            <div><label style={LBL}>Start Body Fat %</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={f.startBF} placeholder="20" onChange={e => set('startBF', e.target.value)} /></div>
+            <div><label style={LBL}>Goal Body Fat %</label><input style={inp()} type="number" inputMode="decimal" step="0.1" value={f.goalBF} placeholder="12" onChange={e => set('goalBF', e.target.value)} /></div>
             <div><label style={LBL}>Target Scale Weight (kg)</label><input aria-label="Target Scale Weight (kg)" style={inp()} type="number" inputMode="decimal" step="0.1" value={f.goalWeight} placeholder="Optional" onChange={e => set('goalWeight', e.target.value)} /><div style={{fontSize:11,color:C.textSub,marginTop:6}}>Uses this goal when set; otherwise uses goal body fat.</div></div>
           </div>
           {goalW && (
@@ -253,20 +254,20 @@ function Onboarding({ issues=[], userEmail, onSave, existing, onCancel, onLogout
               ))}
             </div>
           )}
-          <div style={{ maxWidth: 240 }}><label style={LBL}>Base Daily Step Goal</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.stepGoal} placeholder="10000" onChange={e => set('stepGoal', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Use your usual daily steps as the baseline; extra completed steps earn food</div></div>
-          <div style={{ maxWidth: 240 }}><label style={LBL}>Maximum Step Budget</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.userMaxStepBudget} placeholder="14000" onChange={e => set('userMaxStepBudget', +e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Fitness goals are capped here and at 4,000 above the usual baseline.</div></div>
+          <div style={{ maxWidth: 240 }}><label style={LBL}>Base Daily Step Goal</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.stepGoal} placeholder="10000" onChange={e => set('stepGoal', e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Use your usual daily steps as the baseline; extra completed steps earn food</div></div>
+          <div style={{ maxWidth: 240 }}><label style={LBL}>Maximum Step Budget</label><input style={inp()} type="number" inputMode="decimal" step="500" value={f.userMaxStepBudget} placeholder="14000" onChange={e => set('userMaxStepBudget', e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>Fitness goals are capped here and at 4,000 above the usual baseline.</div></div>
           <div style={card({ background: '#0c0e14' })}>
             <div style={{ fontFamily: F.head, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Manual Calorie Target</div>
             <div style={{ fontSize: 12, color: C.textSub, marginBottom: 14 }}>Override adaptive TDEE with a fixed number. Leave blank to use the calculated target.</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <input style={inp({ maxWidth: 160, fontFamily: F.mono })} type="number" inputMode="decimal" value={f.manualCalTarget} placeholder="e.g. 1800" onChange={e => set('manualCalTarget', e.target.value ? +e.target.value : '')} />
+              <input style={inp({ maxWidth: 160, fontFamily: F.mono })} type="number" inputMode="decimal" value={f.manualCalTarget} placeholder="e.g. 1800" onChange={e => set('manualCalTarget', e.target.value)} />
               <span style={{ fontSize: 12, color: C.textSub }}>kcal/day</span>
               {f.manualCalTarget && <button style={btn(false, true)} onClick={() => set('manualCalTarget', '')}>Clear</button>}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
             <div style={{ width: 200 }}><label style={LBL}>Cut Start Date</label><input style={inp()} type="date" value={f.startDate} onChange={e => set('startDate', e.target.value)} /></div>
-            <div style={{ width: 160 }}><label style={LBL}>Cut Length (days)</label><input style={inp()} type="number" inputMode="decimal" step="7" value={f.cutLength} placeholder="60" onChange={e => set('cutLength', e.target.value ? +e.target.value : '')} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>A missed deadline triggers a review; maintenance begins after the goal is confirmed</div></div>
+            <div style={{ width: 160 }}><label style={LBL}>Cut Length (days)</label><input style={inp()} type="number" inputMode="decimal" step="7" value={f.cutLength} placeholder="60" onChange={e => set('cutLength', e.target.value)} /><div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>A missed deadline triggers a review; maintenance begins after the goal is confirmed</div></div>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <button style={{ ...btn(true), flex: 1, fontSize: 15, padding: '13px 0' }} onClick={() => {
@@ -1262,7 +1263,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
             <div key={key} style={{display:'flex',alignItems:'center',gap:10}}>
               <span style={{width:26,display:'inline-flex',justifyContent:'center'}}><Icon name={icon} size={18} color={C.textSub} /></span>
               <span style={{color:C.textSub,fontSize:13,flex:1}}>{label}</span>
-              <input aria-label={label} type="number" inputMode="decimal" step={step} value={local[key]??''} placeholder={ph} onChange={e=>upd(key,e.target.value?+e.target.value:null)} style={inp({width:mobile?90:100,textAlign:'right',fontFamily:F.mono,fontSize:15,padding:'8px 12px'})} />
+              <LogNumberInput key={`${viewDate}:${key}`} aria-label={label} step={step} value={local[key]} placeholder={ph} onCommit={value=>upd(key,value)} style={inp({width:mobile?90:100,textAlign:'right',fontFamily:F.mono,fontSize:15,padding:'8px 12px'})} />
               <span aria-hidden="true" style={{fontSize:12,color:unit?C.textSub:'transparent',width:28,flexShrink:0,textAlign:'left'}}>{unit || '—'}</span>
             </div>
           ))}
