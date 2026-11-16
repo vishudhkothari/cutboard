@@ -623,6 +623,7 @@ export function createPlanSnapshot(args) {
     phase: tdee.phase,
     eatTarget: plan.eatTarget,
     deficit: plan.deficit,
+    stepGoal: tdee.stepGoal,
     source,
   };
 }

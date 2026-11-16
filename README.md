@@ -4,7 +4,7 @@ The familiar cutting dashboard with five tabs and one shared daily calorie model
 
 - **Today:** calorie ring, macros, coach, meals and food search, weight, sleep, steps and daily completion controls.
 - **Nutrition:** nutrients, food profiles, saved meals and recipe builder.
-- **Progress:** weekly review, weight/sleep/steps charts, measurements and private photos.
+- **Progress:** a yearly diet/steps/sleep consistency heatmap with habit filters, streaks and daily details; weekly review, weight/sleep/steps charts, measurements and private photos.
 - **Cut IQ:** Calorie Strategy, projections, body-composition estimates, strength check-ins, pace and optional refeed advice.
 - **Workout:** routines, live sets, rest timer, PRs and workout history.
 
@@ -37,9 +37,12 @@ npm.cmd test
 npm.cmd run lint
 npm.cmd run build
 npm.cmd run test:browser
+npm.cmd run test:consistency
 ```
 
 The browser check expects the demo server at port 5173 and uses a fresh headless Edge context. Set `BROWSER_CHANNEL` or `TEST_URL` if needed. Screenshots go to ignored `artifacts/`.
+
+The consistency heatmap counts a completed food log within 5% of its calorie goal (with at least 75 kcal tolerance), a finalized step count at goal, and 7+ hours of logged sleep. Captured daily goals stay attached to historical days. Older days without captured goals use the current plan, with a note in the day details. An unfinished today does not break yesterday’s streak.
 
 `npm.cmd run test:cloud` expects an account-mode production preview at port 5174. Build with `VITE_DEMO=0`, `VITE_SUPABASE_URL=https://cutiq-test.invalid` and `VITE_SUPABASE_ANON_KEY=fixture-key`, then run `npm.cmd run preview -- --host 127.0.0.1 --port 5174`. Every external request is intercepted; authentication and storage are fixtures. This does not test live RLS or modify real account data. `npm.cmd run test:accounts` uses the same preview with two separate fixture IDs and JWT-aware request checks; it exercises switching accounts during delayed reads/writes, profile conflicts and recovery of an interrupted edit.
 

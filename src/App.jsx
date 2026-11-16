@@ -13,6 +13,7 @@ import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
 import LogNumberInput from './LogNumberInput'
 import CutIQTab from './CutIQTab'
+import ConsistencyHeatmap from './ConsistencyHeatmap'
 import { trendWeight, normalizeStepTarget, ENGINE_CONST } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
@@ -1960,7 +1961,7 @@ function ProgressPhotos() {
 /* ═══════════════════════════════════════════════════════════════
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
-function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, adaptiveTDEE, onSaveLog }) {
+function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, currentPlan, adaptiveTDEE, cutIntel, workoutHistory, asOfDate, onSaveLog, onOpenDate }) {
   const mobile = useIsMobile()
   const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
   const sundayLog = rawLogs.find(l => l.date === sundayDate)
@@ -1986,6 +1987,7 @@ function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, ada
   }
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
+      <ConsistencyHeatmap logs={logs} setup={setup} cutIntel={cutIntel} workoutHistory={workoutHistory} currentPlan={currentPlan} asOfDate={asOfDate} onOpenDate={onOpenDate}/>
       <WeeklyReview logs={logs} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} setup={setup}/>
       <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
         {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:latestBF??'\u2014',unit:latestBF==null?'':'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
@@ -2415,7 +2417,7 @@ function AccountWorkspace({session}) {
         {saveError && <div role="alert" style={{...card(),color:C.red}}>{saveError}<button style={btn()} onClick={()=>Object.entries(latestLogs.current).forEach(([date,log])=>persistLog(date,log))}>Retry saves</button></div>}
         {tab==='today'     && <TodayTab     log={editorLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={displaySetup} allLogs={viewedLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={dayTDEE.records.find(log=>log.date===viewDate)||emptyLog(viewDate)} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={dayTDEE.records} setup={displaySetup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
-        {tab==='progress'  && <ProgressTab  logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} onSaveLog={saveTodayLog}/>}
+        {tab==='progress'  && <ProgressTab  logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} currentPlan={currentPlan} adaptiveTDEE={adaptiveTDEE} cutIntel={cutIntel} workoutHistory={workoutHistory} asOfDate={liveDate} onSaveLog={saveTodayLog} onOpenDate={date=>{changeViewDate(date);setTab('today')}}/>}
         {tab==='workout'   && <WorkoutTab onHistoryChange={setWorkoutHistory} />}
         {tab==='cutiq'     && <CutIQTab dayPlan={currentPlan} onUseAutomatic={()=>saveSetup({...setup,manualCalTarget:''})} setup={displaySetup} allLogs={scopedLogs} adaptiveTDEE={adaptiveTDEE} cutData={cutIntel} workoutHistory={workoutHistory} onSaveCutData={saveCutIntel} todayLog={scopedLogs.find(l=>l.date===liveDate)||emptyLog(liveDate)} recipes={recipes} customFoods={customFoods}/>}
       </div>
