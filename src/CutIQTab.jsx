@@ -4,7 +4,7 @@ import { C, F, GLOW, card, btn, inp, LBL, TT, useIsMobile, buzz } from './lib/th
 import { Icon } from './lib/icons'
 import {
   trendWeight,
-  suggestRefeed, LEARN_DAYS,
+  suggestRefeed,
   proteinTargetForWeight, normalizeStepTarget,
 } from './lib/cutEngine'
 import { hasSteps } from './lib/planEngine'
@@ -53,19 +53,22 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
   const pace=adaptiveTDEE.review
   const daysLeft=adaptiveTDEE.daysLeft
   const inMaintenance=adaptiveTDEE.phase==='maintenance'
+  // Advisory adherence uses finished calendar days. A partly logged today
+  // must not manufacture a plateau or suppress a fully logged prior window.
+  const priorLogs=useMemo(()=>allLogs.filter(log=>log.date<localDateStr()),[allLogs])
   const movementAdherence=useMemo(()=>{
-    const end=localDateStr(),start=addDays(end,-13)
-    const byDate=new Map(allLogs.map(log=>[log.date,log]))
+    const end=addDays(localDateStr(),-1),start=addDays(end,-13)
+    const byDate=new Map(priorLogs.map(log=>[log.date,log]))
     const days=Array.from({length:14},(_,i)=>byDate.get(addDays(start,i)))
-    return days.every(log=>log&&hasSteps(log)&&log.activityComplete===true&&log.steps>=currentSteps*.95)?1:0
-  },[allLogs,currentSteps])
+    return days.every(log=>hasSteps(log)&&log.steps>=currentSteps*.95)?1:0
+  },[priorLogs,currentSteps])
 
   // refeed / diet-break advisor (cut phase only — pointless in maintenance)
   const refeed = useMemo(() => !inMaintenance && adaptiveTDEE.isDataDriven ? suggestRefeed({
-    logs: allLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0, currentWeight: curWeight,
+    logs: priorLogs, weeksIntoCut, maintenance: adaptiveTDEE?.base || 0, currentWeight: curWeight,
     targetCalories: adaptiveTDEE?.target,
     movementAdherence,
-  }) : null, [allLogs, weeksIntoCut, adaptiveTDEE.isDataDriven, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance, curWeight, movementAdherence])
+  }) : null, [priorLogs, weeksIntoCut, adaptiveTDEE.isDataDriven, adaptiveTDEE?.base, adaptiveTDEE?.target, inMaintenance, curWeight, movementAdherence])
 
   // weekly strength check-in due?
   const thisWeek = Math.max(0,Math.floor(weeksIntoCut))
@@ -377,11 +380,6 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
       {tdeeEst && (
         <div style={card()}>
           <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15, marginBottom:14 }}><Icon name="beaker" size={16} color={C.accent} /> Learned TDEE Estimate</div>
-          {tdeeEst.spanDays < LEARN_DAYS ? (
-            <div style={{ fontSize:12.5, color:C.textSub, lineHeight:1.55 }}>
-              Still learning — calibration needs roughly four weeks of consistent food and weight logs. Until then, your targets use the proven formula estimate (BMR × activity), so they stay stable. <span style={{ color:C.textFaint }}>({tdeeEst.dataPoints} days logged so far.)</span>
-            </div>
-          ) : (<>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
             {[
               { label:'Observed estimate',   val:`${tdeeEst.tdee}`,       color:C.accent },
@@ -395,9 +393,8 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
             ))}
           </div>
           <div style={{ fontSize:11.5, color:C.textFaint, marginTop:12, lineHeight:1.5 }}>
-            Last accepted window ending {fmtD(tdeeEst.lastDate)}: {tdeeEst.dataPoints} completed days over {tdeeEst.spanDays} days, using a regression of weigh-ins and actual intake, normalized to baseline movement. Blended with the formula and bounded for stability.
+            Last accepted window ending {fmtD(tdeeEst.lastDate)}: {tdeeEst.dataPoints} logged days over {tdeeEst.spanDays} days, using morning weigh-ins and actual intake, normalized to usual movement. Observed TDEE is an estimate; the baseline used in Calorie Strategy changes gradually.
           </div>
-          </>)}
         </div>
       )}
 

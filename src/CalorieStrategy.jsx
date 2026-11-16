@@ -15,10 +15,10 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
     quality.status === "transition_hold"
       ? "Maintenance transition: holding calibration while water weight settles."
       : quality.status === "needs_data"
-        ? "Recent records are incomplete or too noisy to recalibrate. Keep morning weigh-ins and mark food and steps complete."
+        ? `${quality.reason} ${energy.isDataDriven ? "Holding the last learned estimate." : "Using the formula estimate for now."}`
         : !energy.isDataDriven
-          ? "Starting from a formula estimate. Weekly learning begins after four weeks of complete food, steps and weight records."
-          : "Maintenance learns from completed logs and weight trends. Each weekly correction is limited to 100 kcal; missing data holds the last learned estimate.";
+          ? "Starting from a formula estimate. Weekly learning begins after four weeks of food, steps and morning weight records. Your saved totals count automatically."
+          : "Estimated maintenance learns from saved food, steps and weight trends. Each weekly correction is limited to 100 kcal; missing or noisy data holds the last learned estimate.";
   const row = (label, value, color = C.text) => (
     <div
       key={label}
@@ -72,7 +72,7 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
       </div>
       {row("Baseline maintenance TDEE", energy.base)}
       {row(
-        `Extra steps · ${STEP_KCAL_PER_1000} kcal / 1,000`,
+        `Steps vs usual · ${STEP_KCAL_PER_1000} kcal / 1,000`,
         `${energy.stepCredit > 0 ? "+" : ""}${energy.stepCredit}`,
         C.teal,
       )}
@@ -132,8 +132,9 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
           marginTop: 10,
         }}
       >
-        Completed prior days: {quality.completeDays} · Weigh-ins:{" "}
+        Logged prior days: {quality.completeDays} · Weigh-ins:{" "}
         {quality.weighIns} · Next review: {formatDate(quality.nextReviewDate)}
+        {quality.lastAcceptedReview && <> · Last adjustment: {formatDate(quality.lastAcceptedReview)}</>}
       </div>
       {(energy.deadlineMissed || energy.goalTooAggressive) && (
         <div

@@ -7,19 +7,19 @@ import {
 } from 'recharts'
 import { supabase } from './lib/supabase'
 import { AccountStoreProvider, useAccountStore } from './lib/AccountStore'
-import { normalizeProfile, normalizeLog, numeric } from './lib/modelInputs'
+import { hasSleep, normalizeProfile, normalizeLog, numeric, withinCalorieTarget } from './lib/modelInputs'
 import { createLogDrafts } from './lib/logDrafts'
 import { DEMO, demoSession } from './lib/demo'
 import WorkoutTab from './WorkoutTab'
 import LogNumberInput from './LogNumberInput'
 import CutIQTab from './CutIQTab'
 import ConsistencyHeatmap from './ConsistencyHeatmap'
-import { trendWeight, normalizeStepTarget, ENGINE_CONST } from './lib/cutEngine'
+import { normalizeStepTarget, ENGINE_CONST } from './lib/cutEngine'
 import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } from './lib/foodDB'
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
 import { estimateRFM, BODY_MEASUREMENTS, normalizeMeasurements } from './lib/bodyFat'
-import { getAdaptiveTDEE, getPlanForDate, createPlanSnapshot, MODEL_VERSION, STEP_KCAL_PER_1000, completeFood, hasSteps } from './lib/planEngine'
+import { getPlanForDate, createPlanSnapshot, MODEL_VERSION, STEP_KCAL_PER_1000, completeFood, hasSteps } from './lib/planEngine'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -30,9 +30,6 @@ const pad2        = n => String(n).padStart(2, '0')
 const localDateStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 const todayStr    = () => localDateStr()
 const addDaysStr  = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return localDateStr(d) }
-// Calendar weeks run Sunday through Saturday. A review only covers a fully
-// completed calendar week, so the current week's Sunday is never included.
-const startOfWeekStr = (s = todayStr()) => addDaysStr(s, -new Date(s + 'T12:00:00').getDay())
 const fmtDate     = d  => new Date(d + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 const daysBetween = (a, b) => Math.max(0, Math.floor((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000))
 const DAY_NAMES   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -63,7 +60,7 @@ function getStreaks(logs, proteinTarget = ENGINE_CONST.PROTEIN_CONFIG.min) {
 }
 
 /* ─── COACH INSIGHTS ─────────────────────────────────────────────*/
-function getCoachInsights(setup, logs, todayLog, tdeeData, macros, stepData, isToday = true, streaks = null) {
+function getCoachInsights(setup, todayLog, tdeeData, macros, stepData, isToday = true, streaks = null) {
   if (!todayLog) return []
   const todayCals    = todayLog.meals?.reduce((s, m) => s + (+m.cals || 0), 0) || 0
   const todayProtein = Math.round((todayLog.meals?.reduce((s, m) => s + (+m.protein || 0), 0) || 0) * 10) / 10
@@ -76,10 +73,6 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, macros, stepData, isT
   // streak recognition
   if (streaks && streaks.logging >= 3) {
     insights.push({ color: C.orange, msg: `${streaks.logging}-day logging streak${streaks.protein >= 2 ? ` — and protein target hit ${streaks.protein} days straight` : ''}. Consistency is the whole game.` })
-  }
-  // weekly review pointer on Sun/Mon
-  if ([0, 1].includes(new Date().getDay()) && logs.filter(l => l.meals?.length || l.weight != null).length >= 7) {
-    insights.push({ color: C.gold, msg: `Your weekly review is ready — check the top of the Progress tab.` })
   }
   // in-app nudges — only meaningful for the live "today" view
   if (isToday) {
@@ -102,7 +95,7 @@ function getCoachInsights(setup, logs, todayLog, tdeeData, macros, stepData, isT
   if (todayProtein >= macros.proteinG && macros.proteinG > 0) {
     insights.push({ color: C.good, msg: `Protein target hit — ${todayProtein}g logged against ${macros.proteinG}g. That is the muscle-preserving habit that matters most.` })
   }
-  if (macros.calTarget > 0 && todayCals >= macros.calTarget * 0.9 && todayCals <= macros.calTarget + 75) {
+  if (completeFood(todayLog) && withinCalorieTarget(todayCals, macros.calTarget)) {
     insights.push({ color: C.good, msg: `Calories are landing inside today's target window (${todayCals}/${macros.calTarget} kcal). Close the day without chasing perfection.` })
   }
   if (todayLog.steps != null && stepData.goal > 0) {
@@ -1049,8 +1042,8 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const effectiveMacros = useMemo(() => ({calTarget:dayPlan.eatTarget, proteinG:dayPlan.proteinG, carbG:dayPlan.carbG, fatG:dayPlan.fatG, fiberG:dayPlan.fiberG}),[dayPlan.eatTarget,dayPlan.proteinG,dayPlan.carbG,dayPlan.fatG,dayPlan.fiberG])
   const calTarget        = dayPlan.eatTarget
 
-  const insights = useMemo(() => getCoachInsights(setup, allLogs, local, adaptiveTDEE, effectiveMacros, stepData, viewDate === todayStr(), streaks),
-    [setup, allLogs, local, adaptiveTDEE, effectiveMacros, stepData, viewDate, streaks])
+  const insights = useMemo(() => getCoachInsights(setup, local, adaptiveTDEE, effectiveMacros, stepData, viewDate === todayStr(), streaks),
+    [setup, local, adaptiveTDEE, effectiveMacros, stepData, viewDate, streaks])
   const coachCompanion = useMemo(() => getCoachCompanion(viewDate), [viewDate])
 
   const r1 = n => Math.round(n * 10) / 10
@@ -1078,7 +1071,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }
   const removeMeal = idx => {
     const removed = local.meals[idx]
-    const next = { ...local, meals: local.meals.filter((_,i) => i!==idx) }
+    const next = { ...local, meals: local.meals.filter((_,i) => i!==idx), foodComplete:false }
     setLocal(next); onSave(next); buzz(10)
     showToast(`Removed ${removed.name}`, () => {
       const restored = { ...next, meals: [...next.meals.slice(0, idx), removed, ...next.meals.slice(idx)] }
@@ -1115,7 +1108,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   }
   const calendarCalsColor = (date, cals, hasMeals) => {
     if (!hasMeals) return C.textFaint
-    return cals <= calendarTargetFor(date) + 75 ? C.good : C.bad
+    return withinCalorieTarget(cals, calendarTargetFor(date)) ? C.good : C.bad
   }
   const copyMealsFromDay = () => {
     if (copySourceDate === viewDate || !copySourceLog?.meals?.length) return
@@ -1272,7 +1265,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 
         {/* Step goal */}
         <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
-          {<label style={{display:'flex',gap:8,fontSize:11,color:C.textSub,marginBottom:10}}><input type="checkbox" checked={!!local.activityComplete} onChange={e=>upd('activityComplete',e.target.checked)} />Step count is final for this day</label>}
+          <div style={{fontSize:11,color:C.textFaint,marginBottom:10}}>Saved values count automatically. Update them whenever needed.</div>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
             <span style={{fontSize:12,color:C.textSub}}>Step goal today</span>
             <span style={{fontFamily:F.mono,fontSize:14,color:stepData.extra>0?C.orange:C.accent}}>{stepData.goal.toLocaleString()} steps</span>
@@ -1322,7 +1315,6 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
           </div>
         </div>
 
-        {<label style={{display:'flex',gap:8,fontSize:11,color:C.textSub,marginBottom:12}}><input type="checkbox" checked={!!local.foodComplete} onChange={e=>upd('foodComplete',e.target.checked)} />Food log includes the whole day</label>}
         {copyDayOpen && (
           <div style={{...card({background:'rgba(255,255,255,0.02)',marginBottom:16})}}>
             <div style={{fontSize:12,color:C.textSub,marginBottom:10}}>Copy every meal from a specific logged day into {niceDate}. Existing meals will be kept.</div>
@@ -1557,19 +1549,19 @@ function NutritionTab({ log, dayPlan, allLogs, setup, recipes = [], onSaveRecipe
   }, [customFoods])
   const dayNutrition = useMemo(() => getDayMicronutrients(log, { foods:nutritionFoods, recipes, setup }), [log, nutritionFoods, recipes, setup])
   const nutrientCoach = useMemo(() => getNutritionCoach(dayNutrition, nutritionFoods, { remainingCalories:Math.max(0, macros.calTarget - todayCals), remainingFat:Math.max(0, macros.fatG - todayF) }), [dayNutrition, nutritionFoods, macros.calTarget, macros.fatG, todayCals, todayF])
-  // Compare complete days; a partial meal log is not a whole day of intake.
-  const cut7=addDaysStr(todayStr(),-6), cut14=addDaysStr(todayStr(),-13)
+  // Trust logged totals; empty dates do not become zero-calorie days.
+  const cut7=addDaysStr(log.date,-6), cut14=addDaysStr(log.date,-13)
   const r7=allLogs.filter(l=>l.date>=cut7&&completeFood(l))
   const avg7=fn=>r7.length?Math.round(r7.reduce((s,l)=>s+fn(l),0)/r7.length):0
   const avgCals=avg7(l=>(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0))
   const avgProt=avg7(l=>(l.meals||[]).reduce((s,m)=>s+(+m.protein||0),0))
-  const calHistory=allLogs.filter(l=>l.date>=cut14).map(l=>({date:fmtDate(l.date),cals:(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)}))
-  // 14-day adherence: % of intake-logged days at/under that day's target (+75 grace)
+  const calHistory=allLogs.filter(l=>l.date>=cut14&&completeFood(l)).map(l=>({date:fmtDate(l.date),cals:(l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)}))
+  // Use the same calorie window as the heatmap, coach and day calendar.
   const adherence=(()=>{
     const days=allLogs.filter(l=>l.date>=cut14&&completeFood(l))
     if(days.length<3)return null
     const targetFor=l=>getPlanForDate({ date:l.date, log:l, setup, logs:allLogs,  }).eatTarget
-    const hit=days.filter(l=>Math.abs((l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0)-targetFor(l))<=Math.max(75,targetFor(l)*.05)).length
+    const hit=days.filter(l=>withinCalorieTarget((l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0),targetFor(l))).length
     return {pct:Math.round(hit/days.length*100),hit,total:days.length}
   })()
   return (
@@ -1586,7 +1578,7 @@ function NutritionTab({ log, dayPlan, allLogs, setup, recipes = [], onSaveRecipe
             <span style={{fontFamily:F.mono,fontSize:22,fontWeight:700,color:c}}>{adherence.pct}%</span>
           </div>
           <div style={{height:7,background:C.borderSoft,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${adherence.pct}%`,background:c,borderRadius:4}} /></div>
-          <div style={{fontSize:12,color:C.textSub,marginTop:9,lineHeight:1.4}}>{adherence.hit} of {adherence.total} complete days within the target range.{adherence.pct>=80?' Strong consistency.':''}</div>
+          <div style={{fontSize:12,color:C.textSub,marginTop:9,lineHeight:1.4}}>{adherence.hit} of {adherence.total} logged days within the target range.{adherence.pct>=80?' Strong consistency.':''}</div>
         </div>
       )})()}
       <div style={card({border:`1px solid ${C.teal}33`})}>
@@ -1687,150 +1679,6 @@ function NutritionTab({ log, dayPlan, allLogs, setup, recipes = [], onSaveRecipe
       </div>
       {builder && <RecipeBuilder recipe={builder.recipe} customFoods={customFoods} onSave={saveRecipe} onClose={()=>setBuilder(null)}/>}
 
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   WEEKLY REVIEW — auto digest of the last 7 full days
-═══════════════════════════════════════════════════════════════ */
-function WeeklyReview({ logs, dayPlan, adaptiveTDEE, setup }) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  // The current Sunday–Saturday window is live and grows one day at a time.
-  // On Saturday it naturally reaches its final day and becomes locked; when
-  // Sunday starts, a new live window takes its place while the prior week is
-  // retained in history.
-  const currentWeekStart = startOfWeekStr()
-  const currentWeekEnd = addDaysStr(currentWeekStart, 6)
-  const latestEnd = addDaysStr(currentWeekStart, -1)
-  const firstLogDate = logs.length ? logs.reduce((first, log) => log.date < first ? log.date : first, logs[0].date) : latestEnd
-  const reviewEnds = [currentWeekEnd]
-  // A historical review is available for each completed Sunday–Saturday
-  // window. Skip sparse historical windows so cycling stays meaningful.
-  for (let end = latestEnd; end >= firstLogDate; end = addDaysStr(end, -7)) {
-    const start = addDaysStr(end, -6)
-    const intakeCount = logs.filter(l => l.date >= start && l.date <= end && ((l.meals && l.meals.length) || completeFood(l))).length
-    if (intakeCount >= 4) reviewEnds.push(end)
-  }
-  const [reviewIndex, setReviewIndex] = useState(0)
-  useEffect(() => setReviewIndex(index => Math.min(index, Math.max(0, reviewEnds.length - 1))), [reviewEnds.length])
-  if (!reviewEnds.length) return null   // not enough data for a fair review
-
-  const end   = reviewEnds[reviewIndex]
-  const start = addDaysStr(end, -6)
-  const isLiveWeek = start === currentWeekStart
-  const isLockedWeek = end < todayStr()
-  const week  = logs.filter(l => l.date >= start && l.date <= end)
-  const intakeDays = week.filter(completeFood)
-
-  const trend = trendWeight(logs)
-  const tAt = d => { let last = null; for (const t of trend) { if (t.date <= d) last = t; else break } return last }
-  const tEnd = tAt(end), tStart = tAt(addDaysStr(start, -1)) || tAt(start)
-  const deltaKg = tEnd && tStart && tEnd.date !== tStart.date ? Math.round((tEnd.trend - tStart.trend) * 100) / 100 : null
-
-  const dayCals = l => (l.meals || []).reduce((s, m) => s + (+m.cals || 0), 0)
-  const targetFor = l => getPlanForDate({ date:l.date, log:l, setup, logs,  }).eatTarget
-  const onTarget = intakeDays.filter(l=>Math.abs(dayCals(l)-targetFor(l))<=Math.max(75,targetFor(l)*.05)).length
-  const avgIntake  = intakeDays.length ? Math.round(intakeDays.reduce((s, l) => s + dayCals(l), 0) / intakeDays.length) : 0
-  const avgTarget   = intakeDays.length ? Math.round(intakeDays.reduce((s, l) => s + targetFor(l), 0) / intakeDays.length) : 0
-  const calorieDelta = avgIntake - avgTarget
-  const calorieValues = intakeDays.map(dayCals)
-  const calorieRange = calorieValues.length ? `${Math.min(...calorieValues).toLocaleString()}–${Math.max(...calorieValues).toLocaleString()}` : '—'
-  const protDays   = intakeDays.filter(l => l.meals && l.meals.length)
-  const avgProtein = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.protein || 0), 0), 0) / protDays.length) : 0
-  const avgCarbs   = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.carbs || 0), 0), 0) / protDays.length) : 0
-  const avgFat     = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.fat || 0), 0), 0) / protDays.length) : 0
-  const avgFiber   = protDays.length ? Math.round(protDays.reduce((s, l) => s + l.meals.reduce((x, m) => x + (+m.fiber || 0), 0), 0) / protDays.length) : 0
-  const steps = week.filter(hasSteps).map(l => +l.steps)
-  const avgSteps = steps.length ? Math.round(steps.reduce((s, x) => s + x) / steps.length) : null
-  const sleeps = week.filter(l => l.sleep).map(l => l.sleep)
-  const avgSleep = sleeps.length ? Math.round(sleeps.reduce((s, x) => s + x) / sleeps.length * 10) / 10 : null
-  const sleepQuality = ['Poor','OK','Good','Great'].map(label => ({ label, count: week.filter(l => l.sleepQuality === label).length }))
-  const weighIns = week.filter(l => l.weight != null).length
-  const dataRows = [
-    { label:'Weight trend', value: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : 'Not enough weigh-ins', note:`${weighIns} weigh-in${weighIns === 1 ? '' : 's'} this week`, color:deltaKg != null && deltaKg <= 0 ? C.teal : C.red },
-    { label:'Calorie adherence', value:`${onTarget}/${intakeDays.length} days`, note:`${calorieDelta > 0 ? '+' : ''}${calorieDelta.toLocaleString()} kcal/day vs target`, color:onTarget >= intakeDays.length - 1 ? C.teal : C.gold },
-    { label:'Protein consistency', value:avgProtein ? `${avgProtein} g/day` : 'No meal data', note:`Logged on ${protDays.length}/${intakeDays.length} intake days`, color:avgProtein ? C.orange : C.textSub },
-  ]
-
-  const reviewEnergy=isLiveWeek?adaptiveTDEE:getAdaptiveTDEE(setup,logs,end)
-  const verdict=reviewEnergy.review.headline
-  const vColor=({reached:C.teal,on_track:C.teal,gaining:C.red,too_fast:C.orange,too_slow:C.gold,calorie_hold:C.orange})[reviewEnergy.review.status]||C.textSub
-
-  return (
-    <div style={card({ borderLeft: `3px solid ${vColor}` })}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
-        <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap' }}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:8, fontFamily:F.head, fontWeight:700, fontSize:15 }}><Icon name="flag" size={16} color={vColor} /> Weekly Review</div>
-          <span style={{ fontSize:11, color:C.textSub, fontFamily:F.mono }}>{fmtDate(start)} – {fmtDate(end)}{isLiveWeek && <span style={{ color:isLockedWeek ? C.teal : C.accent, marginLeft:7 }}>{isLockedWeek ? '· LOCKED' : '· LIVE'}</span>}</span>
-        </div>
-        {reviewEnds.length > 1 && <div style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
-          <button aria-label="Previous weekly review" title="Previous weekly review" disabled={reviewIndex >= reviewEnds.length - 1}
-            style={{ ...btn(false, true), padding:'5px 7px', opacity:reviewIndex >= reviewEnds.length - 1 ? 0.35 : 1 }}
-            onClick={() => { setReviewIndex(index => Math.min(index + 1, reviewEnds.length - 1)); buzz(8) }}>
-            <Icon name="chevronLeft" size={15} />
-          </button>
-          <span style={{ fontSize:10, color:C.textSub, fontFamily:F.mono }}>{reviewIndex + 1}/{reviewEnds.length}</span>
-          <button aria-label="Next weekly review" title="Next weekly review" disabled={reviewIndex <= 0}
-            style={{ ...btn(false, true), padding:'5px 7px', opacity:reviewIndex <= 0 ? 0.35 : 1 }}
-            onClick={() => { setReviewIndex(index => Math.max(index - 1, 0)); buzz(8) }}>
-            <Icon name="chevronRight" size={15} />
-          </button>
-        </div>}
-      </div>
-      <div style={{ fontSize:13, color:vColor, fontWeight:600, marginBottom:14, lineHeight:1.45 }}>{verdict}</div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:10, marginBottom:14 }}>
-        {[
-          { label:'Trend change', val: deltaKg != null ? `${deltaKg > 0 ? '+' : ''}${deltaKg} kg` : '—', color: deltaKg != null && deltaKg < 0 ? C.teal : C.red },
-          { label:'Days on target', val:`${onTarget}/${intakeDays.length}`, color: onTarget >= intakeDays.length - 1 ? C.teal : C.gold },
-          { label:'Avg intake', val:intakeDays.length?`${avgIntake}`:'—', unit:intakeDays.length?'kcal':'', color:C.accent },
-          { label:'Avg protein', val:intakeDays.length?`${avgProtein}`:'—', unit:intakeDays.length?'g':'', color:C.orange },
-          { label:'Avg steps', val: avgSteps ? avgSteps.toLocaleString() : '—', color:C.purple },
-          { label:'Avg sleep', val: avgSleep ?? '—', unit: avgSleep ? 'h' : '', color:C.blue },
-        ].map(s => (
-          <div key={s.label} style={{ textAlign:'center', background:'rgba(255,255,255,0.02)', borderRadius:11, padding:'11px 6px', border:`1px solid ${C.borderSoft}` }}>
-            <div style={{ fontFamily:F.mono, fontSize:16, fontWeight:700, color:s.color }}>{s.val}{s.unit ? <span style={{ fontSize:10, color:C.textSub }}> {s.unit}</span> : null}</div>
-            <div style={{ fontSize:10, color:C.textSub, marginTop:4 }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-      <button onClick={() => { setDetailsOpen(open => !open); buzz(8) }} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', marginTop:2, padding:'9px 0 1px', background:'none', border:'none', borderTop:`1px solid ${C.border}`, color:C.textSub, cursor:'pointer', fontFamily:F.body, fontSize:11, textAlign:'left' }}>
-        <span>{detailsOpen ? 'Hide extra details' : 'Show extra details'}</span><Icon name={detailsOpen ? 'chevronLeft' : 'chevronRight'} size={14} />
-      </button>
-      {detailsOpen && <>
-      <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, display:'grid', gap:10 }}>
-        <div style={{ ...LBL, marginBottom:0 }}>Week at a glance</div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,minmax(0,1fr))', gap:5 }}>
-          {Array.from({length:7}, (_, i) => {
-            const date = addDaysStr(start, i), log = week.find(l => l.date === date)
-            const calories = log ? dayCals(log) : null, target = log ? targetFor(log) : null
-            const hasIntake = !!(log && ((log.meals && log.meals.length) || completeFood(log)))
-            const tone = !hasIntake ? C.borderSoft : calories <= target + 75 ? C.teal : C.orange
-            return <div key={date} title={log ? `${fmtDate(date)} · ${calories.toLocaleString()} kcal` : `${fmtDate(date)} · No log`} style={{ minWidth:0, textAlign:'center' }}>
-              <div style={{ fontSize:9, color:C.textSub, marginBottom:5 }}>{DAY_NAMES[i]}</div><div style={{ height:7, borderRadius:4, background:tone, opacity:hasIntake ? 1 : 0.55 }} />
-              <div style={{ fontFamily:F.mono, fontSize:9, color:hasIntake ? tone : C.textFaint, marginTop:4 }}>{calories != null ? `${Math.round(calories / 100) / 10}k` : '—'}</div>
-            </div>
-          })}
-        </div>
-        <div style={{ display:'flex', gap:12, flexWrap:'wrap', color:C.textFaint, fontSize:10 }}>
-          {[['on target',C.teal],['over target',C.orange],['fast',C.blue],['no log',C.borderSoft]].map(([label,color]) => <span key={label}><i style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:color, marginRight:4 }} />{label}</span>)}
-        </div>
-      </div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:10, marginTop:14 }}>
-        {dataRows.map(row => <div key={row.label} style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'11px 12px' }}><div style={{ fontSize:10, color:C.textSub, marginBottom:5 }}>{row.label}</div><div style={{ fontFamily:F.mono, fontSize:15, fontWeight:700, color:row.color }}>{row.value}</div><div style={{ fontSize:10, color:C.textFaint, marginTop:4, lineHeight:1.35 }}>{row.note}</div></div>)}
-      </div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:10, marginTop:10 }}>
-        <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'11px 12px' }}><div style={{ ...LBL, marginBottom:8 }}>Nutrition detail</div><div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'7px 12px', fontSize:11 }}>
-          <span style={{ color:C.textSub }}>Target avg <strong style={{ color:C.text }}>{avgTarget.toLocaleString()} kcal</strong></span><span style={{ color:C.textSub }}>Range <strong style={{ color:C.text }}>{calorieRange}</strong></span><span style={{ color:C.textSub }}>Carbs <strong style={{ color:C.text }}>{avgCarbs} g</strong></span><span style={{ color:C.textSub }}>Fat <strong style={{ color:C.text }}>{avgFat} g</strong></span><span style={{ color:C.textSub }}>Fiber <strong style={{ color:C.text }}>{avgFiber} g</strong></span>
-        </div></div>
-        <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.borderSoft}`, borderRadius:11, padding:'11px 12px' }}><div style={{ ...LBL, marginBottom:8 }}>Recovery & movement</div><div style={{ display:'grid', gap:7, fontSize:11 }}>
-          <span style={{ color:C.textSub }}>Sleep quality <strong style={{ color:C.text }}>{sleepQuality.filter(x => x.count).map(x => `${x.label} ${x.count}`).join(' · ') || 'Not logged'}</strong></span><span style={{ color:C.textSub }}>Steps logged <strong style={{ color:C.text }}>{steps.length}/7 days</strong></span>
-        </div></div>
-      </div>
-      <div style={{ marginTop:14, padding:'12px 14px', borderRadius:11, background:`${vColor}12`, borderLeft:`3px solid ${vColor}` }}><div style={{ fontSize:10, color:vColor, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5 }}>Next-week focus</div><div style={{ fontSize:12, color:C.text, lineHeight:1.5 }}>
-        {onTarget < intakeDays.length - 1 ? 'Prioritize logging every meal and bring the weekly calorie average back toward target.' : avgProtein && avgProtein < (dayPlan?.proteinTarget || 0) * 0.9 ? 'Keep calories steady and make protein the first thing you add to each meal.' : weighIns < 3 ? 'Keep the plan steady and add a few more weigh-ins so the next trend verdict is more confident.' : 'The signal is clean this week. Repeat the same routine and let the trend compound.'}
-      </div></div>
-      </>}
     </div>
   )
 }
@@ -1961,7 +1809,7 @@ function ProgressPhotos() {
 /* ═══════════════════════════════════════════════════════════════
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
-function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, currentPlan, adaptiveTDEE, cutIntel, workoutHistory, asOfDate, onSaveLog, onOpenDate }) {
+function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, currentPlan, cutIntel, workoutHistory, asOfDate, onSaveLog, onOpenDate }) {
   const mobile = useIsMobile()
   const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
   const sundayLog = rawLogs.find(l => l.date === sundayDate)
@@ -1971,10 +1819,11 @@ function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, cur
   // modeled BF from the Cut IQ engine (same number the Cut IQ tab shows)
   const latestBF=currentBF??setup.startBF
   const weightLost=setup.startWeight-latestWeight
-  const r7=logs.filter(l=>l.date>=addDaysStr(todayStr(),-6))
-  const avgOf=fn=>{const v=r7.filter(fn).map(fn);return v.length?Math.round(v.reduce((s,x)=>s+x)/v.length*10)/10:null}
-  const avgSleep=avgOf(l=>l.sleep)
-  const avgSteps=(()=>{const v=r7.filter(l=>l.steps).map(l=>l.steps);return v.length?Math.round(v.reduce((s,x)=>s+x)/v.length):null})()
+  const r7=logs.filter(l=>l.date>=addDaysStr(asOfDate,-6) && l.date<=asOfDate)
+  const sleeps=r7.filter(hasSleep).map(l=>+l.sleep)
+  const steps=r7.filter(hasSteps).map(l=>+l.steps)
+  const avgSleep=sleeps.length?Math.round(sleeps.reduce((s,x)=>s+x,0)/sleeps.length*10)/10:null
+  const avgSteps=steps.length?Math.round(steps.reduce((s,x)=>s+x,0)/steps.length):null
   const weightData=logs.filter(l=>l.weight!=null).map(l=>({date:fmtDate(l.date),weight:l.weight,goal:+goalWeight.toFixed(1)}))
   const sleepData=logs.filter(l=>l.sleep!=null).map(l=>({date:fmtDate(l.date),sleep:l.sleep}))
   const stepsData=logs.filter(l=>l.steps!=null).map(l=>({date:fmtDate(l.date),steps:l.steps}))
@@ -1988,9 +1837,8 @@ function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, dayPlan, cur
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
       <ConsistencyHeatmap logs={logs} setup={setup} cutIntel={cutIntel} workoutHistory={workoutHistory} currentPlan={currentPlan} asOfDate={asOfDate} onOpenDate={onOpenDate}/>
-      <WeeklyReview logs={logs} dayPlan={dayPlan} adaptiveTDEE={adaptiveTDEE} setup={setup}/>
       <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
-        {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:latestBF??'\u2014',unit:latestBF==null?'':'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
+        {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:latestBF??'\u2014',unit:latestBF==null?'':'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep!=null?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps!=null?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
         ))}
       </div>
@@ -2340,7 +2188,7 @@ function AccountWorkspace({session}) {
       const rows = [['date','weight_kg','sleep_h','steps','food_complete','cals','protein_g','carbs_g','fat_g','fiber_g','meals']]
       allLogs.forEach(l => {
         const s = f => Math.round((l.meals || []).reduce((a, m) => a + (+m[f] || 0), 0) * 10) / 10
-        rows.push([l.date, l.weight ?? '', l.sleep ?? '', l.steps ?? '', l.foodComplete ? 1 : 0, Math.round(s('cals')), s('protein'), s('carbs'), s('fat'), s('fiber'), (l.meals || []).map(m => m.name).join('; ')])
+        rows.push([l.date, l.weight ?? '', l.sleep ?? '', l.steps ?? '', completeFood(l) ? 1 : 0, Math.round(s('cals')), s('protein'), s('carbs'), s('fat'), s('fiber'), (l.meals || []).map(m => m.name).join('; ')])
       })
       dl(rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n'), `cutboard_logs_${todayStr()}.csv`, 'text/csv')
     } else {
@@ -2417,7 +2265,7 @@ function AccountWorkspace({session}) {
         {saveError && <div role="alert" style={{...card(),color:C.red}}>{saveError}<button style={btn()} onClick={()=>Object.entries(latestLogs.current).forEach(([date,log])=>persistLog(date,log))}>Retry saves</button></div>}
         {tab==='today'     && <TodayTab     log={editorLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={displaySetup} allLogs={viewedLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
         {tab==='nutrition' && <NutritionTab log={dayTDEE.records.find(log=>log.date===viewDate)||emptyLog(viewDate)} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={dayTDEE.records} setup={displaySetup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
-        {tab==='progress'  && <ProgressTab  logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} dayPlan={dayPlan} currentPlan={currentPlan} adaptiveTDEE={adaptiveTDEE} cutIntel={cutIntel} workoutHistory={workoutHistory} asOfDate={liveDate} onSaveLog={saveTodayLog} onOpenDate={date=>{changeViewDate(date);setTab('today')}}/>}
+        {tab==='progress'  && <ProgressTab  logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} currentPlan={currentPlan} cutIntel={cutIntel} workoutHistory={workoutHistory} asOfDate={liveDate} onSaveLog={saveTodayLog} onOpenDate={date=>{changeViewDate(date);setTab('today')}}/>}
         {tab==='workout'   && <WorkoutTab onHistoryChange={setWorkoutHistory} />}
         {tab==='cutiq'     && <CutIQTab dayPlan={currentPlan} onUseAutomatic={()=>saveSetup({...setup,manualCalTarget:''})} setup={displaySetup} allLogs={scopedLogs} adaptiveTDEE={adaptiveTDEE} cutData={cutIntel} workoutHistory={workoutHistory} onSaveCutData={saveCutIntel} todayLog={scopedLogs.find(l=>l.date===liveDate)||emptyLog(liveDate)} recipes={recipes} customFoods={customFoods}/>}
       </div>

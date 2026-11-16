@@ -248,3 +248,15 @@ test("imported food mappings and notes are retained for review even when calorie
   assert.equal(energy.latestWeight,original.weight,"Undisputed weight remains usable");
   assert.equal(energy.records[0].foodComplete,false,"Disputed meals cannot calibrate energy");
 });
+
+test("retired switches cannot create an import conflict, while deliberate zero intake remains a fact",()=>{
+  const original=log(42,{foodComplete:false,activityComplete:false,planSnapshot:{modelVersion:2,eatTarget:2000}});
+  const restore=imported=>restoredLogs([{key:`log:${date}`,value:original,updated_at:'2026-01-01'}],{value:{logs:[imported]},updated_at:'2026-01-02'})[0];
+  const identical=restore({...original,foodComplete:true,activityComplete:true});
+  assert.equal(identical.recordNeedsReview,undefined);
+  assert.equal(identical.planSnapshot.eatTarget,2000);
+  const empty={...original,meals:[],foodComplete:false};
+  const [zero]=restoredLogs([{key:`log:${date}`,value:empty,updated_at:'2026-01-01'}],{value:{logs:[{...empty,foodComplete:true}]},updated_at:'2026-01-02'});
+  assert.equal(zero.foodComplete,true);
+  assert.deepEqual(zero.recordReviewFields,['meals']);
+});

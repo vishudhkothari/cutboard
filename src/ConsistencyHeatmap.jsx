@@ -6,7 +6,7 @@ import { shiftDay, today } from './lib/planEngine'
 import './ConsistencyHeatmap.css'
 
 const FILTERS = [{ key: 'all', label: 'All habits', icon: 'calendar' }, { key: 'diet', label: 'Diet', icon: 'apple' }, { key: 'steps', label: 'Steps', icon: 'steps' }, { key: 'sleep', label: 'Sleep', icon: 'moon' }]
-const STATUS = { met: 'Target met', missed: 'Not met', missing: 'Not logged', pending: 'Not finished', review: 'Needs review', unknown: 'No target' }
+const STATUS = { met: 'Target met', missed: 'Not met', missing: 'Not logged', invalid: 'Check entry', review: 'Needs review', unknown: 'No target' }
 const fullDate = date => new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 const shortDate = date => new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 const monthName = date => new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { month: 'short' })
@@ -109,7 +109,7 @@ export default function ConsistencyHeatmap({ logs, setup, cutIntel, workoutHisto
       <div className="consistency-habits">
         {HABITS.map(key => {
           const item = selectedDay.habits[key], filter = FILTERS.find(filter => filter.key === key)
-          const status = key === 'diet' && item.status === 'missed' ? 'Outside target' : item.status === 'pending' ? key === 'diet' ? 'Finish food log' : 'Confirm final steps' : STATUS[item.status]
+          const status = key === 'diet' && item.status === 'missed' ? 'Outside target' : STATUS[item.status]
           const value = key === 'diet' ? `${number(item.value)} / ${number(item.target)} kcal`
             : key === 'steps' ? `${number(item.value)} / ${number(item.target)} steps` : `${item.value ?? '—'} / ${item.target} hrs`
           return <div key={key} className="consistency-habit"><div><Icon name={filter.icon} size={14} color={C.textSub} /><strong>{filter.label}</strong><span className={`consistency-status ${item.status === 'met' ? 'is-met' : ''}`}>{item.status === 'met' && <Icon name="check" size={12} />}{status}</span></div><span className="consistency-value">{value}</span></div>
@@ -118,6 +118,6 @@ export default function ConsistencyHeatmap({ logs, setup, cutIntel, workoutHisto
       {selectedDay.estimatedTargets && <p className="consistency-target-note">Some goals weren’t saved for this date. Those targets use your current plan.</p>}
       {onOpenDate && <button type="button" className="consistency-open" onClick={() => onOpenDate(selectedDate)}>Open {selectedDate === asOfDate ? 'today’s log' : `${shortDate(selectedDate)} log`}<Icon name="arrowRight" size={13} /></button>}
     </div>
-    <details className="consistency-rules"><summary>How days count</summary><p>Diet: mark the whole food log complete and finish within 5% of the day’s calorie target (at least 75 kcal either side). Steps: confirm the final count and reach the day’s goal. Sleep: log at least 7 hours. Brighter squares mean more targets met.</p><p>Missing or unfinished logs don’t earn a target. Streaks span all tracked days, and today stays open until tomorrow. Where a past goal wasn’t saved, the comparison uses your current plan.</p></details>
+    <details className="consistency-rules"><summary>How days count</summary><p>Diet: logged calories within 5% of the day’s target (at least 75 kcal either side). Steps: logged count at the day’s goal. Sleep: at least 7 logged hours. Saved values count automatically; no daily confirmation is needed. Brighter squares mean more targets met.</p><p>Today updates as you log. The last saved values are the day’s totals. Missing entries stay unknown. Streaks span all tracked days. Where a past goal wasn’t saved, the comparison uses your current plan.</p></details>
   </section>
 }

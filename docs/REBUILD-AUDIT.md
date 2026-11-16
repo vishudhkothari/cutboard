@@ -1,5 +1,13 @@
 # CUTIQ simplification and robustness audit
 
+## 16 November 2026 follow-up
+
+The food-complete and final-step switches were gating legitimate logs in both habit scoring and calorie calibration. Those controls and gates are removed. Saved daily values now count automatically, including legacy logs with false or absent switches. Missing records remain unknown; explicitly recorded zeros remain real facts. Retired metadata alone cannot create an import-review requirement.
+
+The duplicate Weekly Review card and its coach pointer are removed. Cut IQ retains automatic weekly learning from actual intake, normalized movement and morning weight changes. Calibration now explains a hold rather than requesting sign-off, and identifies dates with missing food or steps. Stale weight checks are anchored to the review date even if no later record exists. Slow positive loss below the planned rate is identified rather than always labeled on track. Nutrition, coach and calendar calorie windows match the heatmap. Recorded zero steps/sleep count in Progress averages.
+
+Regression coverage includes flag-free and legacy logging, missing dates, malformed input, historical targets, calorie-floor and movement accounting, stale/noisy evidence, bounded adaptation, goal confirmation and a simulated cut with an incorrect starting expenditure. Browser checks cover save/reload, all five tabs, habit filters, desktop/mobile layouts and account isolation using fixture data. These are software checks, not a guarantee of biological results.
+
 Updated 12 November 2026. The original interface remains the basis. The latest requested change removes Schedule and its Active Cut, fasting and diet-regime dependencies. Calorie Strategy now sits at the top of Cut IQ in the original card style. The remaining navigation is Today, Nutrition, Progress, Cut IQ and Workout.
 
 ## Removed active dependencies
@@ -15,7 +23,7 @@ Saved account rows, meal facts, photos, workouts and historical captured prescri
 
 The previous version had consistent extra-step accounting but still had important limits: calendar expiry could end an unfinished cut, plausible legacy meals could count as complete intake, missing later data could discard a learned baseline, and permanent correction bounds could prevent convergence from a large formula error.
 
-The active model now requires explicit whole-day food and final-step records for learning, rejects isolated scale errors/noisy windows, applies bounded weekly updates and holds learned corrections when later data is missing. Repeated reliable weeks can gradually correct a large initial error. A missed deadline continues a bounded cut and flags review. Goal confirmation requires a multi-reading mean and majority, preventing one low outlier from ending the cut.
+The model rejects isolated scale errors/noisy windows, applies bounded weekly updates and holds learned corrections when later data is missing. The previous explicit sign-off requirement was replaced by authoritative saved totals in the 16 November follow-up above. Repeated reliable weeks can gradually correct a large initial error. A missed deadline continues a bounded cut and flags review. Goal confirmation requires a multi-reading mean and majority, preventing one low outlier from ending the cut.
 
 Manual calorie overrides are identified clearly and can return to adaptive mode. Intake-floor limitations are visible. Nutrition adherence uses complete days and a range around the target; severe under-eating is not rewarded as on-target. Refeed advice cannot treat partial food or above-plan intake as evidence of a fully adherent plateau. Calorie advice directs users to the shared operative target.
 

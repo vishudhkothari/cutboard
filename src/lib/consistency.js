@@ -1,28 +1,27 @@
 import { completeFood, daySpan, getDynamicStepGoal, getPlanForDate, movementCredit, shiftDay, today } from './planEngine.js'
 import { buildDayPlan } from './cutEngine.js'
-import { numeric, validDate } from './modelInputs.js'
+import { hasSleep, hasSteps, numeric, reviewFields, validDate, withinCalorieTarget } from './modelInputs.js'
 
 export const HABITS = ['diet', 'steps', 'sleep']
 export const SLEEP_GOAL = 7
 
-// Keep missing, unfinished and disputed evidence distinct from a missed goal.
+// Saved totals count immediately; missing and disputed facts remain distinct.
 export function consistencyDay(log, { calorieTarget = null, stepGoal = null } = {}) {
-  const disputed = new Set(log?.recordNeedsReview
-    ? (log.recordReviewFields?.length ? log.recordReviewFields : ['meals', 'foodComplete', 'steps', 'activityComplete'])
-    : [])
-  const calories = (log?.meals || []).reduce((sum, meal) => sum + (numeric(meal.cals) ?? 0), 0)
+  const disputed = new Set(reviewFields(log))
+  const meals = Array.isArray(log?.meals) ? log.meals : []
+  const calories = meals.reduce((sum, meal) => sum + (numeric(meal?.cals) ?? 0), 0)
   const steps = numeric(log?.steps), sleep = numeric(log?.sleep)
   const foodDone = completeFood(log)
-  const foodStatus = disputed.has('meals') || disputed.has('foodComplete') ? 'review'
-    : !foodDone ? (log?.meals?.length || log?.foodComplete ? 'pending' : 'missing')
+  const foodStatus = disputed.has('meals') ? 'review'
+    : !foodDone ? (meals.length || log?.foodComplete ? 'invalid' : 'missing')
     : !(calorieTarget > 0) ? 'unknown'
-    : Math.abs(calories - calorieTarget) <= Math.max(75, calorieTarget * .05) ? 'met' : 'missed'
-  const stepStatus = disputed.has('steps') || disputed.has('activityComplete') ? 'review'
+    : withinCalorieTarget(calories, calorieTarget) ? 'met' : 'missed'
+  const stepStatus = disputed.has('steps') ? 'review'
     : steps == null || steps < 0 || steps > 100000 ? 'missing'
-    : log?.activityComplete !== true ? 'pending'
+    : !hasSteps(log) ? 'invalid'
     : stepGoal == null || stepGoal < 0 ? 'unknown' : steps >= stepGoal ? 'met' : 'missed'
   const sleepStatus = disputed.has('sleep') ? 'review'
-    : sleep == null || sleep < 0 || sleep > 24 ? 'missing' : sleep >= SLEEP_GOAL ? 'met' : 'missed'
+    : !hasSleep(log) ? 'missing' : sleep >= SLEEP_GOAL ? 'met' : 'missed'
   const habits = {
     diet: { status: foodStatus, value: log?.meals?.length || foodDone ? calories : null, target: calorieTarget },
     steps: { status: stepStatus, value: steps, target: stepGoal },
@@ -44,9 +43,7 @@ export function consistencyHistory({ logs = [], setup, cutIntel, workoutHistory,
   const fallbackTarget = log => {
     if (!energy?.valid) return null
     if (log?.date === asOfDate) return plan.eatTarget
-    const reviewFields = log?.recordNeedsReview ? log.recordReviewFields : null
-    const disputedSteps = log?.recordNeedsReview && (!reviewFields?.length || reviewFields.includes('steps') || reviewFields.includes('activityComplete'))
-    const credit = movementCredit(energy.profile, disputedSteps ? { ...log, steps: null, activityComplete: false } : log).total
+    const credit = movementCredit(energy.profile, log).total
     return buildDayPlan({ baseTarget: energy.target, maintenance: energy.base + credit, floor: energy.floor, activityCredit: credit, currentWeightKg: energy.curW, proteinFactor: cutIntel?.proteinFactor }).eatTarget
   }
   const byDate = new Map(scoped.map(log => {

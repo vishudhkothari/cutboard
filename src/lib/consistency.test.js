@@ -8,12 +8,14 @@ const targets = { calorieTarget: 2000, stepGoal: 10000 }
 const full = fields => ({ date, meals: [{ cals: 2000 }], foodComplete: true, steps: 10000, activityComplete: true, sleep: 7, ...fields })
 const setup = { age: 30, height: 180, sex: 'male', startWeight: 85, startBF: 20, goalWeight: 79, goalBF: 12, startDate: shiftDay(date, -10), cutLength: 77, stepGoal: 10000, activity: 'mod', manualCalTarget: 2000 }
 
-test('all three targets require complete food, final steps and enough sleep', () => {
+test('saved food, steps and sleep count without any completion switches', () => {
   assert.equal(consistencyDay(full(), targets).score, 3)
-  const unfinished = consistencyDay(full({ foodComplete: false, activityComplete: false }), targets)
-  assert.equal(unfinished.score, 1)
-  assert.equal(unfinished.habits.diet.status, 'pending')
-  assert.equal(unfinished.habits.steps.status, 'pending')
+  for (const flags of [{ foodComplete: false, activityComplete: false }, { foodComplete: undefined, activityComplete: undefined }]) {
+    const saved = consistencyDay(full(flags), targets)
+    assert.equal(saved.score, 3)
+    assert.equal(saved.habits.diet.status, 'met')
+    assert.equal(saved.habits.steps.status, 'met')
+  }
   assert.equal(consistencyDay(full({ sleep: 6.9 }), targets).score, 2)
 })
 
@@ -23,7 +25,7 @@ test('diet rewards the target window, including the 75 kcal minimum tolerance', 
   assert.equal(consistencyDay(full({ meals: [{ cals: 1475 }] }), { ...targets, calorieTarget: 1400 }).habits.diet.status, 'met')
   assert.equal(consistencyDay(full({ meals: [{ cals: 1476 }] }), { ...targets, calorieTarget: 1400 }).habits.diet.status, 'missed')
   assert.equal(consistencyDay(full({ meals: [] }), targets).habits.diet.status, 'missed')
-  assert.equal(consistencyDay(full({ meals: [{ cals: NaN }] }), targets).habits.diet.status, 'pending')
+  assert.equal(consistencyDay(full({ meals: [{ cals: NaN }] }), targets).habits.diet.status, 'invalid')
 })
 
 test('missing records, zero values and unknown targets remain distinct', () => {
@@ -45,6 +47,19 @@ test('disputed facts never earn a habit target and do not hide undisputed facts'
   assert.equal(day.habits.sleep.status, 'review')
   assert.equal(day.habits.steps.status, 'met')
   assert.equal(day.score, 1)
+})
+
+test('retired confirmation metadata alone cannot turn honest logging into a conflict', () => {
+  const day = consistencyDay(full({ foodComplete: false, activityComplete: false, recordNeedsReview: true, recordReviewFields: ['foodComplete', 'activityComplete'] }), targets)
+  assert.equal(day.score, 3)
+})
+
+test('empty and measurements-only days cannot invent zero food, steps or sleep', () => {
+  for (const fields of [{}, { measurements: { waistIn: 34 } }]) {
+    const day = consistencyDay({ date, meals: [], foodComplete: false, ...fields }, targets)
+    assert.equal(day.score, 0)
+    for (const habit of ['diet', 'steps', 'sleep']) assert.equal(day.habits[habit].status, 'missing')
+  }
 })
 
 test('captured daily calories and step goals survive later profile changes', () => {
@@ -70,10 +85,11 @@ test('older logs use the current shared plan and a changed current-day goal is l
   assert.equal(days.at(-1).habits.diet.target, 2000)
 })
 
-test('unfinished food and missing days still show the current target without earning it', () => {
+test('logged values count immediately while missing days still show targets without earning them', () => {
   const days = consistencyHistory({ logs: [full({ foodComplete: false, activityComplete: false })], setup, asOfDate: date })
   assert.equal(days.at(-1).habits.diet.target, 2000)
-  assert.equal(days.at(-1).habits.diet.status, 'pending')
+  assert.equal(days.at(-1).habits.diet.status, 'met')
+  assert.equal(days.at(-1).score, 3)
   assert.equal(days.at(-2).habits.diet.target, 2000)
   assert.equal(days.at(-2).habits.steps.target, 10000)
   assert.equal(days.at(-2).habits.diet.status, 'missing')

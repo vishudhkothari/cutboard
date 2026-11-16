@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { today, shiftDay } from "../src/lib/planEngine.js";
+import { MODEL_VERSION, today, shiftDay } from "../src/lib/planEngine.js";
 
 // Isolated demo account: never visits the user's browser profile or cloud data.
 const date = today();
@@ -148,18 +148,7 @@ try {
         .length === 2,
     { key, date },
   );
-  await page
-    .getByText("Food log includes the whole day", { exact: true })
-    .check();
-  await page
-    .getByText("Step count is final for this day", { exact: true })
-    .check();
-  await page.waitForFunction(
-    ({ key, date }) =>
-      new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`)
-        ?.foodComplete === true,
-    { key, date },
-  );
+  assert.equal(await page.getByRole('checkbox', { name: /whole day|final for this day/ }).count(), 0);
   await page.reload();
   await page.getByText("of 2200 kcal", { exact: true }).waitFor();
   assert.equal((await stored(`log:${date}`)).meals.length, 2);
@@ -174,7 +163,7 @@ try {
     0,
   );
   console.log(
-    "PASS 40 kcal credit, food entry, completion controls and reload persistence",
+    "PASS 40 kcal credit, food entry without completion switches and reload persistence",
   );
   await nav("Cut IQ");
   await page.getByText("Calorie Strategy", { exact: true }).waitFor();
@@ -207,7 +196,8 @@ try {
     .last()
     .click();
   await nav("Progress");
-  await page.getByText("Weekly Review", { exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Consistency', exact: true }).waitFor();
+  assert.equal(await page.getByText("Weekly Review", { exact: true }).count(), 0);
   await page.getByText("Sunday body measurements", { exact: true }).waitFor();
   await page.getByText("Progress Photos", { exact: true }).waitFor();
   await page.getByLabel(/^Waist/).fill("33");
@@ -262,7 +252,7 @@ try {
   const download=await downloading,stream=await download.createReadStream(),chunks=[];
   for await(const chunk of stream)chunks.push(chunk);
   const backup=JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  assert.equal(backup.diagnostics.modelVersion,5);
+  assert.equal(backup.diagnostics.modelVersion,MODEL_VERSION);
   assert.equal(backup.diagnostics.asOfDate,date);
   assert.equal(backup.diagnostics.goalWeight,78.5);
   assert.equal(backup.diagnostics.phase,"cut");
@@ -379,6 +369,52 @@ try {
   console.log(
     "PASS v2-only scale-goal restoration without a body-fat anchor across all five tabs",
   );
+
+  // A fully logged plateau must learn without any old completion switches.
+  // At this expenditure the intake floor is 1500; 5000 extra steps add 200.
+  const learnedContext = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const learnedSeed = [
+    ['setup', { ...setup, startDate: shiftDay(date, -112), cutLength: 180, manualCalTarget: null }],
+    ...Array.from({ length: 113 }, (_, i) => {
+      const day = shiftDay(date, i - 112);
+      return [`log:${day}`, { date: day, weight: 85, steps: 10000, sleep: 8, meals: [{ name: 'Daily total', cals: 1900 }], foodComplete: false, activityComplete: false }];
+    }),
+  ];
+  await learnedContext.addInitScript(({ key, seed }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(seed));
+  }, { key, seed: learnedSeed });
+  const learnedPage = await learnedContext.newPage();
+  learnedPage.on('pageerror', error => errors.push(error.message));
+  const learnedNav = name => learnedPage.getByRole('button', { name, exact: true }).first().click();
+  await learnedPage.goto(process.env.TEST_URL || 'http://127.0.0.1:5173');
+  await learnedPage.getByText('of 1500 kcal', { exact: true }).waitFor();
+  await learnedPage.getByLabel('Steps', { exact: true }).fill('15000');
+  await learnedPage.getByText('of 1700 kcal', { exact: true }).waitFor();
+  await learnedPage.waitForFunction(({ key, date }) => new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`).steps === 15000, { key, date });
+  await learnedPage.reload();
+  await learnedPage.getByText('of 1700 kcal', { exact: true }).waitFor();
+  await learnedNav('Nutrition');
+  await learnedPage.getByText('Target · kcal', { exact: true }).locator('..').getByText('1700', { exact: true }).waitFor();
+  await learnedNav('Cut IQ');
+  await learnedPage.getByText('CALIBRATED ESTIMATE', { exact: true }).waitFor();
+  await learnedPage.getByText('1700 kcal', { exact: true }).waitFor();
+  await learnedPage.getByText('Observed estimate', { exact: true }).locator('..').getByText('1900', { exact: true }).waitFor();
+  assert.ok(await learnedPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await learnedPage.screenshot({ path: 'artifacts/adaptive-390.png', fullPage: true });
+
+  const missingDate = shiftDay(date, -5);
+  await learnedPage.evaluate(({ key, missingDate }) => {
+    const records = new Map(JSON.parse(localStorage.getItem(key)));
+    records.get(`log:${missingDate}`).meals = [];
+    localStorage.setItem(key, JSON.stringify([...records]));
+  }, { key, missingDate });
+  await learnedPage.reload();
+  await learnedNav('Cut IQ');
+  await learnedPage.getByText(`Food missing or invalid on ${missingDate}.`, { exact: false }).waitFor();
+  await learnedPage.getByText('Holding the last learned estimate.', { exact: false }).waitFor();
+  await learnedPage.getByText('1700 kcal', { exact: true }).waitFor();
+  await learnedContext.close();
+  console.log('PASS flag-free plateau calibration, food-floor and step credit, cross-tab target agreement, reload and explained missing-data hold');
   assert.deepEqual(errors, []);
   console.log(
     "PASS all five tabs on desktop/mobile, no runtime errors or horizontal overflow",

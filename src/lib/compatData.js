@@ -60,10 +60,11 @@ function changedFacts(original, imported) {
     if (Object.hasOwn(imported, key) && numeric(imported[key]) !== numeric(original[key])) fields.push(key);
   if (Array.isArray(imported.meals) && (
     imported.meals.length !== (original.meals || []).length ||
+    // A deliberate historical zero is a food fact, unlike ordinary retired
+    // sign-off metadata. Do not silently discard a newly imported zero day.
+    (imported.meals.length === 0 && imported.foodComplete === true && original.foodComplete !== true) ||
     imported.meals.some((meal, i) => !sameMeal(meal, original.meals?.[i]))
   )) fields.push("meals");
-  for (const key of ["foodComplete", "activityComplete"])
-    if (Object.hasOwn(imported, key) && (imported[key] === true) !== (original[key] === true)) fields.push(key);
   for (const key of ["notes", "measurements", "sleepQuality", "zone2Sessions"])
     if (Object.hasOwn(imported,key) && stableJSON(imported[key])!==stableJSON(original[key])) fields.push(key);
   return fields;

@@ -138,8 +138,8 @@ test('two-day mini-refeed requires complete logging and movement adherence', () 
   assert.equal(result.durationDays, 2)
 })
 
-test('a flat scale with incomplete food cannot establish a refeed-worthy plateau', () => {
-  const logs=Array.from({length:36},(_,i)=>({date:new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10),weight:80,meals:[{cals:1800}],foodComplete:false}));
+test('a flat scale with missing food cannot establish a refeed-worthy plateau', () => {
+  const logs=Array.from({length:36},(_,i)=>({date:new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10),weight:80,meals:[],foodComplete:false}));
   assert.equal(suggestRefeed({logs,weeksIntoCut:6,maintenance:2400,targetCalories:1800,currentWeight:80,movementAdherence:1}),null)
 })
 

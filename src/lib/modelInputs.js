@@ -16,6 +16,28 @@ const between = (value, min, max) =>
   value != null && value >= min && value <= max;
 const optional = (value) => value == null || value === "";
 
+// Saved values are authoritative. The retired completion switches must not
+// veto a real log, including older records whose switches were left false.
+export const reviewFields = (log) => log?.recordNeedsReview
+  ? (Array.isArray(log.recordReviewFields) && log.recordReviewFields.length ? log.recordReviewFields : ["weight", "steps", "sleep", "meals"])
+    .filter(key => key !== "foodComplete" && key !== "activityComplete")
+  : [];
+export const hasSteps = (log) => {
+  const steps = numeric(log?.steps);
+  return !reviewFields(log).includes("steps") && between(steps, 0, 100000) && Number.isInteger(steps);
+};
+export const hasSleep = (log) =>
+  !reviewFields(log).includes("sleep") && between(numeric(log?.sleep), 0, 24);
+export const completeFood = (log) =>
+  !reviewFields(log).includes("meals") && Array.isArray(log?.meals) &&
+  // Preserve an explicitly recorded zero-intake day from older versions;
+  // an empty day or a measurements-only record is still missing food data.
+  (log.meals.length > 0 || log.foodComplete === true) &&
+  log.meals.every(meal => between(numeric(meal?.cals), 0, 100000));
+export const withinCalorieTarget = (calories, target) =>
+  numeric(calories) != null && numeric(target) > 0 &&
+  Math.abs(Number(calories) - Number(target)) <= Math.max(75, Number(target) * .05);
+
 export function normalizeProfile(raw) {
   if (!raw || typeof raw !== "object")
     return {
@@ -110,6 +132,10 @@ export function normalizeLog(raw) {
   if (!raw || typeof raw !== "object" || !validDate(raw.date))
     return { value: null, errors: ["A log has an invalid calendar date."] };
   const value = { ...raw };
+  if (raw.recordNeedsReview) {
+    value.recordReviewFields = reviewFields(raw);
+    value.recordNeedsReview = value.recordReviewFields.length > 0;
+  }
   for (const [key, label, min, max] of [
     ["weight", "Weight in kilograms", 35, 350],
     ["steps", "Step count", 0, 100000],
@@ -143,10 +169,10 @@ export function normalizeLog(raw) {
       return next;
     },
   );
-  value.foodComplete =
-    raw.foodComplete === true &&
-    !errors.some((error) => error.includes("meal"));
-  value.activityComplete = raw.activityComplete === true && value.steps != null;
+  // Preserve legacy metadata, including deliberately recorded zero intake.
+  // The evidence helpers above never require these flags for ordinary logs.
+  value.foodComplete = raw.foodComplete === true && Array.isArray(raw.meals) && completeFood(value);
+  value.activityComplete = raw.activityComplete === true && hasSteps(value);
   return { value, errors };
 }
 

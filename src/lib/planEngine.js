@@ -1,9 +1,9 @@
-// One daily budget: usual activity, completed extra steps, a bounded deficit,
-// and weekly calibration from explicitly complete records.
+// One daily budget: logged activity, a bounded deficit, and weekly calibration
+// from saved food, steps and morning weigh-ins. No daily sign-off is needed.
 import {
   buildDayPlan,
   macrosFromCalories,
-  estimateTDEE,
+  analyzeTDEE,
   inferBodyComp,
   ENGINE_CONST,
   evaluateMuscleRisk,
@@ -17,11 +17,16 @@ import {
   numeric,
   median,
   validDate,
+  completeFood,
+  hasSteps,
+  reviewFields,
 } from "./modelInputs.js";
+
+export { completeFood, hasSteps } from "./modelInputs.js";
 
 export const STEP_KCAL_PER_1000 = 40;
 export const ENERGY_DENSITY = 7700;
-export const MODEL_VERSION = 5;
+export const MODEL_VERSION = 6;
 const finite = (x) =>
   (typeof x === "number" || (typeof x === "string" && x.trim() !== "")) &&
   Number.isFinite(+x);
@@ -45,21 +50,15 @@ export const shiftDay = (s, n) =>
   new Date(Date.parse(`${s}T12:00:00Z`) + n * 86400000)
     .toISOString()
     .slice(0, 10);
-export const hasSteps = (log) =>
-  finite(log?.steps) && +log.steps >= 0 && +log.steps <= 100000;
 export const stepCalories = (count) =>
   Math.round(((finite(count) ? +count : 0) * STEP_KCAL_PER_1000) / 1000);
-export const completeFood = (log) =>
-  log?.foodComplete === true &&
-  Array.isArray(log.meals) &&
-  log.meals.every((m) => finite(m?.cals) && +m.cals >= 0);
 
 export function movementCredit(setup, log) {
-  const final = log?.activityComplete === true;
-  const delta = hasSteps(log)
+  const final = hasSteps(log);
+  const delta = final
     ? +log.steps - Math.max(0, +setup.stepGoal || 0)
     : 0;
-  const stepCredit = stepCalories(final ? delta : Math.max(0, delta));
+  const stepCredit = stepCalories(delta);
   return { stepCredit, total: stepCredit, final };
 }
 
@@ -135,8 +134,7 @@ function calibrationInput(setup, logs, reviewDate, maintenanceSince) {
     (l) =>
       l.date < end &&
       completeFood(l) &&
-      hasSteps(l) &&
-      l.activityComplete === true,
+      hasSteps(l),
   ).length;
   const weighed = records.filter(
     (l) => finite(l.weight) && +l.weight >= 35 && +l.weight <= 350,
@@ -144,18 +142,22 @@ function calibrationInput(setup, logs, reviewDate, maintenanceSince) {
   const span =
     weighed.length > 1 ? daySpan(weighed[0].date, weighed.at(-1).date) : 0;
   const ready = daySpan(setup.calibrationSince || start, end) >= 28;
-  const estimate = ready
-    ? estimateTDEE(records, {
+  const analysis = ready
+    ? analyzeTDEE(records, {
         windowDays: 28,
+        asOfDate: end,
         fatFraction: (ENERGY_DENSITY - 1800) / (9400 - 1800),
         activityForLog: (l) =>
-          hasSteps(l) && l.activityComplete === true
-            ? movementCredit(setup, l, end).total
+          hasSteps(l)
+            ? movementCredit(setup, l).total
             : NaN,
       })
-    : null;
+    : {estimate:null, reason:"Weekly learning begins after four weeks of saved food, steps and morning weights."};
   return {
-    estimate,
+    estimate: analysis.estimate,
+    reason: analysis.reason,
+    missingFoodDates: analysis.missingFoodDates || [],
+    missingStepsDates: analysis.missingStepsDates || [],
     completeDays,
     weighIns: weighed.length,
     spanDays: span,
@@ -249,8 +251,16 @@ function reviewFor(energy, logs, asOfDate) {
     status = "too_slow";
     headline = "Recent weight trend is flat";
     actions = [
-      "Complete food and final-step records so maintenance can be reviewed.",
+      "Keep logging food, steps and morning weights so maintenance can be reviewed.",
       "Use the current Calorie Strategy allowance; extra steps with their full food credit preserve the same planned deficit.",
+    ];
+  } else if (loss < plannedRate * .75) {
+    status = "too_slow";
+    headline = `Losing more slowly than planned: ${roundRate(loss)} kg/week`;
+    actions = [
+      "The trend is falling, but is below the rate implied by the current allowance.",
+      "Keep logging. The next calorie review uses actual intake, steps and weight changes to adjust estimated maintenance.",
+      "Use the displayed allowance while it learns; do not stack another reduction on top.",
     ];
   } else {
     status = "on_track";
@@ -314,12 +324,11 @@ export function getAdaptiveTDEE(
   });
   const undisputed = normalized.value.map(l => {
     if(!l.recordNeedsReview)return l;
-    const fields=new Set(l.recordReviewFields?.length?l.recordReviewFields:["weight","steps","meals","foodComplete","activityComplete"]);
+    const fields=new Set(reviewFields(l));
     return {...l,
       weight:fields.has("weight")?null:l.weight,
       steps:fields.has("steps")?null:l.steps,
-      foodComplete:l.foodComplete&&!fields.has("meals")&&!fields.has("foodComplete"),
-      activityComplete:l.activityComplete&&!fields.has("steps")&&!fields.has("activityComplete"),
+      sleep:fields.has("sleep")?null:l.sleep,
     };
   });
   const evidence = weightEvidence(undisputed);
@@ -428,6 +437,13 @@ export function getAdaptiveTDEE(
     spanDays: input.spanDays,
     lastAcceptedReview: lastReview,
     nextReviewDate: shiftDay(reviewDate, 7),
+    reason: input.hold
+      ? "Holding calibration while maintenance water weight settles."
+      : input.estimate && !plausible
+        ? "The observed maintenance estimate is outside the formula's review range. Check food, steps and profile assumptions."
+        : input.reason,
+    missingFoodDates: input.missingFoodDates,
+    missingStepsDates: input.missingStepsDates,
   };
   const floor = setup.sex === "female" ? 1200 : 1500;
   const capacity = Math.max(

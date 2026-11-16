@@ -15,6 +15,7 @@ import {
 import {
   buildDayPlan,
   estimateTDEE,
+  analyzeTDEE,
   evaluateMuscleRisk,
   inferBodyComp,
   projectGoal,
@@ -108,8 +109,8 @@ test("saved retired modes and incline logs cannot change the current budget", ()
   assert.equal("regime" in result, false);
   assert.equal("activeCut" in getAdaptiveTDEE(setup, [log], date), false);
 });
-test("a partial low count does not debit food; finalized lower steps do", () => {
-  assert.equal(plan(day({ steps: 5000 })).eatTarget, 2000);
+test("a saved step count adjusts movement both ways without needing a final switch", () => {
+  assert.equal(plan(day({ steps: 5000 })).eatTarget, 1800);
   assert.equal(
     plan(day({ steps: 5000, activityComplete: true })).eatTarget,
     1800,
@@ -119,13 +120,13 @@ test("a partial low count does not debit food; finalized lower steps do", () => 
     plan(day({ date: yesterday, steps: 5000 }), {
       setup: { ...setup, startDate: yesterday },
     }).eatTarget,
-    2000,
+    1800,
   );
   assert.equal(
     plan(day({ date: yesterday, steps: 5000, activityComplete: false }), {
       setup: { ...setup, startDate: yesterday },
     }).eatTarget,
-    2000,
+    1800,
   );
 });
 test("missing, blank and invalid steps are unknown; a recorded zero is real", () => {
@@ -263,17 +264,62 @@ test("calibration uses actual complete intake, morning-to-morning alignment and 
   logs.at(-1).foodComplete = false;
   assert.equal(estimateTDEE(logs, estimateOptions).tdee, 2400);
 });
-test("unknown food, missing dates and unfinished steps block calibration rather than inventing data", () => {
+
+test("unconfirmed and legacy logs learn exactly like identical signed-off logs", () => {
+  const logs = series(43), s = { ...setup, startDate: logs[0].date };
+  const expected = getAdaptiveTDEE(s, logs, logs.at(-1).date);
+  for (const flag of [false, undefined]) {
+    const recorded = logs.map(log => ({ ...log, foodComplete: flag, activityComplete: flag }));
+    const actual = getAdaptiveTDEE(s, recorded, recorded.at(-1).date);
+    assert.equal(actual.isDataDriven, true);
+    assert.deepEqual(actual.estimate, expected.estimate);
+    assert.deepEqual(actual.calibration, expected.calibration);
+    assert.equal(actual.base, expected.base);
+    assert.equal(actual.target, expected.target);
+  }
+});
+
+test("calibration explains missing steps and rejects invalid counts without guessing activity", () => {
+  for (const steps of [null, '', -1, 100001, 10000.5]) {
+    const logs = series();
+    logs[25].steps = steps;
+    const result = analyzeTDEE(logs, estimateOptions);
+    assert.equal(result.estimate, null);
+    assert.deepEqual(result.missingStepsDates, [logs[25].date]);
+    assert.deepEqual(result.missingFoodDates, []);
+  }
+});
+
+test("stale weights hold the learned estimate even when no later day record exists", () => {
+  const logs = series(36), s = { ...setup, startDate: logs[0].date };
+  const fresh = getAdaptiveTDEE(s, logs, logs.at(-1).date);
+  const stale = getAdaptiveTDEE(s, logs, shiftDay(logs.at(-1).date, 5));
+  assert.equal(stale.base, fresh.base);
+  assert.equal(stale.calibration.status, 'needs_data');
+  assert.match(stale.calibration.reason, /over 3 days old/);
+  assert.equal(stale.review.actualRateKg, null);
+});
+
+test("a positive trend well below the planned rate is not labeled on track", () => {
+  const logs = series(36).map((log, i) => ({ ...log, weight: 85 - i * .15 / 7 }));
+  const result = getAdaptiveTDEE({ ...setup, startDate: logs[0].date }, logs, logs.at(-1).date);
+  assert.equal(result.review.status, 'too_slow');
+  assert.equal(result.review.actualRateKg, .15);
+  assert.match(result.review.headline, /more slowly than planned/);
+  assert.ok(result.projection.dateMid, 'A sustained downward trend can still support an illustrative date');
+});
+test("unknown food, missing dates and missing steps block calibration rather than inventing data", () => {
   for (const change of [
     (logs) => logs.splice(25, 1),
     (logs) => {
+      logs[25].meals = [];
       logs[25].foodComplete = false;
     },
     (logs) => {
-      delete logs[25].foodComplete;
+      delete logs[25].meals;
     },
     (logs) => {
-      logs[25].activityComplete = false;
+      logs[25].steps = null;
     },
     (logs) => {
       logs[25].meals = [{ cals: -1 }];
@@ -326,14 +372,17 @@ test("calibration begins after 28 days and each accepted weekly correction is bo
   assert.equal(first.isDataDriven, true);
   assert.ok(Math.abs(first.base - formula) <= 101);
 });
-test("incomplete later logs hold a learned estimate instead of reverting to the formula", () => {
+test("missing later food holds the learned estimate and identifies the date to fix", () => {
   const logs = series(43),
     s = { ...setup, startDate: logs[0].date };
+  logs[30].meals = [];
   logs[30].foodComplete = false;
   const result = getAdaptiveTDEE(s, logs, logs[35].date);
   assert.equal(result.isDataDriven, true);
   assert.equal(result.calibration.lastAcceptedReview, logs[28].date);
   assert.equal(result.calibration.status, "needs_data");
+  assert.deepEqual(result.calibration.missingFoodDates, [logs[30].date]);
+  assert.match(result.calibration.reason, /Food missing/);
   assert.ok(
     result.base < Math.round(restingEnergy(s, result.curW) * 1.45) - 80,
   );
@@ -351,6 +400,27 @@ test("repeated reliable weeks can correct a large initial formula error graduall
   const result = getAdaptiveTDEE(s, logs, logs.at(-1).date);
   assert.ok(result.base >= 1850 && result.base < 1950);
   assert.equal(result.isDataDriven, true);
+});
+
+test("a sustained change in observed maintenance updates the learned baseline gradually", () => {
+  const s = { ...setup, startDate: '2026-01-01', cutLength: 180, manualCalTarget: '' };
+  const logs = Array.from({ length: 141 }, (_, i) => {
+    const steps = 8000 + (i % 5) * 1000;
+    return {
+      date: shiftDay(s.startDate, i), weight: 85, steps,
+      meals: [{ cals: (i < 70 ? 2400 : 2050) + (steps - 10000) * .04 }],
+      foodComplete: false, activityComplete: false,
+    };
+  });
+  const before = getAdaptiveTDEE(s, logs, logs[63].date);
+  let previous = before.base;
+  for (let i = 70; i <= 140; i += 7) {
+    const model = getAdaptiveTDEE(s, logs, logs[i].date);
+    assert.ok(Math.abs(model.base - previous) <= 100, 'Flat weight isolates the weekly correction limit');
+    previous = model.base;
+  }
+  assert.ok(Math.abs(before.base - 2400) < 30);
+  assert.ok(Math.abs(previous - 2050) < 30, 'New evidence must replace the older expenditure regime');
 });
 test("a changed baseline restarts calibration instead of reusing the previous activity regime", () => {
   const logs = series(43),
@@ -506,8 +576,6 @@ test("an idealized closed-loop simulation corrects an overestimated TDEE and con
     assert.ok(result.eatTarget >= 1500);
     assert.equal(result.deficit, result.maintenance - result.eatTarget);
     log.meals = [{ cals: result.eatTarget }];
-    log.foodComplete = true;
-    log.activityComplete = true;
     logs.push(log);
     const model = getAdaptiveTDEE(s, logs, d);
     if (i === 43) {

@@ -2,9 +2,9 @@
 
 The familiar cutting dashboard with five tabs and one shared daily calorie model.
 
-- **Today:** calorie ring, macros, coach, meals and food search, weight, sleep, steps and daily completion controls.
+- **Today:** calorie ring, macros, coach, meals and food search, weight, sleep and steps. Saved totals count automatically.
 - **Nutrition:** nutrients, food profiles, saved meals and recipe builder.
-- **Progress:** a yearly diet/steps/sleep consistency heatmap with habit filters, streaks and daily details; weekly review, weight/sleep/steps charts, measurements and private photos.
+- **Progress:** a yearly diet/steps/sleep consistency heatmap with habit filters, streaks and daily details; weight/sleep/steps charts, measurements and private photos.
 - **Cut IQ:** Calorie Strategy, projections, body-composition estimates, strength check-ins, pace and optional refeed advice.
 - **Workout:** routines, live sets, rest timer, PRs and workout history.
 
@@ -42,7 +42,7 @@ npm.cmd run test:consistency
 
 The browser check expects the demo server at port 5173 and uses a fresh headless Edge context. Set `BROWSER_CHANNEL` or `TEST_URL` if needed. Screenshots go to ignored `artifacts/`.
 
-The consistency heatmap counts a completed food log within 5% of its calorie goal (with at least 75 kcal tolerance), a finalized step count at goal, and 7+ hours of logged sleep. Captured daily goals stay attached to historical days. Older days without captured goals use the current plan, with a note in the day details. An unfinished today does not break yesterday’s streak.
+The consistency heatmap counts logged food within 5% of its calorie goal (with at least 75 kcal tolerance), logged steps at goal, and 7+ hours of logged sleep. No completion checkboxes are required, including for older logs whose switches were left off. Today updates while logging; its last saved values remain the day's totals. Empty days stay unknown. Captured daily goals stay attached to historical days. Older days without captured goals use the current plan, with a note in the day details. An unfinished today does not break yesterday’s streak.
 
 `npm.cmd run test:cloud` expects an account-mode production preview at port 5174. Build with `VITE_DEMO=0`, `VITE_SUPABASE_URL=https://cutiq-test.invalid` and `VITE_SUPABASE_ANON_KEY=fixture-key`, then run `npm.cmd run preview -- --host 127.0.0.1 --port 5174`. Every external request is intercepted; authentication and storage are fixtures. This does not test live RLS or modify real account data. `npm.cmd run test:accounts` uses the same preview with two separate fixture IDs and JWT-aware request checks; it exercises switching accounts during delayed reads/writes, profile conflicts and recovery of an interrupted edit.
 
@@ -54,4 +54,4 @@ Original recipes, workouts, sleep, measurements and photos remain available. Con
 
 See [audit](docs/REBUILD-AUDIT.md) and [model/evidence](docs/MODEL.md). Software tests verify consistent accounting, not exact biological expenditure or guaranteed fat loss.
 
-Learning requires confirmed whole-day food, final steps and enough weigh-ins. Weekly corrections are bounded, missing evidence holds the learned estimate, and a missed deadline does not automatically end an unfinished cut. A confirmed goal transitions to maintenance. These are tested software behaviors, not a guarantee of individual fat loss or a completion date.
+Learning uses saved daily food and step totals plus enough recent morning weigh-ins. It begins after four weeks, then reviews weekly with a maximum 100 kcal maintenance correction per review. Missing, stale or noisy evidence holds the learned estimate and shows the reason, including missing log dates. Removing the duplicate Weekly Review card does not remove this automatic learning. A missed deadline does not end an unfinished cut; repeated goal-level weights transition it to maintenance. These are tested software behaviors, not a guarantee of individual fat loss or a completion date.

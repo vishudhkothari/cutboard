@@ -28,6 +28,8 @@ const LEANNESS_CONFIG = Object.freeze({ referenceHighBF: 25, minimumMultiplier: 
 // Single source so every Cut IQ surface stays in sync.
 export const LEARN_DAYS = 14
 
+import { completeFood, hasSteps, validDate } from './modelInputs.js'
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
 export function proteinTargetForWeight(weightKg, {
@@ -141,42 +143,56 @@ export function currentTrendWeight(logs) {
   return t.length ? t[t.length - 1].trend : null
 }
 
-// Complete, aligned intake/activity and robust weigh-ins are required for calibration.
-export function estimateTDEE(logs, {windowDays=28,fatFraction=ENERGY_DENSITY_CONFIG.defaultFatFraction,activityForLog=()=>0}={}) {
-  const sorted=[...new Map(logs.filter(l=>l?.date).map(l=>[l.date,l])).values()].sort((a,b)=>a.date.localeCompare(b.date));
-  if(!sorted.length)return null;
-  const window=sorted.filter(l=>l.date>=_shiftDate(sorted.at(-1).date,-(windowDays-1)));
+// Inspect the same evidence used by the estimator so a held adjustment has
+// an actionable explanation, instead of blaming a missing confirmation.
+export function analyzeTDEE(logs, {windowDays=28,fatFraction=ENERGY_DENSITY_CONFIG.defaultFatFraction,activityForLog=()=>0,asOfDate=null}={}) {
+  const unavailable = (reason, details = {}) => ({ estimate: null, reason, ...details });
+  const sorted=[...new Map((Array.isArray(logs)?logs:[]).filter(l=>validDate(l?.date)).map(l=>[l.date,l])).values()].sort((a,b)=>a.date.localeCompare(b.date));
+  if(!sorted.length)return unavailable('No recent logs are available for calibration.');
+  const end=validDate(asOfDate)?asOfDate:sorted.at(-1).date;
+  const window=sorted.filter(l=>l.date>=_shiftDate(end,-(windowDays-1)) && l.date<=end);
   let weighed=window.filter(l=>l.weight!=null&&l.weight!==''&&Number.isFinite(+l.weight)&&+l.weight>=35&&+l.weight<=350);
-  if(weighed.length<8)return null;
+  if(weighed.length<8)return unavailable(`Calibration needs at least 8 recent weigh-ins; ${weighed.length} are available.`);
   const median=values=>{const a=[...values].sort((a,b)=>a-b);return a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2};
   const origin=weighed[0].date;
   const points=weighed.map(l=>({x:_daySpan(origin,l.date),y:+l.weight,log:l}));
   const slopes=[];
   for(let i=0;i<points.length;i++)for(let j=i+1;j<points.length;j++)if(points[j].x-points[i].x>=7)slopes.push((points[j].y-points[i].y)/(points[j].x-points[i].x));
-  if(!slopes.length)return null;
+  if(!slopes.length)return unavailable('Recent weigh-ins do not yet span enough calendar days.');
   const robustSlope=median(slopes);
   const intercept=median(points.map(p=>p.y-robustSlope*p.x));
   const residuals=points.map(p=>p.y-(intercept+robustSlope*p.x));
   const residualCenter=median(residuals);
   const mad=median(residuals.map(r=>Math.abs(r-residualCenter)));
   const filtered=points.filter((p,i)=>Math.abs(residuals[i]-residualCenter)<=Math.max(.75,3*1.4826*mad));
-  if(filtered.length<8||filtered.length<points.length*.75)return null;
+  if(filtered.length<8||filtered.length<points.length*.75)return unavailable('Too many unusual weigh-ins to estimate maintenance reliably.');
   weighed=filtered.map(p=>p.log);
   const first=weighed[0].date,last=weighed.at(-1).date,spanDays=_daySpan(first,last);
-  if(spanDays<14||_daySpan(last,window.at(-1).date)>3)return null;
+  if(spanDays<14)return unavailable('Calibration needs weigh-ins spanning at least 14 days.');
+  if(_daySpan(last,end)>3)return unavailable('The last weigh-in is over 3 days old. Add a recent morning weight.');
   const mx=filtered.reduce((s,p)=>s+p.x,0)/filtered.length,my=filtered.reduce((s,p)=>s+p.y,0)/filtered.length;
   const slope=filtered.reduce((s,p)=>s+(p.x-mx)*(p.y-my),0)/filtered.reduce((s,p)=>s+(p.x-mx)**2,0);
   const error=Math.sqrt(filtered.reduce((s,p)=>s+(p.y-(my+slope*(p.x-mx)))**2,0)/filtered.length);
-  if(error>Math.max(.35,my*.008)||Math.abs(slope*7)>my*.015)return null;
+  if(error>Math.max(.35,my*.008))return unavailable('Recent weights are too noisy to recalibrate. Keep logging while the trend settles.');
+  if(Math.abs(slope*7)>my*.015)return unavailable('Recent scale changes are too rapid for a reliable maintenance estimate.');
   const byDate=new Map(window.map(l=>[l.date,l]));
   const interval=Array.from({length:spanDays},(_,i)=>byDate.get(_shiftDate(first,i)));
-  if(interval.some(l=>!l||l.foodComplete!==true||l.activityComplete!==true||!Array.isArray(l.meals)||!Number.isFinite(activityForLog(l))||l.meals.some(m=>m.cals==null||m.cals===''||!Number.isFinite(+m.cals)||+m.cals<0)))return null;
+  const missingFoodDates=interval.flatMap((log,i)=>completeFood(log)?[]:[_shiftDate(first,i)]);
+  const missingStepsDates=interval.flatMap((log,i)=>hasSteps(log)&&Number.isFinite(activityForLog(log))?[]:[_shiftDate(first,i)]);
+  if(missingFoodDates.length||missingStepsDates.length){
+    const describe=(dates,label)=>dates.length?`${label} missing or invalid on ${dates.slice(0,3).join(', ')}${dates.length>3?` and ${dates.length-3} more days`:''}`:null;
+    return unavailable([describe(missingFoodDates,'Food'),describe(missingStepsDates,'Steps')].filter(Boolean).join('. ')+'.', {missingFoodDates,missingStepsDates});
+  }
   const intake=l=>l.meals.reduce((s,m)=>s + +m.cals,0);
   const avgIntake=interval.reduce((s,l)=>s+intake(l),0)/spanDays;
-  if(avgIntake<1000)return null;
+  if(avgIntake<1000)return unavailable('Average logged intake is below the calibration range. Review the food entries before changing the estimate.');
   const normalizedIntake=interval.reduce((s,l)=>s+intake(l)-activityForLog(l),0)/spanDays;
   const density=compositeEnergyDensity(fatFraction);
-  return {tdee:Math.round(normalizedIntake-slope*density),avgIntake:Math.round(avgIntake),normalizedIntake:Math.round(normalizedIntake),weeklyRateKg:Math.round(slope*700)/100,spanDays,dataPoints:interval.length,coverage:1,density:Math.round(density),firstDate:first,lastDate:last,discardedWeights:points.length-filtered.length};
+  return {estimate:{tdee:Math.round(normalizedIntake-slope*density),avgIntake:Math.round(avgIntake),normalizedIntake:Math.round(normalizedIntake),weeklyRateKg:Math.round(slope*700)/100,spanDays,dataPoints:interval.length,coverage:1,density:Math.round(density),firstDate:first,lastDate:last,discardedWeights:points.length-filtered.length},reason:null};
+}
+
+export function estimateTDEE(logs, options) {
+  return analyzeTDEE(logs, options).estimate;
 }
 
 /* Composition remains a rough advisory estimate, separate from energy learning. */
@@ -643,7 +659,7 @@ export function paceController({
 
   if (status === 'lever_calories') {
     headline='Review calorie calibration'
-    actions=['Confirm food and final step counts are complete.', 'Use the target in Calorie Strategy; its weekly review adjusts the estimate from actual results.', 'If the allowance reaches its floor, review the timeline instead of stacking further calorie cuts.']
+    actions=['Keep logging food, steps and morning weights.', 'Use the target in Calorie Strategy; its weekly review adjusts the estimate from actual results.', 'If the allowance reaches its floor, review the timeline instead of stacking further calorie cuts.']
   }
   if (status === 'lever_steps') {
     headline = `${gaining ? 'Rising trend' : 'Slower trend'} — review logs and movement`
@@ -691,7 +707,7 @@ export function suggestRefeed({ logs, weeksIntoCut, maintenance, targetCalories 
   // above plan, and sparse food logs cannot establish adherence. Refeed only
   // when at least 10 of the trailing 15 calendar days have intake data and
   // the logged average is reasonably close to the plan.
-  const adherenceWindow = logs.filter(l => l.date >= cutoffDate && l.date <= last.date && l.foodComplete===true && l.meals?.length)
+  const adherenceWindow = logs.filter(l => l.date >= cutoffDate && l.date <= last.date && completeFood(l))
   const calendarDays = Math.max(1, _daySpan(cutoffDate, last.date) + 1)
   const mealCoverage = adherenceWindow.length / calendarDays
   if (!adherenceWindow.length) return null
