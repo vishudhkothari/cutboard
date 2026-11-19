@@ -19,7 +19,7 @@ import { FOOD_DB, FOOD_CATS, computeFoodMacros, mealFromFood, mealFromRecipe } f
 import { getDayMicronutrients, getNutritionCoach } from './lib/nutrientCoach'
 import { addMicros, NUTRIENTS } from './lib/nutrientEngine'
 import { estimateRFM, BODY_MEASUREMENTS, normalizeMeasurements } from './lib/bodyFat'
-import { getPlanForDate, createPlanSnapshot, MODEL_VERSION, STEP_KCAL_PER_1000, completeFood, hasSteps } from './lib/planEngine'
+import { getPlanForDate, createPlanSnapshot, createTargetResolver, MODEL_VERSION, STEP_KCAL_PER_1000, completeFood, hasSteps } from './lib/planEngine'
 
 /* ═══════════════════════════════════════════════════════════════
    UTILITIES
@@ -987,7 +987,7 @@ function RecipeBuilder({ recipe, customFoods = [], onSave, onClose }) {
   )
 }
 
-function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHistory = [], onSaveMealHistory, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
+function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, targetForLog, mealHistory = [], onSaveMealHistory, cardioPlan, viewDate, onChangeDate, customFoods = [], onSaveCustomFood, recipes = [], streaks }) {
   const [local,        setLocal]        = useState(log)
   const [addOpen,      setAddOpen]      = useState(false)
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
@@ -1103,8 +1103,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
   const calendarLogFor = date => date === viewDate ? local : allLogs.find(l => l.date === date)
   const calendarCalsFor = date => Math.round((calendarLogFor(date)?.meals || []).reduce((sum, meal) => sum + (+meal.cals || 0), 0))
   const calendarTargetFor = date => {
-    const dayLog = calendarLogFor(date)
-    return getPlanForDate({ date, log:dayLog, setup, logs:allLogs,  }).eatTarget
+    return targetForLog(date).calories
   }
   const calendarCalsColor = (date, cals, hasMeals) => {
     if (!hasMeals) return C.textFaint
@@ -1530,7 +1529,7 @@ function TodayTab({ log, dayPlan, adaptiveTDEE, onSave, setup, allLogs, mealHist
 /* ═══════════════════════════════════════════════════════════════
    NUTRITION TAB
 ═══════════════════════════════════════════════════════════════ */
-function NutritionTab({ log, dayPlan, allLogs, setup, recipes = [], onSaveRecipes, customFoods = [] }) {
+function NutritionTab({ log, dayPlan, allLogs, setup, targetForLog, recipes = [], onSaveRecipes, customFoods = [] }) {
   const mobile = useIsMobile()
   const [builder, setBuilder] = useState(null)   // null | {recipe: r|null}
   const [profileMeal, setProfileMeal] = useState(null)
@@ -1560,7 +1559,7 @@ function NutritionTab({ log, dayPlan, allLogs, setup, recipes = [], onSaveRecipe
   const adherence=(()=>{
     const days=allLogs.filter(l=>l.date>=cut14&&completeFood(l))
     if(days.length<3)return null
-    const targetFor=l=>getPlanForDate({ date:l.date, log:l, setup, logs:allLogs,  }).eatTarget
+    const targetFor=l=>targetForLog(l.date).calories
     const hit=days.filter(l=>withinCalorieTarget((l.meals||[]).reduce((s,m)=>s+(+m.cals||0),0),targetFor(l))).length
     return {pct:Math.round(hit/days.length*100),hit,total:days.length}
   })()
@@ -1809,7 +1808,7 @@ function ProgressPhotos() {
 /* ═══════════════════════════════════════════════════════════════
    PROGRESS TAB
 ═══════════════════════════════════════════════════════════════ */
-function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, currentPlan, cutIntel, workoutHistory, asOfDate, onSaveLog, onOpenDate }) {
+function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, currentPlan, cutIntel, workoutHistory, resolveTargets, asOfDate, onSaveLog, onOpenDate }) {
   const mobile = useIsMobile()
   const sundayDate = (() => { const d = new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate() - d.getDay()); return localDateStr(d) })()
   const sundayLog = rawLogs.find(l => l.date === sundayDate)
@@ -1836,7 +1835,7 @@ function ProgressTab({ logs, rawLogs, setup, currentBF, goalWeight, currentPlan,
   }
   return (
     <div style={{padding:mobile?12:20,maxWidth:980,margin:'0 auto',display:'grid',gap:mobile?10:16}}>
-      <ConsistencyHeatmap logs={logs} setup={setup} cutIntel={cutIntel} workoutHistory={workoutHistory} currentPlan={currentPlan} asOfDate={asOfDate} onOpenDate={onOpenDate}/>
+      <ConsistencyHeatmap resolveTargets={resolveTargets} logs={logs} setup={setup} cutIntel={cutIntel} workoutHistory={workoutHistory} currentPlan={currentPlan} asOfDate={asOfDate} onOpenDate={onOpenDate}/>
       <div style={{display:'grid',gridTemplateColumns:mobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:12}}>
         {[{label:'Weight Lost',val:weightLost>=0?`-${weightLost.toFixed(1)}`:`+${Math.abs(weightLost).toFixed(1)}`,unit:'kg',color:weightLost>=0?C.accent:C.red},{label:'Current BF %',val:latestBF??'\u2014',unit:latestBF==null?'':'%',color:C.orange},{label:'7d Avg Sleep',val:avgSleep??'—',unit:avgSleep!=null?'hrs':'',color:C.blue},{label:'7d Avg Steps',val:avgSteps!=null?avgSteps.toLocaleString():'—',unit:'',color:C.purple}].map(({label,val,unit,color})=>(
           <div key={label} style={card({textAlign:'center'})}><div style={{fontFamily:F.mono,fontSize:28,fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:13}}> {unit}</span></div><div style={{fontSize:11,color:C.textSub,marginTop:6,textTransform:'uppercase',letterSpacing:'0.07em'}}>{label}</div></div>
@@ -2034,7 +2033,10 @@ function AccountWorkspace({session}) {
     const changedGoal = ['startDate','startWeight','goalWeight'].some(key => String(validated.value[key] ?? '') !== String(previous?.[key] ?? ''))
     const changedBaseline = setup && ['age','height','sex','activity'].some(key => String(validated.value[key] ?? '') !== String(previous[key] ?? ''))
     if (changedBaseline) normalizedSetup.calibrationSince = todayStr()
-    if (changedGoal) { delete normalizedSetup.maintenanceSince; normalizedSetup.goalChangedAt=todayStr() }
+    if (setup && (changedGoal || changedBaseline || ['manualCalTarget','cutLength'].some(key => validated.value[key] !== previous[key]))) {
+      normalizedSetup.foodPlanSince = todayStr()
+    }
+    if (setup && changedGoal) { delete normalizedSetup.maintenanceSince; normalizedSetup.goalChangedAt=todayStr() }
     if (!changedGoal && setup?.maintenanceSince) normalizedSetup.maintenanceSince = setup.maintenanceSince
     if (!await store.set('setup', normalizedSetup)) { alert('Unable to save your profile. Your changes remain here; please retry.'); return }
     setSetup(normalizedSetup); setOnboarding(false)
@@ -2072,7 +2074,7 @@ function AccountWorkspace({session}) {
   const persistLog = useCallback(async (date, payload, attempt = 0, userId = logOwners.current[date]) => {
     if (resetInProgress.current || userId !== loadedForRef.current) return false
     const saved = await store.set(`log:${date}`, payload, userId)
-    if(saved){drafts.acknowledge(payload);setRecoveryLogs(previous=>previous.filter(l=>l.date!==date))}
+    if(saved && drafts.acknowledge(payload))setRecoveryLogs(previous=>previous.filter(l=>l.date!==date))
     if (saved || attempt >= 3) {
       if (!saved) setSaveError('Your latest edits are still on screen but could not be saved. Export a backup and retry before closing.')
       else setSaveError('')
@@ -2081,21 +2083,22 @@ function AccountWorkspace({session}) {
     await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
     return persistLog(date, latestLogs.current[date] || payload, attempt + 1, userId)
   }, [store,drafts])
-  const saveTodayLog = log => {
-    const checked=normalizeLog({...log,date:log.date||viewDate})
+  const saveTodayLog = useCallback((raw, snapshotOnly = false) => {
+    const checked=normalizeLog({...raw,date:raw.date||viewDate})
     if(checked.errors.length){setSaveError(checked.errors.join(' '));return}
-    log=checked.value
+    const log=checked.value
     const date = log.date || viewDate
-    logOwners.current[date] = loadedForRef.current
-    let nextLog = log
-    {
-      nextLog = {
-        ...log,
-        planSnapshot: date < todayStr() && log.planSnapshot?.source !== 'reconstructed' && numeric(log.planSnapshot?.eatTarget)!=null
-          ? log.planSnapshot
-          : createPlanSnapshot({ date, log, setup, logs:allLogs, cutIntel, source:date<todayStr()?'reconstructed':'captured' }),
-      }
+    const historical = date < todayStr()
+    const captured = historical && [allLogs.find(l=>l.date===date)?.planSnapshot,log.planSnapshot]
+      .find(s=>s?.source !== 'reconstructed' && numeric(s?.eatTarget)!=null && Number(s.eatTarget)>=0)
+    const nextLog = {
+      ...(snapshotOnly ? raw : log), date,
+      planSnapshot:captured || createPlanSnapshot({date,log,setup,logs:allLogs,cutIntel,workoutHistory,source:historical?'reconstructed':'captured'}),
     }
+    if (resetInProgress.current) return
+    const owner=session.user.id
+    if (loadedForRef.current !== owner) { drafts.put(nextLog); return }
+    logOwners.current[date] = owner
     if (date === viewDateRef.current) setTodayLog(nextLog)
     setAllLogs(prev => { const idx=prev.findIndex(l=>l.date===date); if(idx>=0)return prev.map((l,i)=>i===idx?nextLog:l); return [...prev,nextLog].sort((a,b)=>a.date.localeCompare(b.date)) })
     latestLogs.current[date] = nextLog
@@ -2108,7 +2111,7 @@ function AccountWorkspace({session}) {
       delete pendingLogs.current[date]
       persistLog(date, payload)
     }, 600)
-  }
+  },[viewDate,setup,allLogs,cutIntel,workoutHistory,drafts,persistLog,session.user.id])
   // Flush any debounced writes when the tab is hidden/closed or App unmounts —
   // otherwise a weigh-in entered <600ms before backgrounding the PWA is lost.
   useEffect(() => {
@@ -2201,7 +2204,24 @@ function AccountWorkspace({session}) {
   }
 
   const currentPlan=useMemo(()=>getPlanForDate({date:liveDate,log:allLogs.find(log=>log.date===liveDate),setup,logs:allLogs,cutIntel,workoutHistory}),[liveDate,setup,allLogs,cutIntel,workoutHistory])
+  const targetForLog=useMemo(()=>createTargetResolver({setup,logs:allLogs,cutIntel,workoutHistory,asOfDate:liveDate,currentPlan}),[setup,allLogs,cutIntel,workoutHistory,liveDate,currentPlan])
   const adaptiveTDEE=currentPlan.energy
+  const lastPlanInputs=useRef(null)
+  useEffect(()=>{
+    const owner=session.user.id, previous=lastPlanInputs.current
+    const allowance=[adaptiveTDEE.target,currentPlan.eatTarget,adaptiveTDEE.stepGoal,adaptiveTDEE.phase,adaptiveTDEE.isManual].join('|')
+    lastPlanInputs.current={owner,date:liveDate,setup,cutIntel,workoutHistory,ready:dataReady && adaptiveTDEE.valid,allowance}
+    if (!dataReady || !adaptiveTDEE.valid || resetInProgress.current || loadedForRef.current !== owner ||
+        !previous?.ready || previous.owner !== owner || previous.date !== liveDate) return
+    if (allowance === previous.allowance || (setup === previous.setup && cutIntel === previous.cutIntel && workoutHistory === previous.workoutHistory)) return
+    const day=allLogs.find(l=>l.date===liveDate)
+    if (!day || day.recordNeedsReview) return
+    const issued=day.planSnapshot
+    if (issued?.target !== adaptiveTDEE.target || issued?.eatTarget !== currentPlan.eatTarget ||
+        issued?.stepGoal !== adaptiveTDEE.stepGoal || issued?.phase !== adaptiveTDEE.phase || issued?.isManual !== adaptiveTDEE.isManual) {
+      saveTodayLog(day, true)
+    }
+  },[session.user.id,liveDate,setup,cutIntel,workoutHistory,dataReady,allLogs,currentPlan,adaptiveTDEE,saveTodayLog])
   const selectedPlan=useMemo(()=>viewDate===liveDate?currentPlan:getPlanForDate({date:viewDate,log:todayLog,setup,logs:allLogs,cutIntel,workoutHistory}),[viewDate,liveDate,currentPlan,todayLog,setup,allLogs,cutIntel,workoutHistory])
   const streaks      = useMemo(() => getStreaks(allLogs, adaptiveTDEE.curW ? Math.min(ENGINE_CONST.PROTEIN_CONFIG.max, Math.max(ENGINE_CONST.PROTEIN_CONFIG.min, Math.round(adaptiveTDEE.curW * (cutIntel?.proteinFactor || 2)))) : ENGINE_CONST.PROTEIN_CONFIG.min), [allLogs, adaptiveTDEE.curW, cutIntel?.proteinFactor])
 
@@ -2263,9 +2283,9 @@ function AccountWorkspace({session}) {
         {inputIssues.length>0 && <div role="alert" style={{...card(),color:C.orange}}>{inputIssues.join(' ')} Stored records are preserved; correct these entries in Today.</div>}
         {adaptiveTDEE.excludedWeights.length>0 && <div role="status" style={{...card(),color:C.textSub,fontSize:12}}>Unusual weigh-ins on {adaptiveTDEE.excludedWeights.join(', ')} are kept in your logs and excluded from estimates. Check those entries in Today.</div>}
         {saveError && <div role="alert" style={{...card(),color:C.red}}>{saveError}<button style={btn()} onClick={()=>Object.entries(latestLogs.current).forEach(([date,log])=>persistLog(date,log))}>Retry saves</button></div>}
-        {tab==='today'     && <TodayTab     log={editorLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={displaySetup} allLogs={viewedLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
-        {tab==='nutrition' && <NutritionTab log={dayTDEE.records.find(log=>log.date===viewDate)||emptyLog(viewDate)} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={dayTDEE.records} setup={displaySetup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
-        {tab==='progress'  && <ProgressTab  logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} currentPlan={currentPlan} cutIntel={cutIntel} workoutHistory={workoutHistory} asOfDate={liveDate} onSaveLog={saveTodayLog} onOpenDate={date=>{changeViewDate(date);setTab('today')}}/>}
+        {tab==='today'     && <TodayTab targetForLog={targetForLog} log={editorLog} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} onSave={saveTodayLog} setup={displaySetup} allLogs={viewedLogs} mealHistory={mealHistory} onSaveMealHistory={saveMealToHistory} cardioPlan={cutIntel?.cardioPlan} viewDate={viewDate} onChangeDate={changeViewDate} customFoods={customFoods} onSaveCustomFood={saveCustomFood} recipes={recipes} streaks={streaks}/>}
+        {tab==='nutrition' && <NutritionTab targetForLog={targetForLog} log={dayTDEE.records.find(log=>log.date===viewDate)||emptyLog(viewDate)} dayPlan={dayPlan} adaptiveTDEE={dayTDEE} allLogs={dayTDEE.records} setup={displaySetup} recipes={recipes} onSaveRecipes={saveRecipes} customFoods={customFoods}/>}
+        {tab==='progress'  && <ProgressTab resolveTargets={targetForLog} logs={scopedLogs} rawLogs={allLogs} setup={displaySetup} currentBF={currentBF} goalWeight={goalWeight} currentPlan={currentPlan} cutIntel={cutIntel} workoutHistory={workoutHistory} asOfDate={liveDate} onSaveLog={saveTodayLog} onOpenDate={date=>{changeViewDate(date);setTab('today')}}/>}
         {tab==='workout'   && <WorkoutTab onHistoryChange={setWorkoutHistory} />}
         {tab==='cutiq'     && <CutIQTab dayPlan={currentPlan} onUseAutomatic={()=>saveSetup({...setup,manualCalTarget:''})} setup={displaySetup} allLogs={scopedLogs} adaptiveTDEE={adaptiveTDEE} cutData={cutIntel} workoutHistory={workoutHistory} onSaveCutData={saveCutIntel} todayLog={scopedLogs.find(l=>l.date===liveDate)||emptyLog(liveDate)} recipes={recipes} customFoods={customFoods}/>}
       </div>

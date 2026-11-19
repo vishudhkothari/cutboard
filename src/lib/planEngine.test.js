@@ -279,12 +279,13 @@ test("unconfirmed and legacy logs learn exactly like identical signed-off logs",
   }
 });
 
-test("calibration explains missing steps and rejects invalid counts without guessing activity", () => {
+test("calibration excludes the interval with missing or invalid steps and uses supported intervals", () => {
   for (const steps of [null, '', -1, 100001, 10000.5]) {
     const logs = series();
     logs[25].steps = steps;
     const result = analyzeTDEE(logs, estimateOptions);
-    assert.equal(result.estimate, null);
+    assert.equal(result.estimate.tdee, 2400);
+    assert.ok(result.estimate.coverage < 1);
     assert.deepEqual(result.missingStepsDates, [logs[25].date]);
     assert.deepEqual(result.missingFoodDates, []);
   }
@@ -308,7 +309,7 @@ test("a positive trend well below the planned rate is not labeled on track", () 
   assert.match(result.review.headline, /more slowly than planned/);
   assert.ok(result.projection.dateMid, 'A sustained downward trend can still support an illustrative date');
 });
-test("unknown food, missing dates and missing steps block calibration rather than inventing data", () => {
+test("unknown food, missing dates and missing steps are never filled with assumed intake or activity", () => {
   for (const change of [
     (logs) => logs.splice(25, 1),
     (logs) => {
@@ -327,7 +328,9 @@ test("unknown food, missing dates and missing steps block calibration rather tha
   ]) {
     const logs = series();
     change(logs);
-    assert.equal(estimateTDEE(logs, estimateOptions), null);
+    const estimate = estimateTDEE(logs, estimateOptions);
+    assert.equal(estimate.tdee, 2400);
+    assert.ok(estimate.dataPoints < estimate.spanDays);
   }
 });
 test("one bad scale reading is excluded from calibration without deleting the recorded fact", () => {
@@ -375,14 +378,14 @@ test("calibration begins after 28 days and each accepted weekly correction is bo
 test("missing later food holds the learned estimate and identifies the date to fix", () => {
   const logs = series(43),
     s = { ...setup, startDate: logs[0].date };
-  logs[30].meals = [];
-  logs[30].foodComplete = false;
+  const missing = logs.slice(29,35);
+  for (const log of missing) { log.meals = []; log.foodComplete = false; }
   const result = getAdaptiveTDEE(s, logs, logs[35].date);
   assert.equal(result.isDataDriven, true);
   assert.equal(result.calibration.lastAcceptedReview, logs[28].date);
   assert.equal(result.calibration.status, "needs_data");
-  assert.deepEqual(result.calibration.missingFoodDates, [logs[30].date]);
-  assert.match(result.calibration.reason, /Food missing/);
+  assert.deepEqual(result.calibration.missingFoodDates, missing.map(l => l.date));
+  assert.match(result.calibration.reason, /missing food/);
   assert.ok(
     result.base < Math.round(restingEnergy(s, result.curW) * 1.45) - 80,
   );

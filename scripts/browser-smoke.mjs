@@ -178,6 +178,10 @@ try {
     .click();
   await page.getByText("FORMULA ESTIMATE", { exact: true }).waitFor();
   assert.equal((await stored("setup")).manualCalTarget, null);
+  await page.waitForFunction(({ key, date }) => {
+    const snapshot = new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`).planSnapshot;
+    return snapshot.isManual === false && snapshot.stepCredit === 200 && snapshot.eatTarget === snapshot.target + 200;
+  }, { key, date });
   assert.equal((await stored(`log:${date}`)).steps, 15000);
   console.log(
     "PASS Schedule removed, live strategy moved to Cut IQ, fixed/manual override can return to adaptive",
@@ -371,7 +375,7 @@ try {
   );
 
   // A fully logged plateau must learn without any old completion switches.
-  // At this expenditure the intake floor is 1500; 5000 extra steps add 200.
+  // The issued baseline is 2,397. Consistently eating 1,900 holds that baseline; 5,000 extra steps add 200.
   const learnedContext = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const learnedSeed = [
     ['setup', { ...setup, startDate: shiftDay(date, -112), cutLength: 180, manualCalTarget: null }],
@@ -387,17 +391,17 @@ try {
   learnedPage.on('pageerror', error => errors.push(error.message));
   const learnedNav = name => learnedPage.getByRole('button', { name, exact: true }).first().click();
   await learnedPage.goto(process.env.TEST_URL || 'http://127.0.0.1:5173');
-  await learnedPage.getByText('of 1500 kcal', { exact: true }).waitFor();
+  await learnedPage.getByText('of 2397 kcal', { exact: true }).waitFor();
   await learnedPage.getByLabel('Steps', { exact: true }).fill('15000');
-  await learnedPage.getByText('of 1700 kcal', { exact: true }).waitFor();
+  await learnedPage.getByText('of 2597 kcal', { exact: true }).waitFor();
   await learnedPage.waitForFunction(({ key, date }) => new Map(JSON.parse(localStorage.getItem(key))).get(`log:${date}`).steps === 15000, { key, date });
   await learnedPage.reload();
-  await learnedPage.getByText('of 1700 kcal', { exact: true }).waitFor();
+  await learnedPage.getByText('of 2597 kcal', { exact: true }).waitFor();
   await learnedNav('Nutrition');
-  await learnedPage.getByText('Target · kcal', { exact: true }).locator('..').getByText('1700', { exact: true }).waitFor();
+  await learnedPage.getByText('Target · kcal', { exact: true }).locator('..').getByText('2597', { exact: true }).waitFor();
   await learnedNav('Cut IQ');
   await learnedPage.getByText('CALIBRATED ESTIMATE', { exact: true }).waitFor();
-  await learnedPage.getByText('1700 kcal', { exact: true }).waitFor();
+  await learnedPage.getByText('2597 kcal', { exact: true }).waitFor();
   await learnedPage.getByText('Observed estimate', { exact: true }).locator('..').getByText('1900', { exact: true }).waitFor();
   assert.ok(await learnedPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await learnedPage.screenshot({ path: 'artifacts/adaptive-390.png', fullPage: true });
@@ -410,11 +414,11 @@ try {
   }, { key, missingDate });
   await learnedPage.reload();
   await learnedNav('Cut IQ');
-  await learnedPage.getByText(`Food missing or invalid on ${missingDate}.`, { exact: false }).waitFor();
-  await learnedPage.getByText('Holding the last learned estimate.', { exact: false }).waitFor();
-  await learnedPage.getByText('1700 kcal', { exact: true }).waitFor();
+  await learnedPage.getByText(`Missing food on ${missingDate}.`, { exact: false }).waitFor();
+  await learnedPage.getByText('CALIBRATED ESTIMATE', { exact: true }).waitFor();
+  await learnedPage.getByText('2597 kcal', { exact: true }).waitFor();
   await learnedContext.close();
-  console.log('PASS flag-free plateau calibration, food-floor and step credit, cross-tab target agreement, reload and explained missing-data hold');
+  console.log('PASS plateau calibration, baseline hold, step credit, cross-tab agreement, reload and an isolated missing day');
   assert.deepEqual(errors, []);
   console.log(
     "PASS all five tabs on desktop/mobile, no runtime errors or horizontal overflow",
