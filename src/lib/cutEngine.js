@@ -172,23 +172,69 @@ export function analyzeTDEE(logs, {windowDays=28,fatFraction=ENERGY_DENSITY_CONF
   if(_daySpan(last,end)>3)return unavailable('The last weigh-in is over 3 days old. Add a recent morning weight.');
   const mx=filtered.reduce((s,p)=>s+p.x,0)/filtered.length,my=filtered.reduce((s,p)=>s+p.y,0)/filtered.length;
   const slope=filtered.reduce((s,p)=>s+(p.x-mx)*(p.y-my),0)/filtered.reduce((s,p)=>s+(p.x-mx)**2,0);
-  const error=Math.sqrt(filtered.reduce((s,p)=>s+(p.y-(my+slope*(p.x-mx)))**2,0)/filtered.length);
-  if(error>Math.max(.35,my*.008))return unavailable('Recent weights are too noisy to recalibrate. Keep logging while the trend settles.');
   if(Math.abs(slope*7)>my*.015)return unavailable('Recent scale changes are too rapid for a reliable maintenance estimate.');
   const byDate=new Map(window.map(l=>[l.date,l]));
-  const interval=Array.from({length:spanDays},(_,i)=>byDate.get(_shiftDate(first,i)));
-  const missingFoodDates=interval.flatMap((log,i)=>completeFood(log)?[]:[_shiftDate(first,i)]);
-  const missingStepsDates=interval.flatMap((log,i)=>hasSteps(log)&&Number.isFinite(activityForLog(log))?[]:[_shiftDate(first,i)]);
-  if(missingFoodDates.length||missingStepsDates.length){
-    const describe=(dates,label)=>dates.length?`${label} missing or invalid on ${dates.slice(0,3).join(', ')}${dates.length>3?` and ${dates.length-3} more days`:''}`:null;
-    return unavailable([describe(missingFoodDates,'Food'),describe(missingStepsDates,'Steps')].filter(Boolean).join('. ')+'.', {missingFoodDates,missingStepsDates});
+  const weights = new Map(weighed.map(l => [l.date, +l.weight]));
+  const density = compositeEnergyDensity(fatFraction);
+  const missingFoodDates = [], missingStepsDates = [], segments = [];
+  let segment = [], intake = 0, net = 0;
+  for (let i = 0; i <= spanDays; i++) {
+    const date = _shiftDate(first, i);
+    // This morning's weight precedes this day's meals and activity.
+    if (weights.has(date)) segment.push({ day:i, weight:weights.get(date), intake, net });
+    if (i === spanDays) break;
+    const log = byDate.get(date);
+    const foodKnown = completeFood(log);
+    const credit = hasSteps(log) ? activityForLog(log) : NaN;
+    if (!foodKnown) missingFoodDates.push(date);
+    if (!Number.isFinite(credit)) missingStepsDates.push(date);
+    if (!foodKnown || !Number.isFinite(credit)) {
+      if (segment.length >= 2) segments.push(segment);
+      segment = [];
+      intake = 0;
+      net = 0;
+      continue;
+    }
+    const calories = log.meals.reduce((sum, m) => sum + Number(m.cals), 0);
+    intake += calories;
+    net += calories - credit;
   }
-  const intake=l=>l.meals.reduce((s,m)=>s + +m.cals,0);
-  const avgIntake=interval.reduce((s,l)=>s+intake(l),0)/spanDays;
-  if(avgIntake<1000)return unavailable('Average logged intake is below the calibration range. Review the food entries before changing the estimate.');
-  const normalizedIntake=interval.reduce((s,l)=>s+intake(l)-activityForLog(l),0)/spanDays;
-  const density=compositeEnergyDensity(fatFraction);
-  return {estimate:{tdee:Math.round(normalizedIntake-slope*density),avgIntake:Math.round(avgIntake),normalizedIntake:Math.round(normalizedIntake),weeklyRateKg:Math.round(slope*700)/100,spanDays,dataPoints:interval.length,coverage:1,density:Math.round(density),firstDate:first,lastDate:last,discardedWeights:points.length-filtered.length},reason:null};
+  if (segment.length >= 2) segments.push(segment);
+  const missing = { missingFoodDates, missingStepsDates };
+  let days = 0, countedIntake = 0, countedNet = 0, xx = 0, xy = 0;
+  const centered = [];
+  for (const group of segments) {
+    const a = group[0], b = group.at(-1);
+    days += b.day - a.day;
+    countedIntake += b.intake - a.intake;
+    countedNet += b.net - a.net;
+    // Each uninterrupted stretch has its own intercept. Its slope estimates
+    // baseline expenditure in kcal/day from the very same elapsed days.
+    const xs = group.map(p => p.day - a.day);
+    const ys = group.map(p => p.net - a.net - density * (p.weight - a.weight));
+    const mean = values => values.reduce((sum, v) => sum + v, 0) / values.length;
+    const meanX = mean(xs), meanY = mean(ys);
+    for (const [i, x] of xs.entries()) {
+      const dx = x - meanX, dy = ys[i] - meanY;
+      xx += dx * dx;
+      xy += dx * dy;
+      centered.push({ dx, dy });
+    }
+  }
+  const coverage = days / spanDays;
+  const lastUsed = segments.at(-1)?.at(-1);
+  if (days < 14 || coverage < .75 || centered.length < 8 || !lastUsed ||
+      _daySpan(_shiftDate(first, lastUsed.day), end) > 3 || xx <= 0) {
+    const gaps = [missingFoodDates.length && 'food', missingStepsDates.length && 'steps'].filter(Boolean).join(' and ');
+    return unavailable(`Too few recent matched days for calibration${gaps ? ' (missing ' + gaps + ')' : ''}. Keep logging food, steps and morning weights.`, missing);
+  }
+  const avgIntake = countedIntake / days, tdee = xy / xx;
+  if (avgIntake < 1000) return unavailable('Average logged intake is below the calibration range. Review the food entries before changing the estimate.', missing);
+  const errorKg = Math.sqrt(centered.reduce((sum, p) => sum + ((p.dy - tdee * p.dx) / density) ** 2, 0) / centered.length);
+  if (errorKg > Math.max(.35, my * .008)) return unavailable('Recent weights are too noisy to recalibrate. Keep logging while the trend settles.', missing);
+  return { estimate:{ tdee:Math.round(tdee), avgIntake:Math.round(avgIntake), normalizedIntake:Math.round(countedNet / days),
+    weeklyRateKg:Math.round(slope * 700) / 100, spanDays, dataPoints:days, coverage, density:Math.round(density),
+    firstDate:_shiftDate(first, segments[0][0].day), lastDate:_shiftDate(first, lastUsed.day), discardedWeights:points.length-filtered.length }, reason:null, ...missing };
 }
 
 export function estimateTDEE(logs, options) {
@@ -218,7 +264,7 @@ export function evaluateMuscleRisk({ strengthReports = [], e1rmTrend = [] } = {}
     Number(lastTwo[1].weekKey) - Number(lastTwo[0].weekKey) === 1
 
   const valid = e1rmTrend.filter(x => Number.isFinite(+x?.baseline) && Number.isFinite(+x?.current) && +x.baseline > 0)
-  const objectiveDrop = valid.some(x => (+x.current / +x.baseline) <= 0.97)
+  const objectiveDrop = valid.some(x => x.confirmedDrop ?? ((+x.current / +x.baseline) <= 0.97))
   const confirmed = consecutiveDown || objectiveDrop
   return {
     confirmed,
@@ -230,10 +276,10 @@ export function evaluateMuscleRisk({ strengthReports = [], e1rmTrend = [] } = {}
 const PRIMARY_COMPOUNDS = new Set(['squat', 'front_squat', 'bench_press', 'deadlift', 'rdl', 'ohp', 'pull_up'])
 const _e1rm = (weight, reps) => reps === 1 ? weight : weight * (1 + reps / 30)
 
-export function objectiveE1rmTrend(workouts = [], asOfDate = null) {
-  const dated = workouts.filter(w => w?.date && (!asOfDate || w.date <= asOfDate)).sort((a,b)=>a.date.localeCompare(b.date))
+export function objectiveE1rmTrend(workouts = [], asOfDate = null, weighIns = []) {
+  const dated = (Array.isArray(workouts) ? workouts : []).filter(w => validDate(w?.date) && (!asOfDate || w.date <= asOfDate)).sort((a,b)=>a.date.localeCompare(b.date))
   if (!dated.length) return []
-  const end = dated.at(-1).date
+  const end = asOfDate || dated.at(-1).date
   const endDate = new Date(end + 'T12:00:00')
   const shift = days => { const d = new Date(endDate); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
   const recentStart = shift(-13)
@@ -244,19 +290,31 @@ export function objectiveE1rmTrend(workouts = [], asOfDate = null) {
     if (!window) continue
     for (const exercise of workout.exercises || []) {
       if (!PRIMARY_COMPOUNDS.has(exercise.exerciseId)) continue
-      const best = (exercise.sets || []).filter(s => s.done !== false && +s.weight > 0 && +s.reps > 0)
-        .reduce((bestSet, s) => Math.max(bestSet, _e1rm(+s.weight, +s.reps)), 0)
-      if (best > 0) byLift[exercise.exerciseId] ||= { baseline: [], current: [] }
-      if (best > 0) byLift[exercise.exerciseId][window].push(best)
+      const pullUp = exercise.exerciseId === 'pull_up'
+      const bodyWeight = pullUp ? weighIns.filter(l => l.date <= workout.date && l.date >= _shiftDate(workout.date,-6) && +l.weight >= 35 && +l.weight <= 350).at(-1)?.weight : 0
+      if (pullUp && !bodyWeight) continue
+      const best = new Map()
+      for (const s of exercise.sets || []) {
+        const reps = +s.reps, load = Number(s.weight || 0) + Number(bodyWeight)
+        if (s.done === false || load <= 0 || !Number.isFinite(load) || !Number.isInteger(reps) || reps < 1 || reps > 12) continue
+        const key = [exercise.exerciseId, reps, s.rir ?? ''].join(':')
+        best.set(key, Math.max(best.get(key) || 0, _e1rm(load, reps)))
+      }
+      for (const [key, top] of best) {
+        byLift[key] ||= { baseline:new Map(), current:new Map() }
+        const sessions = byLift[key][window]
+        sessions.set(workout.date, Math.max(sessions.get(workout.date) || 0, top))
+      }
     }
   }
   return Object.entries(byLift)
-    .filter(([, value]) => value.baseline.length && value.current.length)
-    .map(([exerciseId, value]) => ({
-      exerciseId,
-      baseline: value.baseline.reduce((s, x) => s + x, 0) / value.baseline.length,
-      current: value.current.reduce((s, x) => s + x, 0) / value.current.length,
-    }))
+    .filter(([, value]) => value.baseline.size && value.current.size >= 2)
+    .map(([key, value]) => {
+      const mean = sessions => [...sessions.values()].reduce((s, x) => s + x, 0) / sessions.size
+      const baseline = mean(value.baseline)
+      return { exerciseId:key.split(':')[0], baseline, current:mean(value.current),
+        confirmedDrop:[...value.current.values()].filter(load => load <= baseline * .97).length >= 2 }
+    })
 }
 
 /* Estimate current fat mass & BF% from an anchor + modelled fat loss.

@@ -120,7 +120,7 @@ export function normalizeProfile(raw) {
     value.stepGoal ?? 0,
     Math.min(100000, Math.max(0, value.userMaxStepBudget)),
   ));
-  for (const key of ["maintenanceSince", "calibrationSince", "goalChangedAt"])
+  for (const key of ["maintenanceSince", "calibrationSince", "goalChangedAt", "foodPlanSince"])
     if (value[key] && !validDate(value[key])) {
       value[key] = null;
     }
@@ -208,17 +208,15 @@ export const median = (values) => {
 // Keep the recorded facts; exclude isolated errors only from inferred metrics.
 export function weightEvidence(logs) {
   const weighed = logs.filter((log) => between(log.weight, 35, 350));
+  const byDay = new Map(weighed.map(l => [Date.parse(l.date) / 86400000, l.weight]));
   const accepted = [],
     outliers = [];
   for (const log of weighed) {
-    const time = Date.parse(log.date);
-    const neighbours = weighed
-      .filter(
-        (other) =>
-          other !== log &&
-          Math.abs(Date.parse(other.date) - time) <= 4 * 86400000,
-      )
-      .map((other) => other.weight);
+    const day = Date.parse(log.date) / 86400000;
+    const neighbours = [];
+    for (let offset = -4; offset <= 4; offset++) {
+      if (offset && byDay.has(day + offset)) neighbours.push(byDay.get(day + offset));
+    }
     const center = median(neighbours),
       mad =
         center == null

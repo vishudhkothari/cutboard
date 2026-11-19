@@ -71,6 +71,7 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
         </span>
       </div>
       {row("Baseline maintenance TDEE", energy.base)}
+      {row("Food target at usual steps", energy.target)}
       {row(
         `Steps vs usual · ${STEP_KCAL_PER_1000} kcal / 1,000`,
         `${energy.stepCredit > 0 ? "+" : ""}${energy.stepCredit}`,
@@ -123,6 +124,24 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
         >
           Use adaptive target
         </button>
+      )}
+      {(quality.missingFoodDates?.length > 0 || quality.missingStepsDates?.length > 0) && (
+        <div style={{ fontSize:12, color:C.textSub, marginTop:8 }}>
+          Excluded intervals. {quality.missingFoodDates?.length > 0 && <>Missing food on {quality.missingFoodDates.join(", ")}. </>}
+          {quality.missingStepsDates?.length > 0 && <>Missing steps on {quality.missingStepsDates.join(", ")}.</>}
+        </div>
+      )}
+      {energy.foodReview && (
+        <div style={{ fontSize:13, color:C.textSub, lineHeight:1.55, marginTop:12 }}>
+          <strong>Food review · {formatDate(energy.foodReview.date)}</strong>
+          <div>{energy.foodReview.reason}</div>
+          {energy.foodReview.previousTarget !== energy.foodReview.suggestedTarget && (
+            <div>{energy.isManual ? "Suggested baseline" : "Baseline"} · {energy.foodReview.previousTarget} → {energy.foodReview.suggestedTarget} kcal/day</div>
+          )}
+        </div>
+      )}
+      {energy.manualExceedsLimit && (
+        <div style={{ color:C.orange, fontSize:13, marginTop:10 }}>The fixed food target exceeds the automatic deficit limit. Review the manual baseline.</div>
       )}
       <div
         style={{

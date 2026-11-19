@@ -1,5 +1,4 @@
-import { completeFood, daySpan, getDynamicStepGoal, getPlanForDate, movementCredit, shiftDay, today } from './planEngine.js'
-import { buildDayPlan } from './cutEngine.js'
+import { completeFood, createTargetResolver, daySpan, getDynamicStepGoal, shiftDay, today } from './planEngine.js'
 import { hasSleep, hasSteps, numeric, reviewFields, validDate, withinCalorieTarget } from './modelInputs.js'
 
 export const HABITS = ['diet', 'steps', 'sleep']
@@ -30,38 +29,24 @@ export function consistencyDay(log, { calorieTarget = null, stepGoal = null } = 
   return { date: log?.date, habits, score: HABITS.filter(key => habits[key].status === 'met').length }
 }
 
-export function consistencyHistory({ logs = [], setup, cutIntel, workoutHistory, currentPlan, asOfDate = today() }) {
+export function consistencyHistory({ logs = [], setup, cutIntel, workoutHistory, currentPlan, resolveTargets, asOfDate = today() }) {
   const start = validDate(setup?.startDate) ? setup.startDate : asOfDate
   const scoped = logs.filter(log => validDate(log.date) && log.date >= start && log.date <= asOfDate)
-  const plan = currentPlan || getPlanForDate({ date: asOfDate, log: scoped.find(log => log.date === asOfDate), setup, logs: scoped, cutIntel, workoutHistory })
-  const energy = plan.energy
-  const currentStepGoal = energy?.stepGoal ?? getDynamicStepGoal(setup, [], cutIntel?.stepGoal).goal
-  // Old targets cannot be recovered exactly when they were never captured.
-  // Compare those records with the current plan, accounting for each day's
-  // movement through the shared budget builder. Resolve the energy model once
-  // so a year of legacy records does not recalculate the full history 365 times.
-  const fallbackTarget = log => {
-    if (!energy?.valid) return null
-    if (log?.date === asOfDate) return plan.eatTarget
-    const credit = movementCredit(energy.profile, log).total
-    return buildDayPlan({ baseTarget: energy.target, maintenance: energy.base + credit, floor: energy.floor, activityCredit: credit, currentWeightKg: energy.curW, proteinFactor: cutIntel?.proteinFactor }).eatTarget
-  }
-  const byDate = new Map(scoped.map(log => {
-    const captured = log.date < asOfDate && log.planSnapshot?.source !== 'reconstructed'
-    const savedCalories = captured ? numeric(log.planSnapshot?.eatTarget) : null
-    const savedSteps = captured ? numeric(log.planSnapshot?.stepGoal) : null
-    const hasSavedCalories = savedCalories != null && savedCalories >= 0
-    const hasSavedSteps = savedSteps != null && savedSteps >= 0 && savedSteps <= 100000
-    const calorieTarget = hasSavedCalories ? savedCalories : fallbackTarget(log)
-    return [log.date, {
-      ...consistencyDay(log, { calorieTarget, stepGoal: hasSavedSteps ? savedSteps : currentStepGoal }),
-      estimatedTargets: log.date < asOfDate && (!hasSavedCalories || !hasSavedSteps),
-    }]
-  }))
-  const empty = consistencyDay(null, { calorieTarget: fallbackTarget(null), stepGoal: currentStepGoal })
+  const targetsFor = resolveTargets || createTargetResolver({ setup, logs:scoped, cutIntel, workoutHistory, currentPlan, asOfDate })
+  const byDate = new Map(scoped.map(l => [l.date, l]))
+  const stepGoal = getDynamicStepGoal(setup, [], cutIntel?.stepGoal).goal
   return Array.from({ length: Math.max(0, daySpan(start, asOfDate) + 1) }, (_, index) => {
     const date = shiftDay(start, index)
-    return byDate.get(date) || { ...empty, date, estimatedTargets: date < asOfDate }
+    const log = byDate.get(date)
+    if (!log) {
+      const empty = consistencyDay(null, { stepGoal })
+      // Empty days have no score to compute. Only resolve their calorie
+      // allowance if the user opens that date's detail.
+      Object.defineProperty(empty.habits.diet, 'target', { enumerable:true, get:() => targetsFor(date).calories })
+      return { ...empty, date, estimatedTargets:date < asOfDate }
+    }
+    const targets = targetsFor(date)
+    return { ...consistencyDay(log, { calorieTarget:targets.calories, stepGoal:targets.steps }), estimatedTargets:targets.estimated }
   })
 }
 

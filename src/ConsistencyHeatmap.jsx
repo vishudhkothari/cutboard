@@ -12,7 +12,7 @@ const shortDate = date => new Date(`${date}T12:00:00`).toLocaleDateString('en-IN
 const monthName = date => new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { month: 'short' })
 const number = value => value == null ? '—' : Math.round(value).toLocaleString('en-IN')
 
-export default function ConsistencyHeatmap({ logs, setup, cutIntel, workoutHistory, currentPlan, asOfDate = today(), onOpenDate }) {
+export default function ConsistencyHeatmap({ logs, setup, cutIntel, workoutHistory, currentPlan, resolveTargets, asOfDate = today(), onOpenDate }) {
   const currentYear = +asOfDate.slice(0, 4)
   const startDate = setup.startDate
   const firstYear = Math.min(currentYear, +startDate.slice(0, 4))
@@ -20,7 +20,7 @@ export default function ConsistencyHeatmap({ logs, setup, cutIntel, workoutHisto
   const [habit, setHabit] = useState('all')
   const [selected, setSelected] = useState(asOfDate)
   const scrollRef = useRef(null)
-  const days = useMemo(() => consistencyHistory({ logs, setup, cutIntel, workoutHistory, currentPlan, asOfDate }), [logs, setup, cutIntel, workoutHistory, currentPlan, asOfDate])
+  const days = useMemo(() => consistencyHistory({ logs, setup, cutIntel, workoutHistory, currentPlan, resolveTargets, asOfDate }), [logs, setup, cutIntel, workoutHistory, currentPlan, resolveTargets, asOfDate])
   const byDate = useMemo(() => new Map(days.map(day => [day.date, day])), [days])
   const dates = useMemo(() => calendarYear(year), [year])
   const weeks = dates.length / 7
@@ -115,9 +115,9 @@ export default function ConsistencyHeatmap({ logs, setup, cutIntel, workoutHisto
           return <div key={key} className="consistency-habit"><div><Icon name={filter.icon} size={14} color={C.textSub} /><strong>{filter.label}</strong><span className={`consistency-status ${item.status === 'met' ? 'is-met' : ''}`}>{item.status === 'met' && <Icon name="check" size={12} />}{status}</span></div><span className="consistency-value">{value}</span></div>
         })}
       </div>
-      {selectedDay.estimatedTargets && <p className="consistency-target-note">Some goals weren’t saved for this date. Those targets use your current plan.</p>}
+      {selectedDay.estimatedTargets && <p className="consistency-target-note">Some targets were reconstructed from the records available for this date.</p>}
       {onOpenDate && <button type="button" className="consistency-open" onClick={() => onOpenDate(selectedDate)}>Open {selectedDate === asOfDate ? 'today’s log' : `${shortDate(selectedDate)} log`}<Icon name="arrowRight" size={13} /></button>}
     </div>
-    <details className="consistency-rules"><summary>How days count</summary><p>Diet: logged calories within 5% of the day’s target (at least 75 kcal either side). Steps: logged count at the day’s goal. Sleep: at least 7 logged hours. Saved values count automatically; no daily confirmation is needed. Brighter squares mean more targets met.</p><p>Today updates as you log. The last saved values are the day’s totals. Missing entries stay unknown. Streaks span all tracked days. Where a past goal wasn’t saved, the comparison uses your current plan.</p></details>
+    <details className="consistency-rules"><summary>How days count</summary><p>Diet: logged calories within 5% of the day’s target (at least 75 kcal either side). Steps: logged count at the day’s goal. Sleep: at least 7 logged hours. Saved values count automatically; no daily confirmation is needed. Brighter squares mean more targets met.</p><p>Today updates as you log. Missing entries stay unknown. Streaks span all tracked days. Past days use the saved target when available. Otherwise the app estimates the target for that date.</p></details>
   </section>
 }

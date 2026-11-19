@@ -7,6 +7,8 @@ export default function LogNumberInput({ value, onCommit, ...props }) {
   const editing = useRef(false)
   const commitRef = useRef(onCommit)
   commitRef.current = onCommit
+  const latest = useRef({ draft, value })
+  latest.current = { draft, value }
   useEffect(() => {
     if (!editing.current) setDraft(String(value ?? ''))
   }, [value])
@@ -20,6 +22,7 @@ export default function LogNumberInput({ value, onCommit, ...props }) {
   useEffect(() => {
     const flush = () => {
       if (!editing.current) return
+      const { draft, value } = latest.current
       const next = draft === '' ? null : Number(draft)
       if (next !== value && (next === null || Number.isFinite(next))) commitRef.current(next)
     }
@@ -29,8 +32,11 @@ export default function LogNumberInput({ value, onCommit, ...props }) {
     return () => {
       window.removeEventListener('pagehide', flush)
       document.removeEventListener('visibilitychange', onVisibility)
+      // A date change or a sign-out from another tab can remove the field
+      // before blur or its debounce fires. Preserve the last valid entry.
+      flush()
     }
-  }, [draft, value])
+  }, [])
   const commit = () => {
     editing.current = false
     const next = draft.trim() === '' ? null : Number(draft)
