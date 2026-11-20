@@ -168,7 +168,7 @@ export function analyzeTDEE(logs, {windowDays=28,fatFraction=ENERGY_DENSITY_CONF
   if(filtered.length<8||filtered.length<points.length*.75)return unavailable('Too many unusual weigh-ins to estimate maintenance reliably.');
   weighed=filtered.map(p=>p.log);
   const first=weighed[0].date,last=weighed.at(-1).date,spanDays=_daySpan(first,last);
-  if(spanDays<14)return unavailable('Calibration needs weigh-ins spanning at least 14 days.');
+  if(spanDays + 1 < LEARN_DAYS)return unavailable(`The available weigh-ins span ${spanDays + 1} calendar days. Calibration needs weights across ${LEARN_DAYS} calendar days.`);
   if(_daySpan(last,end)>3)return unavailable('The last weigh-in is over 3 days old. Add a recent morning weight.');
   const mx=filtered.reduce((s,p)=>s+p.x,0)/filtered.length,my=filtered.reduce((s,p)=>s+p.y,0)/filtered.length;
   const slope=filtered.reduce((s,p)=>s+(p.x-mx)*(p.y-my),0)/filtered.reduce((s,p)=>s+(p.x-mx)**2,0);
@@ -223,7 +223,8 @@ export function analyzeTDEE(logs, {windowDays=28,fatFraction=ENERGY_DENSITY_CONF
   }
   const coverage = days / spanDays;
   const lastUsed = segments.at(-1)?.at(-1);
-  if (days < 14 || coverage < .75 || centered.length < 8 || !lastUsed ||
+  // Fourteen logged dates have thirteen morning-to-morning intervals.
+  if (coverage < .75 || centered.length < 8 || !lastUsed ||
       _daySpan(_shiftDate(first, lastUsed.day), end) > 3 || xx <= 0) {
     const gaps = [missingFoodDates.length && 'food', missingStepsDates.length && 'steps'].filter(Boolean).join(' and ');
     return unavailable(`Too few recent matched days for calibration${gaps ? ' (missing ' + gaps + ')' : ''}. Keep logging food, steps and morning weights.`, missing);

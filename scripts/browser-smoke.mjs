@@ -374,6 +374,40 @@ try {
     "PASS v2-only scale-goal restoration without a body-fat anchor across all five tabs",
   );
 
+  // Reproduce the reported Nov 20 screen, then advance the same account to its first review.
+  const learningContext = await browser.newContext({ timezoneId:'Asia/Kolkata', serviceWorkers:'block' });
+  const learningPage = await learningContext.newPage();
+  learningPage.on('pageerror', error => errors.push(error.message));
+  const learningStart = '2026-11-11';
+  const learningRows = Array.from({ length:14 }, (_, i) => {
+    const d = shiftDay(learningStart, i);
+    return [`log:${d}`, { date:d, weight:i === 9 ? null : 85 - i * .05, steps:10000, meals:[{ name:'Daily total', cals:2000 }] }];
+  });
+  const learningSeed = [['setup', { ...setup, startDate:learningStart }], ...learningRows.slice(0,10)];
+  await learningPage.addInitScript(({ key, seed }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(seed));
+  }, { key, seed:learningSeed });
+  await learningPage.clock.setFixedTime(new Date('2026-11-20T06:30:00Z'));
+  await learningPage.goto(process.env.TEST_URL || 'http://127.0.0.1:5173');
+  const openLearning = () => learningPage.getByRole('button', { name:'Cut IQ', exact:true }).first().click();
+  await openLearning();
+  await learningPage.getByText('Logged this cut: 10 days · Food: 10 · Steps: 10 · Weigh-ins: 9', { exact:true }).waitFor();
+  await learningPage.getByText(/Learning progress: 10 of 14 logged days.*24 Nov/).waitFor();
+  assert.doesNotMatch(await learningPage.locator('body').innerText(), /not enough recent weigh-ins|four weeks|25 Nov/i);
+  await learningPage.evaluate(({ key, extra }) => {
+    const rows = new Map(JSON.parse(localStorage.getItem(key)));
+    for (const [k, value] of extra) rows.set(k, value);
+    localStorage.setItem(key, JSON.stringify([...rows]));
+  }, { key, extra:learningRows.slice(10) });
+  await learningPage.clock.setFixedTime(new Date('2026-11-24T06:30:00Z'));
+  await learningPage.reload();
+  await openLearning();
+  await learningPage.getByText('Logged this cut: 14 days · Food: 14 · Steps: 14 · Weigh-ins: 13', { exact:true }).waitFor();
+  await learningPage.getByText(/First review: 24 Nov\. Last accepted estimate: 24 Nov/).waitFor();
+  await learningPage.getByText('Observed estimate', { exact:true }).waitFor();
+  await learningContext.close();
+  console.log('PASS ten saved dates count under a manual target and the first maintenance estimate appears on day fourteen');
+
   // A fully logged plateau must learn without any old completion switches.
   // The issued baseline is 2,397. Consistently eating 1,900 holds that baseline; 5,000 extra steps add 200.
   const learnedContext = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });

@@ -366,14 +366,82 @@ test("known zero intake is actual data and no saved fasting prescription substit
   assert.deepEqual(a, b);
   assert.ok(a.avgIntake < 2000);
 });
-test("calibration begins after 28 days and each accepted weekly correction is bounded", () => {
+test("ten saved November dates count from the first log through today and project the four remaining days", () => {
+  const startDate = "2026-11-11", s = { ...setup, startDate };
+  const logs = series(10).map((l, i) => ({ ...l, date:shiftDay(startDate, i), foodComplete:false,
+    weight:i === 9 ? null : String(l.weight), steps:String(l.steps) }));
+  const today = logs[9].date;
+  const input = [...logs, logs[0], full({ date:"2026-11-10" }), full({ date:"2026-11-21", weight:85 })];
+  const model = getAdaptiveTDEE(s, input, today);
+  const q = model.calibration;
+  assert.equal(q.status, "learning");
+  assert.deepEqual([q.loggedDays, q.foodDays, q.stepDays, q.weighIns], [10,10,10,9]);
+  assert.equal(q.daysRemaining, 4);
+  assert.equal(q.nextReviewDate, "2026-11-24");
+  assert.match(model.review.headline, /10 of 14 logged days/);
+  assert.equal(model.isDataDriven, false);
+  const tenthWeight = logs.map((l, i) => i === 9 ? { ...l, weight:84.3 } : l);
+  assert.equal(getAdaptiveTDEE(s, tenthWeight, today).calibration.weighIns, 10);
+  const missed = getAdaptiveTDEE(s, [...logs, {date:"2026-11-22", meals:[], notes:"rest"}], "2026-11-22").calibration;
+  assert.equal(missed.daysRemaining, 4);
+  assert.equal(missed.nextReviewDate, "2026-11-25"); // Today can still be the next recorded date.
+});
+
+test("the first review accepts fourteen inclusive dates and never applies two corrections within a week", () => {
   const logs = series(43),
     s = { ...setup, startDate: logs[0].date };
-  assert.equal(getAdaptiveTDEE(s, logs, logs[21].date).isDataDriven, false);
-  const first = getAdaptiveTDEE(s, logs, logs[28].date);
+  assert.equal(getAdaptiveTDEE(s, logs, logs[12].date).isDataDriven, false);
+  const first = getAdaptiveTDEE(s, logs, logs[13].date);
   const formula = Math.round(Math.round(restingEnergy(s, first.curW)) * 1.45);
   assert.equal(first.isDataDriven, true);
-  assert.ok(Math.abs(first.base - formula) <= 101);
+  assert.equal(first.calibration.status, "calibrated");
+  assert.equal(first.calibration.firstReviewDue, logs[13].date);
+  assert.equal(first.calibration.lastAcceptedReview, logs[13].date);
+  assert.equal(first.calibration.nextReviewDate, logs[21].date);
+  assert.equal(first.estimate.firstDate, logs[0].date);
+  assert.equal(first.estimate.dataPoints, 13);
+  assert.equal(first.estimate.tdee, 2400);
+  assert.ok(Math.abs(first.base - formula) <= 100);
+  assert.equal(first.review.actualRateKg, .55);
+  assert.equal(getAdaptiveTDEE(s, logs, logs[20].date).calibration.lastAcceptedReview, logs[13].date);
+  assert.equal(getAdaptiveTDEE(s, logs, logs[21].date).calibration.lastAcceptedReview, logs[21].date);
+  logs[13].meals = [{ cals:8000 }];
+  assert.equal(getAdaptiveTDEE(s, logs, logs[13].date).estimate.tdee, 2400);
+});
+
+test("gaps advance the first review only on the fourteenth distinct logged date, including backfills", () => {
+  const logs = series(16), s = { ...setup, startDate:logs[0].date };
+  const skipped = logs.filter((_, i) => i !== 4);
+  const before = getAdaptiveTDEE(s, skipped, logs[13].date).calibration;
+  assert.equal(before.daysRemaining, 1);
+  assert.equal(before.nextReviewDate, logs[14].date);
+  const after = getAdaptiveTDEE(s, skipped, logs[14].date);
+  assert.equal(after.calibration.lastAcceptedReview, logs[14].date);
+  assert.deepEqual(after.calibration.missingFoodDates, [logs[4].date]);
+  const filled = getAdaptiveTDEE(s, [...skipped, logs[4]], logs[14].date);
+  assert.equal(filled.calibration.lastAcceptedReview, logs[13].date);
+  assert.equal(filled.calibration.loggedDays, 15);
+});
+
+test("learning ends on log fourteen even with insufficient evidence and retries before the next weekly review", () => {
+  const logs = series(17), s = { ...setup, startDate:logs[0].date };
+  const sparse = logs.map((l, i) => ({ ...l, weight:i < 7 || i === 15 ? l.weight : null }));
+  const held = getAdaptiveTDEE(s, sparse, logs[13].date);
+  assert.equal(held.isDataDriven, false);
+  assert.equal(held.calibration.status, "needs_data");
+  assert.equal(held.calibration.daysRemaining, 0);
+  assert.equal(held.calibration.nextReviewDate, null);
+  assert.match(held.calibration.reason, /8 recent weigh-ins.*7 are available/);
+  assert.equal(getAdaptiveTDEE(s, sparse, logs[15].date).calibration.lastAcceptedReview, logs[15].date);
+  for (const [field, expected] of [["steps","steps"], ["meals","food"]]) {
+    const incomplete = logs.map(l => ({ ...l, [field]:field === "meals" ? [] : null, foodComplete:false }));
+    const result = getAdaptiveTDEE(s, incomplete, logs[13].date);
+    assert.equal(result.calibration.status, "needs_data");
+    assert.equal(result.calibration.weighIns, 14);
+    assert.match(result.calibration.reason, new RegExp("missing " + expected));
+  }
+  const noFoodOrSteps = getAdaptiveTDEE(s, logs.map(l => ({ date:l.date, weight:l.weight })), logs[13].date);
+  assert.deepEqual([noFoodOrSteps.calibration.loggedDays, noFoodOrSteps.calibration.foodDays, noFoodOrSteps.calibration.stepDays], [14,0,0]);
 });
 test("missing later food holds the learned estimate and identifies the date to fix", () => {
   const logs = series(43),
@@ -426,9 +494,16 @@ test("a sustained change in observed maintenance updates the learned baseline gr
   assert.ok(Math.abs(previous - 2050) < 30, 'New evidence must replace the older expenditure regime');
 });
 test("a changed baseline restarts calibration instead of reusing the previous activity regime", () => {
-  const logs = series(43),
+  const logs = series(50),
     s = { ...setup, startDate: logs[0].date, calibrationSince: logs[35].date };
-  assert.equal(getAdaptiveTDEE(s, logs, logs.at(-1).date).isDataDriven, false);
+  const before = getAdaptiveTDEE(s, logs, logs[44].date);
+  assert.equal(before.isDataDriven, false);
+  assert.equal(before.calibration.daysRemaining, 4);
+  assert.equal(before.calibration.loggedDays, 45);
+  assert.equal(before.calibration.nextReviewDate, logs[48].date);
+  const after = getAdaptiveTDEE(s, logs, logs[48].date);
+  assert.equal(after.calibration.lastAcceptedReview, logs[48].date);
+  assert.equal(after.estimate.firstDate, logs[35].date);
 });
 test("a future maintenance latch cannot contaminate earlier learning", () => {
   const logs = series(36),
@@ -439,7 +514,9 @@ test("a future maintenance latch cannot contaminate earlier learning", () => {
     };
   const result = getAdaptiveTDEE(s, logs, logs[21].date);
   assert.equal(result.phase, "cut");
-  assert.equal(result.estimate, null);
+  const ordinary = getAdaptiveTDEE({ ...s, maintenanceSince:null }, logs, logs[21].date);
+  assert.equal(result.estimate.tdee, 2400);
+  assert.deepEqual(result.calibration, ordinary.calibration);
 });
 test("old food targets cannot create punishment movement or calorie debt", () => {
   const old = shiftDay(date, -1),

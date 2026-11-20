@@ -28,14 +28,15 @@ test('weight alone, above-target intake and a single flat review hold the actual
 test('slow progress at the issued allowance triggers one bounded change then 14 days of observation', () => {
   const rows = series(43, i => {
     const steps = 10000 + (i % 3) * 1000
-    return { steps:i % 7 === 3 ? null : steps, meals:[{ cals:start + (steps-10000)*.04 - (i >= 28 ? 100 : 0) }] }
+    const reduction = i >= 35 ? 200 : i >= 21 ? 100 : 0
+    return { steps:i % 7 === 3 ? null : steps, meals:[{ cals:start + (steps-10000)*.04 - reduction }] }
   })
-  for (const [i, difference] of [[21,0],[28,-100],[35,-100],[42,-200]]) {
+  for (const [i, difference] of [[13,0],[14,0],[21,-100],[28,-100],[35,-200],[42,-200]]) {
     const result = plan(i, rows)
     assert.equal(result.energy.target, start + difference)
     assert.equal(result.eatTarget, result.energy.target + result.energy.stepCredit)
   }
-  const manual = plan(28, rows, { setup:{ ...setup, manualCalTarget:start } }).energy
+  const manual = plan(21, rows, { setup:{ ...setup, manualCalTarget:start } }).energy
   assert.equal(manual.target, start)
   assert.equal(manual.foodReview.suggestedTarget, start - 100)
 })
@@ -50,7 +51,7 @@ test('known food on a missing-step day still counts towards the intake compariso
 })
 
 test('fast loss on plan increases food once; under-eating or worsening strength veto a reduction', () => {
-  const s = { ...setup, goalWeight:68, cutLength:56 }
+  const s = { ...setup, goalWeight:68, cutLength:140 }
   const initial = plan(0, [], { setup:s }).eatTarget
   const reports = { strengthReports:[{ weekKey:3, recordedAt:date(21), signal:'down' }, { weekKey:4, recordedAt:date(28), signal:'down' }] }
   const fast = cals => series(36, i => ({ weight:75 - .8 * i / 7, meals:[{ cals }] }))
@@ -113,6 +114,23 @@ test('captured legacy baseline carries over, and retries cannot apply the same w
     assert.equal(rows[i].planSnapshot.target, p.energy.target)
   }
   assert.equal(rows[42].planSnapshot.target, 2050)
+})
+
+test('version 7 captured food reviews retain their adjustment history after the learning change', () => {
+  const rows = series(30)
+  const receipt = { date:date(14), target:start, previousTarget:start, suggestedTarget:start, lastChange:null, reason:'Previously issued food review.' }
+  rows[16].planSnapshot = { source:'captured', phase:'cut', modelVersion:7, target:start, eatTarget:start, foodReview:receipt }
+  assert.deepEqual(plan(17, rows).energy.foodReview, receipt)
+})
+
+test('reconstructed targets match the daily plan before and after a delayed midweek first estimate', () => {
+  const s = { ...setup, goalWeight:68, cutLength:56 }
+  const initial = plan(0, [], { setup:s }).eatTarget
+  const rows = series(21, i => ({ weight:i < 7 || i >= 17 ? 75-.8*i/7 : null, meals:[{ cals:initial }] }))
+  const resolver = createTargetResolver({ setup:s, logs:rows, asOfDate:date(20) })
+  assert.equal(plan(17, rows, { setup:s }).energy.calibration.lastAcceptedReview, date(17))
+  assert.ok(plan(17, rows, { setup:s }).eatTarget > plan(16, rows, { setup:s }).eatTarget)
+  for (const i of [19,16,17,14,18,15,13]) assert.equal(resolver(date(i)).calories, plan(i, rows, { setup:s }).eatTarget)
 })
 
 test('strength evidence uses recent comparable sessions and total load for pull-ups', () => {
