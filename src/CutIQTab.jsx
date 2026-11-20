@@ -105,7 +105,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
         ) : projection?.early ? (
           <div style={{ display:'grid', gridTemplateColumns:mobile?'1fr':'1.2fr 1fr', gap:18, alignItems:'center' }}>
             <div>
-              <div style={LBL}>Learning your rate</div>
+              <div style={LBL}>Weight trend</div>
               <div style={{ fontFamily:F.head, fontWeight:800, fontSize:mobile?22:24, color:C.accent, lineHeight:1.15 }}>
                 Building your projection
               </div>
@@ -393,7 +393,7 @@ export default function CutIQTab({ setup, allLogs, adaptiveTDEE, dayPlan, onUseA
             ))}
           </div>
           <div style={{ fontSize:11.5, color:C.textFaint, marginTop:12, lineHeight:1.5 }}>
-            Last accepted window ending {fmtD(tdeeEst.lastDate)}: {tdeeEst.dataPoints} logged days over {tdeeEst.spanDays} days, using morning weigh-ins and actual intake, normalized to usual movement. Observed TDEE is an estimate; the baseline used in Calorie Strategy changes gradually.
+            Last accepted window ending {fmtD(tdeeEst.lastDate)} covers {tdeeEst.spanDays + 1} calendar dates. The estimate uses {tdeeEst.dataPoints} days of food and steps between morning weights. The maintenance baseline in Calorie Strategy changes gradually.
           </div>
         </div>
       )}

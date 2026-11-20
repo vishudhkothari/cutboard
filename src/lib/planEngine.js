@@ -6,6 +6,7 @@ import {
   analyzeTDEE,
   inferBodyComp,
   ENGINE_CONST,
+  LEARN_DAYS,
   evaluateMuscleRisk,
   objectiveE1rmTrend,
 } from "./cutEngine.js";
@@ -27,7 +28,7 @@ export { completeFood, hasSteps } from "./modelInputs.js";
 
 export const STEP_KCAL_PER_1000 = 40;
 export const ENERGY_DENSITY = 7700;
-export const MODEL_VERSION = 7;
+export const MODEL_VERSION = 8;
 const finite = (x) =>
   (typeof x === "number" || (typeof x === "string" && x.trim() !== "")) &&
   Number.isFinite(+x);
@@ -51,6 +52,11 @@ export const shiftDay = (s, n) =>
   new Date(Date.parse(`${s}T12:00:00Z`) + n * 86400000)
     .toISOString()
     .slice(0, 10);
+const weekStart = (start, date) =>
+  shiftDay(start, Math.floor(daySpan(start, date) / 7) * 7);
+const hasCalibrationLog = (log) =>
+  completeFood(log) || hasSteps(log) || (log.weight != null && !reviewFields(log).includes("weight"));
+const hasFoodAndSteps = (log) => completeFood(log) && hasSteps(log);
 export const stepCalories = (count) =>
   Math.round(((finite(count) ? +count : 0) * STEP_KCAL_PER_1000) / 1000);
 
@@ -116,57 +122,97 @@ function goalReachedDate(logs, goalWeight, startDate) {
   return null;
 }
 
-function calibrationInput(setup, logs, reviewDate, maintenanceSince) {
-  const start = setup.startDate || reviewDate;
-  maintenanceSince =
-    maintenanceSince && maintenanceSince <= reviewDate
-      ? maintenanceSince
-      : null;
-  const hold = maintenanceSince && reviewDate < shiftDay(maintenanceSince, 28);
-  const end = hold ? shiftDay(maintenanceSince, -1) : reviewDate;
-  const first = [
-    shiftDay(start, 7),
-    setup.calibrationSince || start,
-    ...(maintenanceSince && !hold ? [shiftDay(maintenanceSince, 14)] : []),
-  ]
-    .sort()
-    .at(-1);
-  const windowStart = [first, shiftDay(end, -27)].sort().at(-1);
-  const records = logs.filter((l) => l.date >= windowStart && l.date <= end);
-  const completeDays = records.filter(
-    (l) =>
-      l.date < end &&
-      completeFood(l) &&
-      hasSteps(l),
-  ).length;
-  const weighed = records.filter(
-    (l) => finite(l.weight) && +l.weight >= 35 && +l.weight <= 350,
-  );
-  const span =
-    weighed.length > 1 ? daySpan(weighed[0].date, weighed.at(-1).date) : 0;
-  const ready = daySpan(setup.calibrationSince || start, end) >= 28;
-  const analysis = ready
-    ? analyzeTDEE(records, {
-        windowDays: 28,
-        asOfDate: end,
-        fatFraction: (ENERGY_DENSITY - 1800) / (9400 - 1800),
-        activityForLog: (l) =>
-          hasSteps(l)
-            ? movementCredit(setup, l).total
-            : NaN,
-      })
-    : {estimate:null, reason:"Weekly learning begins after four weeks of saved food, steps and morning weights."};
-  return {
-    estimate: analysis.estimate,
-    reason: analysis.reason,
-    missingFoodDates: analysis.missingFoodDates || [],
-    missingStepsDates: analysis.missingStepsDates || [],
-    completeDays,
-    weighIns: weighed.length,
-    spanDays: span,
-    ready,
-    hold: !!hold,
+function calibrate(setup, records, evidence, asOfDate, maintenanceSince, formulaFor) {
+  const start = setup.startDate;
+  const learningStart = setup.calibrationSince > start ? setup.calibrationSince : start;
+  const logged = records.filter(l => l.date >= start && hasCalibrationLog(l));
+  const learningLogs = logged.filter(l => l.date >= learningStart);
+  const firstReviewDue = learningLogs[LEARN_DAYS - 1]?.date ?? null;
+  const daysRemaining = Math.max(0, LEARN_DAYS - learningLogs.length);
+  const learningEvidence = evidence.filter(l => l.date >= learningStart);
+  const resume = maintenanceSince && shiftDay(maintenanceSince, 28);
+  const onHold = date => maintenanceSince && date >= maintenanceSince && date < resume;
+  const analyze = date => {
+    const from = shiftDay(date, -27);
+    const afterTransition = resume && date >= resume ? shiftDay(maintenanceSince, 14) : learningStart;
+    const recent = learningEvidence.filter(l => l.date >= from && l.date >= afterTransition && l.date <= date);
+    return analyzeTDEE(recent, {
+      windowDays: 28,
+      asOfDate: date,
+      fatFraction: (ENERGY_DENSITY - 1800) / (9400 - 1800),
+      activityForLog: l => movementCredit(setup, l).total,
+    });
   };
+  const plausible = (estimate, formula) => estimate && estimate.tdee >= formula * .65 && estimate.tdee <= formula * 1.5;
+  const history = new Map();
+  let estimate = null, lastReview = null, correction = 0, fingerprint = null;
+  const dates = new Set();
+  if (firstReviewDue && learningEvidence.some(hasFoodAndSteps)) {
+    // Every possible first review has a morning weight within three days.
+    // This also covers a first review between regular weekly review dates.
+    for (const l of learningEvidence) {
+      if (l.weight == null) continue;
+      for (let offset = 0; offset <= 3; offset++) {
+        const date = shiftDay(l.date, offset);
+        if (date >= firstReviewDue && date <= asOfDate) dates.add(date);
+      }
+    }
+  }
+  let todayAnalysis;
+  for (const date of [...dates].sort()) {
+    if (onHold(date)) continue;
+    if (lastReview && (weekStart(start, date) !== date || daySpan(lastReview, date) < 7)) continue;
+    const analysis = analyze(date);
+    if (date === asOfDate) todayAnalysis = analysis;
+    const candidate = analysis.estimate;
+    if (!candidate) continue;
+    const formula = formulaFor(weekStart(start, date));
+    if (!plausible(candidate, formula)) continue;
+    const key = `${candidate.firstDate}:${candidate.lastDate}:${candidate.tdee}:${candidate.avgIntake}`;
+    if (key === fingerprint) continue;
+    correction += clamp((candidate.tdee - formula - correction) * .5, -100, 100);
+    estimate = candidate;
+    lastReview = date;
+    fingerprint = key;
+    history.set(date, correction);
+  }
+
+  const hold = onHold(asOfDate);
+  const input = firstReviewDue && !hold ? todayAnalysis ?? analyze(asOfDate) : null;
+  const outsideRange = input?.estimate && !plausible(input.estimate, formulaFor(weekStart(start, asOfDate)));
+  let status, nextReviewDate = null, reason = null;
+  if (hold) {
+    status = "transition_hold";
+    reason = "Holding calibration while maintenance water weight settles.";
+    nextReviewDate = lastReview ? shiftDay(weekStart(start, shiftDay(resume, -1)), 7) : resume;
+  } else if (daysRemaining) {
+    status = "learning";
+    const loggedToday = learningLogs.at(-1)?.date === asOfDate;
+    const nextLogDate = asOfDate < start ? start : shiftDay(asOfDate, loggedToday ? 1 : 0);
+    nextReviewDate = shiftDay(nextLogDate, daysRemaining - 1);
+    reason = `The first calorie review is due after ${daysRemaining} more logged ${daysRemaining === 1 ? "day" : "days"}.`;
+  } else {
+    status = input?.estimate && !outsideRange ? "calibrated" : "needs_data";
+    reason = outsideRange
+      ? "The observed maintenance estimate is outside the formula's review range. Check food, steps and profile assumptions."
+      : input?.reason;
+    if (lastReview) {
+      nextReviewDate = shiftDay(weekStart(start, asOfDate), 7);
+      if (daySpan(lastReview, nextReviewDate) < 7) nextReviewDate = shiftDay(nextReviewDate, 7);
+    }
+  }
+  const calibration = {
+    status, reason, learningStart, learningGoal: LEARN_DAYS, daysRemaining, firstReviewDue,
+    loggedDays: logged.length,
+    foodDays: logged.filter(completeFood).length,
+    stepDays: logged.filter(hasSteps).length,
+    weighIns: logged.filter(l => l.weight != null).length,
+    lastAcceptedReview: lastReview,
+    nextReviewDate,
+    missingFoodDates: input?.missingFoodDates ?? [],
+    missingStepsDates: input?.missingStepsDates ?? [],
+  };
+  return { history, correction, estimate, calibration };
 }
 
 const roundRate = (value) => Math.round(value * 100) / 100;
@@ -175,7 +221,7 @@ function invalidEnergy(profile, inputIssues) {
     valid:false, profile, inputIssues, records:[], target:null, base:null,
     bmr:null, floor:null, curW:null, deficit:null, effMaint:null,
     activityCredit:0, stepCredit:0, phase:"review_profile", isDataDriven:false,
-    calibration:{status:"review_profile",completeDays:0,weighIns:0},
+    calibration:{status:"review_profile",loggedDays:0,foodDays:0,stepDays:0,weighIns:0},
   };
 }
 function weeklyLoss(logs, asOfDate, start) {
@@ -186,7 +232,7 @@ function weeklyLoss(logs, asOfDate, start) {
     (l) => l.date < middle,
   );
   const canMeasure =
-    daySpan(start, asOfDate) >= 14 &&
+    daySpan(start, asOfDate) + 1 >= LEARN_DAYS &&
     recent.length >= 3 &&
     previous.length >= 3 &&
     daySpan(recent.at(-1).date, asOfDate) <= 3 &&
@@ -242,7 +288,7 @@ function decideFood({ date, target, lastChange, base, floor, capacity, weight, p
       ? "Recovery review. Bring intake back to the issued allowance before considering a change."
       : "Hold the allowance and review the recent weight and strength trend.";
   } else if (loss == null || !food.ready) {
-    reason = "Hold the allowance while more morning weights, food and steps are recorded.";
+    reason = "Keep the current allowance. Food reviews compare two weeks of logged intake, steps and morning weights.";
   } else if (!onBudget) {
     reason = `Hold the allowance. Logged intake averaged ${food.intake} kcal against an issued ${food.allowance} kcal.`;
   } else if (loss >= plannedRate * .75) {
@@ -278,7 +324,7 @@ function weeklyFoodPlan({ setup, logs, asOfDate, reviewDate, floor, formulaFor, 
     reason:"Starting allowance at usual steps. The next weekly review checks progress." };
   const baselines = new Map([[start, initial]]);
   const baselineOn = date => {
-    const week = shiftDay(setup.startDate, Math.floor(daySpan(setup.startDate, date) / 7) * 7);
+    const week = weekStart(setup.startDate, date);
     return baselines.get(week) ?? initial;
   };
   // Include both ends of each logged week. Empty stretches do not produce
@@ -287,7 +333,7 @@ function weeklyFoodPlan({ setup, logs, asOfDate, reviewDate, floor, formulaFor, 
   const captures = new Map();
   for (const l of logs) {
     if (l.date < start) continue;
-    const week = shiftDay(setup.startDate, Math.floor(daySpan(setup.startDate, l.date) / 7) * 7);
+    const week = weekStart(setup.startDate, l.date);
     dates.add(week);
     dates.add(shiftDay(week, 7));
     const s = l.planSnapshot;
@@ -296,10 +342,13 @@ function weeklyFoodPlan({ setup, logs, asOfDate, reviewDate, floor, formulaFor, 
       captures.set(week, { log:l, snapshot:s });
     }
   }
-  let correction = 0;
-  for (const [d, value] of calibrationHistory) if (d < start) correction = value;
+  const updates = [...calibrationHistory];
+  let correction = 0, update = 0;
   for (const date of [...dates].filter(d => d <= reviewDate).sort()) {
-    if (calibrationHistory.has(date)) correction = calibrationHistory.get(date);
+    while (update < updates.length && updates[update][0] <= date) {
+      correction = updates[update][1];
+      update++;
+    }
     if (date < start && shiftDay(date, 7) <= start) continue;
     if (date > start) {
       const weight = referenceAt(setup, logs, date).weight;
@@ -318,7 +367,7 @@ function weeklyFoodPlan({ setup, logs, asOfDate, reviewDate, floor, formulaFor, 
         ? captured.log.steps - s.stepCredit * 1000 / STEP_KCAL_PER_1000 : setup.stepGoal);
       const shift = stepCalories(setup.stepGoal - oldSteps);
       const savedTarget = Math.max(floor, Math.round(Number(s.target) + shift));
-      const saved = Number(s.modelVersion) === MODEL_VERSION && s.foodReview?.date === decision.date &&
+      const saved = [7, MODEL_VERSION].includes(Number(s.modelVersion)) && s.foodReview?.date === decision.date &&
         finite(s.foodReview.previousTarget) && finite(s.foodReview.suggestedTarget) ? s.foodReview : null;
       decision = saved ? { ...saved, previousTarget:Number(saved.previousTarget) + shift, target:savedTarget,
         suggestedTarget:Number(saved.suggestedTarget) + shift } : { ...decision, target:savedTarget, previousTarget:savedTarget,
@@ -365,11 +414,14 @@ function reviewFor(energy, logs, asOfDate) {
     ];
   } else if (!canMeasure) {
     status = "learning";
-    headline = "Not enough recent weigh-ins to judge pace";
-    actions = [
-      "Record at least three weights in each recent seven-day window, spanning at least ten calendar days.",
-      "Missing or old weights do not establish a current plateau.",
-    ];
+    const q = energy.calibration;
+    if (q.status === "learning") {
+      headline = `Learning progress · ${q.learningGoal - q.daysRemaining} of ${q.learningGoal} logged days`;
+      actions = ["The first pace comparison uses two weeks of morning weights."];
+    } else {
+      headline = "More recent weigh-ins needed to judge pace";
+      actions = ["Pace needs three weights in each of the past two weeks, spanning at least ten days, with a weight in the past four calendar days."];
+    }
   } else if (energy.deficit <= 0) {
     status = "calorie_hold";
     headline = "This allowance has no planned deficit";
@@ -439,9 +491,9 @@ function reviewFor(energy, logs, asOfDate) {
       dateSlow: shiftDay(asOfDate, Math.ceil((weeks / 0.75) * 7)),
     };
   }
-  if (energy.foodReview) {
+  if (energy.foodReview && canMeasure) {
     const decision = energy.foodReview;
-    actions = [decision.reason, `Next food review on ${energy.calibration.nextReviewDate}.`];
+    actions = [decision.reason, `Next food review on ${shiftDay(energy.reviewDate, 7)}.`];
   }
   return {
     review: { ...stats, status, headline, actions, learning: !canMeasure },
@@ -515,85 +567,11 @@ export function getAdaptiveTDEE(
     asOfDate < startDate ? "planned" : maintenanceSince ? "maintenance" : "cut";
   const goalDate = shiftDay(startDate, setup.cutLength);
   const deadlineMissed = phase === "cut" && asOfDate >= goalDate;
-  // Only weeks with actual recent weighing can add evidence. Long gaps cannot
-  // replay thousands of empty reviews or repeatedly apply one old window.
-  const reviewDates = [
-    ...new Set(
-      evidence.accepted
-        .map((l) => {
-          const offset = Math.ceil(daySpan(startDate, l.date) / 7) * 7;
-          const date = shiftDay(startDate, offset);
-          return offset >= 28 &&
-            date <= reviewDate &&
-            daySpan(l.date, date) <= 3
-            ? date
-            : null;
-        })
-        .filter(Boolean),
-    ),
-  ].sort();
-  let correction = null,
-    estimate = null,
-    lastReview = null,
-    fingerprint = null;
-  const calibrationHistory = new Map();
-  for (const date of reviewDates) {
-    if (daySpan(setup.calibrationSince || startDate, date) < 28) continue;
-    const formula = formulaFor(date);
-    const candidate = calibrationInput(
-      setup,
-      scoped,
-      date,
-      maintenanceSince,
-    ).estimate;
-    if (
-      !candidate ||
-      candidate.tdee < formula * 0.65 ||
-      candidate.tdee > formula * 1.5
-    )
-      continue;
-    const nextFingerprint = `${candidate.firstDate}:${candidate.lastDate}:${candidate.tdee}:${candidate.avgIntake}`;
-    if (nextFingerprint === fingerprint) continue;
-    const current = formula + (correction ?? 0);
-    correction =
-      (correction ?? 0) + clamp((candidate.tdee - current) * 0.5, -100, 100);
-    estimate = candidate;
-    lastReview = date;
-    fingerprint = nextFingerprint;
-    calibrationHistory.set(date, correction);
-  }
-  const base = Math.round(formulaTDEE + (correction ?? 0));
+  const { history:calibrationHistory, correction, estimate, calibration } =
+    calibrate(setup, undisputed, scoped, asOfDate, maintenanceSince, formulaFor);
+  const base = Math.round(formulaTDEE + correction);
   if (!Number.isFinite(base) || base <= stepCalories(setup.stepGoal))
     return invalidEnergy(setup,["The usual-step and activity assumptions cannot support a coherent energy estimate. Review the usual steps and activity level in this profile."]);
-  const input = calibrationInput(setup, scoped, asOfDate, maintenanceSince);
-  const plausible =
-    input.estimate &&
-    input.estimate.tdee >= formulaTDEE * 0.65 &&
-    input.estimate.tdee <= formulaTDEE * 1.5;
-  const status = input.hold
-    ? "transition_hold"
-    : !input.ready
-      ? "learning"
-      : !plausible
-        ? "needs_data"
-        : lastReview !== reviewDate
-          ? "waiting_review"
-          : "calibrated";
-  const calibration = {
-    status,
-    completeDays: input.completeDays,
-    weighIns: input.weighIns,
-    spanDays: input.spanDays,
-    lastAcceptedReview: lastReview,
-    nextReviewDate: shiftDay(reviewDate, 7),
-    reason: input.hold
-      ? "Holding calibration while maintenance water weight settles."
-      : input.estimate && !plausible
-        ? "The observed maintenance estimate is outside the formula's review range. Check food, steps and profile assumptions."
-        : input.reason,
-    missingFoodDates: input.missingFoodDates,
-    missingStepsDates: input.missingStepsDates,
-  };
   const floor = setup.sex === "female" ? 1200 : 1500;
   const capacity = deficitCapacity(base, curW, floor);
   const remainingDays = daySpan(reference.date, goalDate);
@@ -615,7 +593,8 @@ export function getAdaptiveTDEE(
   const minimum = Math.max(floor, Math.round(base - capacity));
   if (foodReview && !isManual && foodReview.target < minimum) {
     foodReview = { ...foodReview, previousTarget:foodReview.target, target:minimum, suggestedTarget:minimum,
-      lastChange:reviewDate, reason:"The planning limit raises the previously issued baseline allowance." };
+      lastChange:calibration.lastAcceptedReview > reviewDate ? calibration.lastAcceptedReview : reviewDate,
+      reason:"The planning limit raises the previously issued baseline allowance." };
   }
   const target = foodReview?.target ?? Math.max(floor, base);
   const log = scoped.find((l) => l.date === asOfDate);
@@ -646,7 +625,7 @@ export function getAdaptiveTDEE(
     stepGoal,
     stepPlan,
     isManual,
-    isDataDriven: correction != null,
+    isDataDriven: estimate != null,
     estimate,
     calibration,
     foodReview,
@@ -775,22 +754,29 @@ export function createTargetResolver({ setup, logs = [], cutIntel, workoutHistor
     if (date === asOfDate && currentPlan) return currentPlan.eatTarget;
     if (errors.length) return null;
     history ??= normalizeLogs(logs, { startDate:profile.startDate, endDate:asOfDate }).value;
-    const week = shiftDay(profile.startDate, Math.floor(daySpan(profile.startDate, date) / 7) * 7);
+    const week = weekStart(profile.startDate, date);
     const rows = history.filter(l => l.date <= date);
     const weights = weightEvidence(rows.filter(l => !reviewFields(l).includes('weight')));
     const epoch = profile.goalChangedAt && profile.goalChangedAt <= date ? profile.goalChangedAt : profile.startDate;
     const since = goalReachedDate(weights.accepted.filter(l => l.date >= epoch), profile.goalWeight, profile.startDate);
     const lastIssued = rows.findLast(l => l.date >= week && l.date < date && l.planSnapshot?.phase === 'cut' &&
       l.planSnapshot.source !== 'reconstructed' && !l.planSnapshot.isManual && numeric(l.planSnapshot.target) > 0);
-    // Weekly food and expenditure can change inside a week only at a phase
-    // or profile transition, a captured decision, or an outlier reclassification.
+    const learningStart = profile.calibrationSince > profile.startDate && profile.calibrationSince <= date
+      ? profile.calibrationSince : profile.startDate;
+    const learningRows = rows.filter(l => l.date >= learningStart && hasCalibrationLog(l));
+    const canLearn = learningRows.length >= LEARN_DAYS && learningRows.some(hasFoodAndSteps) &&
+      weights.accepted.some(l => l.date >= learningStart);
+    // The first usable estimate can change the planning floor midweek. Only
+    // share a weekly baseline when it covers the date being reconstructed.
     const key = [week, since, epoch, profile.calibrationSince <= date && profile.calibrationSince,
-      profile.foodPlanSince <= date && profile.foodPlanSince, lastIssued?.date, ...weights.outliers].join('|');
+      profile.foodPlanSince <= date && profile.foodPlanSince, canLearn, lastIssued?.date, ...weights.outliers].join('|');
+    let state = weekly.get(key);
     if (!weekly.has(key)) {
       const energy = getAdaptiveTDEE(setup, logs, date, cutIntel, workoutHistory);
-      weekly.set(key, energy.valid ? { target:energy.target, floor:energy.floor } : null);
+      state = energy.valid ? { target:energy.target, floor:energy.floor } : null;
+      const lastReview = energy.calibration.lastAcceptedReview;
+      if (!canLearn || (lastReview && lastReview <= week)) weekly.set(key, state);
     }
-    const state = weekly.get(key);
     return state ? Math.max(state.floor, state.target + movementCredit(profile, log).total) : null;
   }
   return date => {

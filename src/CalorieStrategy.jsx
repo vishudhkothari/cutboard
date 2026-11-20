@@ -17,7 +17,7 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
       : quality.status === "needs_data"
         ? `${quality.reason} ${energy.isDataDriven ? "Holding the last learned estimate." : "Using the formula estimate for now."}`
         : !energy.isDataDriven
-          ? "Starting from a formula estimate. Weekly learning begins after four weeks of food, steps and morning weight records. Your saved totals count automatically."
+          ? `${quality.reason} A date counts once when you save food, steps or a weigh-in.`
           : "Estimated maintenance learns from saved food, steps and weight trends. Each weekly correction is limited to 100 kcal; missing or noisy data holds the last learned estimate.";
   const row = (label, value, color = C.text) => (
     <div
@@ -113,9 +113,8 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
           marginTop: 12,
         }}
       >
-        {energy.isManual
-          ? "A fixed baseline food override is active. It will not adjust automatically as maintenance changes."
-          : note}
+        {energy.isManual && <div>Your fixed food target stays in effect while Cut IQ estimates maintenance.</div>}
+        {note}
       </div>
       {energy.isManual && (
         <button
@@ -151,9 +150,20 @@ export default function CalorieStrategy({ plan, energy, onUseAutomatic }) {
           marginTop: 10,
         }}
       >
-        Logged prior days: {quality.completeDays} · Weigh-ins:{" "}
-        {quality.weighIns} · Next review: {formatDate(quality.nextReviewDate)}
-        {quality.lastAcceptedReview && <> · Last adjustment: {formatDate(quality.lastAcceptedReview)}</>}
+        <div>Logged this cut: {quality.loggedDays} days · Food: {quality.foodDays} · Steps: {quality.stepDays} · Weigh-ins: {quality.weighIns}</div>
+        {quality.status === "learning" ? (
+          <div>
+            Learning progress: {quality.learningGoal - quality.daysRemaining} of {quality.learningGoal} logged days
+            {quality.learningStart > energy.profile.startDate && <> since {formatDate(quality.learningStart)}</>}.
+            {" "}First review if you log daily: {formatDate(quality.nextReviewDate)}.
+          </div>
+        ) : (
+          <div>
+            {quality.firstReviewDue && <>First review: {formatDate(quality.firstReviewDue)}. </>}
+            {quality.lastAcceptedReview && <>Last accepted estimate: {formatDate(quality.lastAcceptedReview)}. </>}
+            {quality.nextReviewDate ? <>Next calorie review: {formatDate(quality.nextReviewDate)}.</> : "Cut IQ rechecks as you update your logs."}
+          </div>
+        )}
       </div>
       {(energy.deadlineMissed || energy.goalTooAggressive) && (
         <div
